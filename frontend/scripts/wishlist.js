@@ -5,7 +5,7 @@ let cart =
     AppUtils.getCart();
 
 // elements
-const elements = {
+const wishlistElements = {
     wishlistContainer:
         document.getElementById(
             "wishlist-container"
@@ -19,11 +19,11 @@ const elements = {
 // render wishlist
 function renderWishlist() {
     if (
-        !elements.wishlistContainer
+        !wishlistElements.wishlistContainer
     ) {
         return;
     }
-    elements.wishlistContainer.innerHTML =
+    wishlistElements.wishlistContainer.innerHTML =
         "";
     if (
         !Array.isArray(wishlist)
@@ -31,18 +31,18 @@ function renderWishlist() {
         wishlist.length === 0
     ) {
         if (
-            elements.emptyWishlist
+            wishlistElements.emptyWishlist
         ) {
-            elements.emptyWishlist.style.display =
+            wishlistElements.emptyWishlist.style.display =
                 "block";
         }
         return;
     }
 
     if (
-        elements.emptyWishlist
+        wishlistElements.emptyWishlist
     ) {
-        elements.emptyWishlist.style.display =
+        wishlistElements.emptyWishlist.style.display =
             "none";
     }
     const fragment =
@@ -121,7 +121,7 @@ function renderWishlist() {
             );
         }
     );
-    elements.wishlistContainer.appendChild(
+    wishlistElements.wishlistContainer.appendChild(
         fragment
     );
     attachWishlistEventListeners();

@@ -1,116 +1,77 @@
 // escape html helper
-function escapeHTML(
-    value
-) {
+// function escapeHTML(
+//     value
+// ) {
 
-    return String(
-        value || ""
-    )
+//     return String(
+//         value || ""
+//     )
 
-        .replace(
-            /&/g,
-            "&amp;"
-        )
+//         .replace(
+//             /&/g,
+//             "&amp;"
+//         )
 
-        .replace(
-            /</g,
-            "&lt;"
-        )
+//         .replace(
+//             /</g,
+//             "&lt;"
+//         )
 
-        .replace(
-            />/g,
-            "&gt;"
-        )
+//         .replace(
+//             />/g,
+//             "&gt;"
+//         )
 
-        .replace(
-            /"/g,
-            "&quot;"
-        )
+//         .replace(
+//             /"/g,
+//             "&quot;"
+//         )
 
-        .replace(
-            /'/g,
-            "&#039;"
-        );
-}
+//         .replace(
+//             /'/g,
+//             "&#039;"
+//         );
+// }
 
 // safe number
-function safeNumber(
-    value,
-    fallback = 0
-) {
+// function safeNumber(value, fallback = 0) {
+//   const parsed = Number(value);
 
-    const parsed =
-        Number(value);
-
-    return Number.isFinite(
-        parsed
-    )
-        ? parsed
-        : fallback;
-}
+//   return Number.isFinite(parsed) ? parsed : fallback;
+// }
 
 // render stars
-function renderStars(
-    rating = 0
-) {
+function renderStars(rating = 0) {
+  let stars = "";
 
-    let stars = "";
+  const safeRating = Math.max(
+    0,
+    Math.min(5, Math.round(safeNumber(rating, 0))),
+  );
 
-    const safeRating =
-        Math.max(
-            0,
-            Math.min(
-                5,
-                Math.round(
-                    safeNumber(
-                        rating,
-                        0
-                    )
-                )
-            )
-        );
-
-    for (
-        let index = 0;
-        index < 5;
-        index++
-    ) {
-
-        stars +=
-            index < safeRating
-                ? `
+  for (let index = 0; index < 5; index++) {
+    stars +=
+      index < safeRating
+        ? `
                     <i class="fas fa-star"></i>
                 `
-                : `
+        : `
                     <i class="far fa-star"></i>
                 `;
-    }
+  }
 
-    return stars;
+  return stars;
 }
 
 // create product card html
-function createProductCardHTML(
-    product
-) {
-
-    return `
+function createProductCardHTML(product) {
+  return `
         <div class="product-image-wrapper">
 
             <img
-                src="${
-                    escapeHTML(
-                        AppUtils.defaultImage(
-                            product.image
-                        )
-                    )
-                }"
+                src="${escapeHTML(AppUtils.defaultImage(product.image))}"
 
-                alt="${
-                    escapeHTML(
-                        product.name
-                    )
-                }"
+                alt="${escapeHTML(product.name)}"
 
                 loading="lazy"
             >
@@ -119,47 +80,26 @@ function createProductCardHTML(
         <div class="des">
 
             <span>
-                ${
-                    escapeHTML(
-                        product.brand
-                        || "Fashion"
-                    )
-                }
+                ${escapeHTML(product.brand || "Fashion")}
             </span>
 
             <h5>
-                ${
-                    escapeHTML(
-                        product.name
-                    )
-                }
+                ${escapeHTML(product.name)}
             </h5>
 
             <div class="star">
-                ${
-                    renderStars(
-                        product.rating || 4
-                    )
-                }
+                ${renderStars(product.rating || 4)}
             </div>
 
             <h4>
-                ${
-                    AppUtils.formatPrice(
-                        product.price || 0
-                    )
-                }
+                ${AppUtils.formatPrice(product.price || 0)}
             </h4>
         </div>
 
         <div class="product-actions">
 
             <a
-                href="product.html?id=${
-                    encodeURIComponent(
-                        product.id
-                    )
-                }"
+                href="product.html?id=${encodeURIComponent(product.id)}"
 
                 class="view-btn"
             >
@@ -171,11 +111,7 @@ function createProductCardHTML(
 
                 class="add-cart-btn"
 
-                data-id="${
-                    encodeURIComponent(
-                        product.id
-                    )
-                }"
+                data-id="${encodeURIComponent(product.id)}"
             >
                 Add Cart
             </button>
@@ -184,155 +120,76 @@ function createProductCardHTML(
 }
 
 // render product card
-function renderProductCard(
-    product,
-    container
-) {
+function renderProductCard(product, container) {
+  if (!product || !container) {
+    return;
+  }
 
-    if (
-        !product
-        ||
-        !container
-    ) {
+  const card = document.createElement("div");
 
-        return;
-    }
+  card.classList.add("pro");
 
-    const card =
-        document.createElement(
-            "div"
-        );
+  card.dataset.productId = product.id;
 
-    card.classList.add(
-        "pro"
-    );
+  card.innerHTML = createProductCardHTML(product);
 
-    card.dataset.productId =
-        product.id;
-
-    card.innerHTML =
-        createProductCardHTML(
-            product
-        );
-
-    container.appendChild(
-        card
-    );
+  container.appendChild(card);
 }
 
 // gallery
-function renderProductGallery(
-    product
-) {
+function renderProductGallery(product) {
+  if (!window.mainImage) {
+    return;
+  }
 
-    if (
-        !window.mainImage
-    ) {
+  const galleryImages = AppUtils.safeArray(product.images).length
+    ? product.images
+    : [product.image];
 
-        return;
-    }
+  window.mainImage.src = AppUtils.defaultImage(galleryImages[0]);
 
-    const galleryImages =
-        AppUtils.safeArray(
-            product.images
-        ).length
-            ? product.images
-            : [product.image];
+  const imageGroup = document.querySelector(".small-image-group");
 
-    window.mainImage.src =
-        AppUtils.defaultImage(
-            galleryImages[0]
-        );
+  if (!imageGroup) {
+    return;
+  }
 
-    const imageGroup =
-        document.querySelector(
-            ".small-image-group"
-        );
+  const thumbs = document.querySelectorAll(".small-image");
 
-    if (
-        !imageGroup
-    ) {
+  // single image
+  if (galleryImages.length <= 1) {
+    imageGroup.style.display = "none";
 
-        return;
-    }
+    return;
+  }
 
-    const thumbs =
-        document.querySelectorAll(
-            ".small-image"
-        );
+  imageGroup.style.display = "flex";
 
-    // single image
-    if (
-        galleryImages.length <= 1
-    ) {
+  thumbs.forEach((image, index) => {
+    image.src = AppUtils.defaultImage(galleryImages[index] || galleryImages[0]);
 
-        imageGroup.style.display =
-            "none";
+    image.loading = "lazy";
 
-        return;
-    }
-
-    imageGroup.style.display =
-        "flex";
-
-    thumbs.forEach(
-        (
-            image,
-            index
-        ) => {
-
-            image.src =
-                AppUtils.defaultImage(
-                    galleryImages[index]
-                    || galleryImages[0]
-                );
-
-            image.loading =
-                "lazy";
-
-            image.onclick =
-                () => {
-
-                    window.mainImage.src =
-                        AppUtils.defaultImage(
-                            galleryImages[index]
-                            || galleryImages[0]
-                        );
-                };
-        }
-    );
+    image.onclick = () => {
+      window.mainImage.src = AppUtils.defaultImage(
+        galleryImages[index] || galleryImages[0],
+      );
+    };
+  });
 }
 
 // rating
-function renderProductRating(
-    product
-) {
+function renderProductRating(product) {
+  const ratingContainer = document.querySelector(".product-rating");
 
-    const ratingContainer =
-        document.querySelector(
-            ".product-rating"
-        );
+  if (!ratingContainer) {
+    return;
+  }
 
-    if (
-        !ratingContainer
-    ) {
+  const rating = safeNumber(product.rating, 4.5);
 
-        return;
-    }
-
-    const rating =
-        safeNumber(
-            product.rating,
-            4.5
-        );
-
-    ratingContainer.innerHTML =
-        `
-            ${
-                renderStars(
-                    rating
-                )
-            }
+  ratingContainer.innerHTML = `
+            ${renderStars(rating)}
 
             <span id="product-rating-text">
                 (
@@ -344,244 +201,122 @@ function renderProductRating(
 }
 
 // recently viewed
-function updateRecentlyViewed(
-    product
-) {
+function updateRecentlyViewed(product) {
+  let viewed = AppUtils.getJSON("recentlyViewed", []);
 
-    let viewed =
-        AppUtils.getJSON(
-            "recentlyViewed",
-            []
-        );
+  viewed = AppUtils.safeArray(viewed).filter((item) => {
+    return Number(item.id) !== Number(product.id);
+  });
 
-    viewed =
-        AppUtils.safeArray(
-            viewed
-        ).filter(
-            (
-                item
-            ) => {
+  viewed.unshift({
+    id: product.id,
 
-                return (
-                    Number(
-                        item.id
-                    ) !==
-                    Number(
-                        product.id
-                    )
-                );
-            }
-        );
+    name: product.name,
 
-    viewed.unshift({
+    brand: product.brand,
 
-        id:
-            product.id,
+    category: product.category,
 
-        name:
-            product.name,
+    price: product.price,
 
-        brand:
-            product.brand,
+    image: product.image,
+  });
 
-        category:
-            product.category,
+  viewed = viewed.slice(0, 8);
 
-        price:
-            product.price,
-
-        image:
-            product.image
-    });
-
-    viewed =
-        viewed.slice(
-            0,
-            8
-        );
-
-    AppUtils.setJSON(
-        "recentlyViewed",
-        viewed
-    );
+  AppUtils.setJSON("recentlyViewed", viewed);
 }
 
 // main product render
-function renderProduct(
-    product
-) {
+function renderProduct(product) {
+  if (!product) {
+    return;
+  }
 
-    if (
-        !product
-    ) {
+  // category
+  if (window.productCategory) {
+    window.productCategory.innerText = `Home / ${
+      product.category || "Category"
+    }`;
+  }
 
-        return;
-    }
+  // name
+  if (window.productName) {
+    window.productName.innerText = product.name || "Product";
+  }
 
-    // category
-    if (
-        window.productCategory
-    ) {
+  // discounted price
+  if (window.productPrice) {
+    const discountedPrice =
+      safeNumber(product.price) *
+      (1 - safeNumber(product.discount_percent) / 100);
 
-        window.productCategory.innerText =
-            `Home / ${
-                product.category
-                || "Category"
-            }`;
-    }
+    window.productPrice.innerText = AppUtils.formatPrice(discountedPrice);
+  }
 
-    // name
-    if (
-        window.productName
-    ) {
-
-        window.productName.innerText =
-            product.name
-            || "Product";
-    }
-
-    // discounted price
-    if (
-        window.productPrice
-    ) {
-
-        const discountedPrice =
-            safeNumber(
-                product.price
-            ) *
-            (
-                1 -
-                (
-                    safeNumber(
-                        product.discount_percent
-                    ) / 100
-                )
-            );
-
-        window.productPrice.innerText =
-            AppUtils.formatPrice(
-                discountedPrice
-            );
-    }
-
-    // original price
-    if (
-        window.productOriginalPrice
-    ) {
-
-        window.productOriginalPrice.innerText =
-            AppUtils.formatPrice(
-                product.original_price
-                || product.price
-            );
-    }
-
-    // discount
-    if (
-        window.productDiscount
-    ) {
-
-        window.productDiscount.innerText =
-            `${
-                safeNumber(
-                    product.discount_percent
-                )
-            }% OFF`;
-    }
-
-    // brand
-    if (
-        window.productBrand
-    ) {
-
-        window.productBrand.innerText =
-            product.brand
-            || "Brand";
-    }
-
-    // description
-    if (
-        window.productDescription
-    ) {
-
-        window.productDescription.innerText =
-            product.description
-            || "Premium quality product.";
-    }
-
-    // stock
-    if (
-        window.productStock
-    ) {
-
-        window.productStock.innerText =
-            safeNumber(
-                product.stock
-            ) > 0
-                ? `${product.stock} Available`
-                : "Out Of Stock";
-    }
-
-    // main image
-    if (
-        window.mainImage
-    ) {
-
-        window.mainImage.src =
-            AppUtils.defaultImage(
-                product.image
-            );
-
-        window.mainImage.alt =
-            escapeHTML(
-                product.name
-                || "Product"
-            );
-
-        window.mainImage.loading =
-            "eager";
-
-        window.mainImage.onerror =
-            () => {
-
-                window.mainImage.src =
-                    "/assets/images/f1.jpg";
-            };
-    }
-
-    // page title
-    document.title =
-        `${
-            escapeHTML(
-                product.name
-            )
-        } | AnthropicBots E-Commerce`;
-
-    renderProductGallery(
-        product
+  // original price
+  if (window.productOriginalPrice) {
+    window.productOriginalPrice.innerText = AppUtils.formatPrice(
+      product.original_price || product.price,
     );
+  }
 
-    renderProductRating(
-        product
-    );
+  // discount
+  if (window.productDiscount) {
+    window.productDiscount.innerText = `${safeNumber(
+      product.discount_percent,
+    )}% OFF`;
+  }
 
-    updateRecentlyViewed(
-        product
-    );
+  // brand
+  if (window.productBrand) {
+    window.productBrand.innerText = product.brand || "Brand";
+  }
+
+  // description
+  if (window.productDescription) {
+    window.productDescription.innerText =
+      product.description || "Premium quality product.";
+  }
+
+  // stock
+  if (window.productStock) {
+    window.productStock.innerText =
+      safeNumber(product.stock) > 0
+        ? `${product.stock} Available`
+        : "Out Of Stock";
+  }
+
+  // main image
+  if (window.mainImage) {
+    window.mainImage.src = AppUtils.defaultImage(product.image);
+
+    window.mainImage.alt = escapeHTML(product.name || "Product");
+
+    window.mainImage.loading = "eager";
+
+    window.mainImage.onerror = () => {
+      window.mainImage.src = "/assets/images/f1.jpg";
+    };
+  }
+
+  // page title
+  document.title = `${escapeHTML(product.name)} | AnthropicBots E-Commerce`;
+
+  renderProductGallery(product);
+
+  renderProductRating(product);
+
+  updateRecentlyViewed(product);
 }
 
 // expose globally
-window.renderProduct =
-    renderProduct;
+window.renderProduct = renderProduct;
 
-window.renderProductCard =
-    renderProductCard;
+window.renderProductCard = renderProductCard;
 
-window.renderProductGallery =
-    renderProductGallery;
+window.renderProductGallery = renderProductGallery;
 
-window.renderProductRating =
-    renderProductRating;
+window.renderProductRating = renderProductRating;
 
-window.updateRecentlyViewed =
-    updateRecentlyViewed;
+window.updateRecentlyViewed = updateRecentlyViewed;
