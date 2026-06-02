@@ -174,10 +174,10 @@
         class="section-p1"
     >
         <h2>
-            Featured Products
+            Trending Collection
         </h2>
         <p>
-            Summer Collection New Modern Design
+            Discover our most popular picks this week
         </p>
 
         <!-- Controls -->
@@ -208,6 +208,23 @@
         <div
             class="products-grid"
             id="featured-products"
+        ></div>
+    </section>
+
+    <!-- Admin Featured -->
+    <section
+        id="featured-admin-products"
+        class="section-p1"
+    >
+        <h2>
+            Editor's Picks
+        </h2>
+        <p>
+            Handpicked premium items curated by our fashion team
+        </p>
+        <div
+            class="pro-container"
+            id="featured-products-container"
         ></div>
     </section>
 
@@ -347,15 +364,17 @@
                 </span>
             </p>
         </div>
-        <div class="form">
+        <form class="form">
             <input
                 type="email"
                 placeholder="Your email address"
+                required
+                aria-label="Email address for newsletter"
             >
-            <button class="normal">
+            <button type="submit" class="normal">
                 Sign Up
             </button>
-        </div>
+        </form>
     </section>
 
     <!-- Footer -->

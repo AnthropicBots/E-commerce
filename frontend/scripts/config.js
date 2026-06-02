@@ -12,7 +12,13 @@ const isLocalhost =
 const CONFIG = {
     // api base url
     API_BASE:
+<<<<<<< HEAD
         "https://e-commerce-production-d546.up.railway.app/api",
+=======
+        isLocalhost
+            ? "http://localhost:5002/api"
+            : "http://localhost:5002/api",
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 
     // app info
     APP_NAME:

@@ -62,6 +62,10 @@ function createProductCard(
             }
         ).join("");
 
+    const isInWishlist = (typeof AppUtils !== "undefined" && typeof AppUtils.getWishlist === "function")
+        ? AppUtils.getWishlist().some(item => String(item.id) === String(product.id))
+        : false;
+
     return `
         <div class="pro fade-in">
             ${
@@ -73,6 +77,15 @@ function createProductCard(
                     `
                     : ""
             }
+
+            <button
+                type="button"
+                class="wishlist-btn ${isInWishlist ? 'active' : ''}"
+                data-id="${product.id}"
+                aria-label="Add to Wishlist"
+            >
+                <i class="${isInWishlist ? 'fas' : 'far'} fa-heart"></i>
+            </button>
 
             <img
                 src="${

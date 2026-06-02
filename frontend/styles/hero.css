@@ -12,7 +12,34 @@ hero section
     flex-direction: column;
     align-items: flex-start;
     justify-content: center;
+    position: relative;
 }
+
+/* Scroll down indicator */
+#hero::after {
+    content: "↓";
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--text-light);
+    font-size: 24px;
+    animation: bounce 2s infinite;
+    font-weight: 300;
+}
+
+@keyframes bounce {
+    0%, 20%, 50%, 80%, 100% {
+        transform: translate(-50%, 0);
+    }
+    40% {
+        transform: translate(-50%, -10px);
+    }
+    60% {
+        transform: translate(-50%, -5px);
+    }
+}
+<<<<<<< HEAD
 #herotexts{
     height:90vh;
     width:40%;
@@ -25,87 +52,132 @@ hero section
     font-size:2.5rem;
     margin-bottom: 10px;
     line-height: 1;
+=======
+
+#hero h4{
+    padding-bottom: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-light);
+}
+
+#hero h2 {
+    font-size: 46px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--text-dark);
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
 #hero h1{
     color: var(--primary-color);
+    font-size: 54px;
+    font-weight: 800;
+    line-height: 1.15;
+    margin-bottom: 15px;
+    transition: opacity 0.3s ease;
+}
+
+#hero p {
+    font-size: 16px;
+    color: var(--text-light);
+    margin-bottom: 30px;
 }
 
 #hero button{
-    background-image: url("../assets/images/button.png");
-    background-color: transparent;
-    color: var(--primary-color);
+    background-color: var(--primary-color);
+    color: var(--white);
     border: 0;
-    padding: 14px 80px 14px 65px;
-    background-repeat: no-repeat;
+    padding: 16px 40px;
     cursor: pointer;
     font-weight: 700;
     font-size: 15px;
+    border-radius: 8px;
     transition: var(--transition-fast);
+    box-shadow: 0 4px 14px rgba(8, 129, 120, 0.3);
 }
 
 #hero button:hover{
+    background-color: var(--primary-hover);
     transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(8, 129, 120, 0.4);
 }
 
 /* =============================
 feature section
 ============================= */
 #feature{
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 24px;
+    width: 100%;
 }
 
 #feature .fe-box{
-    width: 180px;
     text-align: center;
-    padding: 25px 15px;
+    padding: 28px 16px;
     box-shadow: var(--shadow-soft);
-    border: 1px solid #cce7d0;
-    border-radius: 12px;
-    margin: 15px 0;
+    border: 1px solid var(--border-light);
+    border-radius: 16px;
     transition: var(--transition-fast);
     background: var(--white);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
 }
 
 #feature .fe-box:hover{
-    transform: translateY(-10px) scale(1.03);
-    box-shadow: 0 22px 50px rgba(0,0,0,0.22);
+    transform: translateY(-8px);
+    box-shadow: var(--shadow-hover);
+    border-color: var(--primary-color);
 }
 
 #feature .fe-box img{
-    width: 100%;
-    margin-bottom: 10px;
+    width: 80px;
+    height: auto;
+    margin-bottom: 16px;
+    transition: var(--transition-fast);
+}
+
+#feature .fe-box:hover img {
+    transform: scale(1.06);
 }
 
 #feature .fe-box h6{
     display: inline-block;
-    padding: 9px 8px 6px;
-    line-height: 1;
-    border-radius: 4px;
-    color: var(--primary-color);
+    padding: 6px 12px;
+    line-height: 1.2;
+    border-radius: 30px;
+    color: #ef3636;
     background-color: #fddde4;
+    font-size: 12px;
+    font-weight: 600;
 }
 
 #feature .fe-box:nth-child(2) h6{
+    color: #088178;
     background-color: #cdebbc;
 }
 
 #feature .fe-box:nth-child(3) h6{
+    color: #0c7eb0;
     background-color: #d1e8f2;
 }
 
 #feature .fe-box:nth-child(4) h6{
+    color: #3b42c4;
     background-color: #cdd4f8;
 }
 
 #feature .fe-box:nth-child(5) h6{
+    color: #aa17aa;
     background-color: #f6dbf6;
 }
 
 #feature .fe-box:nth-child(6) h6{
+    color: #e66a00;
     background-color: #fff2e5;
 }
 
@@ -118,40 +190,49 @@ banner
     justify-content: flex-end;
     align-items: center;
     text-align: center;
-    background-image: url("../assets/images/banner.png");
+    background: linear-gradient(rgba(15, 23, 42, 0.55), rgba(15, 23, 42, 0.55)), url("../assets/images/banner.png");
     width: 100%;
     height: 40vh;
     background-size: cover;
     background-position: center;
+    border-radius: 16px;
+    padding: 20px;
 }
 
 #banner h4{
-    color: var(--white);
-    font-size: 16px;
+    color: #cbd5e1;
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    font-weight: 600;
 }
 
 #banner h2{
     color: var(--white);
-    font-size: 30px;
-    padding: 10px 0;
+    font-size: 32px;
+    padding: 12px 0;
+    font-weight: 700;
+    line-height: 1.3;
 }
 
 #banner h2 span{
-    color: #ef3636;
+    color: #ffbe1a;
+    font-weight: 800;
 }
 
 #banner button:hover{
-    background: var(--primary-color);
+    background: var(--primary-hover);
     color: var(--white);
+    transform: translateY(-2px);
 }
 
 /* =============================
 small banners
 ============================= */
 #sm-banner{
-    display: flex;
-    justify-content: space-between;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
 }
 
 #sm-banner .banner-box{
@@ -159,49 +240,60 @@ small banners
     flex-direction: column;
     justify-content: flex-end;
     align-items: flex-start;
-    background-image: url("../assets/images/b17.jpg");
-    min-width: 48%;
-    height: 50vh;
+    background: linear-gradient(rgba(15, 23, 42, 0.55), rgba(15, 23, 42, 0.55)), url("../assets/images/b17.jpg");
+    height: 45vh;
     background-size: cover;
     background-position: center;
-    padding: 30px;
+    padding: 40px;
+    border-radius: 16px;
+    transition: var(--transition-normal);
 }
 
 #sm-banner .banner-box2{
-    background-image: url("../assets/images/b10.jpg");
+    background: linear-gradient(rgba(15, 23, 42, 0.55), rgba(15, 23, 42, 0.55)), url("../assets/images/b10.jpg");
+    background-size: cover;
+    background-position: center;
 }
 
 #sm-banner h4{
-    color: var(--white);
-    font-size: 20px;
-    font-weight: 300;
+    color: #e2e8f0;
+    font-size: 16px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }
 
 #sm-banner h2{
     color: var(--white);
-    font-size: 28px;
+    font-size: 30px;
     font-weight: 800;
+    margin: 8px 0;
 }
 
 #sm-banner span{
-    color: var(--white);
+    color: #cbd5e1;
     font-size: 14px;
     font-weight: 500;
-    padding-bottom: 15px;
+    padding-bottom: 20px;
+}
+
+#sm-banner .banner-box:hover{
+    transform: translateY(-5px);
+    box-shadow: var(--shadow-hover);
 }
 
 #sm-banner .banner-box:hover button{
     background: var(--primary-color);
-    border: 1px solid var(--primary-color);
+    border-color: var(--primary-color);
 }
 
 /* =============================
 banner3
 ============================= */
 #banner3{
-    display: flex;
-    justify-content: space-between;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
     padding: 0 80px;
 }
 
@@ -211,12 +303,17 @@ banner3
     flex-direction: column;
     justify-content: flex-end;
     align-items: flex-start;
-    background-image: url("../assets/images/b7.jpg");
-    min-width: 30%;
+    background: linear-gradient(rgba(15, 23, 42, 0.5), rgba(15, 23, 42, 0.5)), url("../assets/images/b7.jpg");
     height: 30vh;
     background-size: cover;
     background-position: center;
+<<<<<<< HEAD
     padding: 20px 20px 0px 20px; 
+=======
+    padding: 30px;
+    border-radius: 16px;
+    transition: var(--transition-normal);
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
     margin-bottom: 20px;
 }
 #banner3 .banner-box h2,
@@ -230,24 +327,39 @@ banner3
 
 
 #banner3 .banner-box2{
-    background-image: url("../assets/images/b4.jpg");
+    background: linear-gradient(rgba(15, 23, 42, 0.5), rgba(15, 23, 42, 0.5)), url("../assets/images/b4.jpg");
+    background-size: cover;
+    background-position: center;
 }
 
 #banner3 .banner-box3{
-    background-image: url("../assets/images/b18.jpg");
+    background: linear-gradient(rgba(15, 23, 42, 0.5), rgba(15, 23, 42, 0.5)), url("../assets/images/b18.jpg");
+    background-size: cover;
+    background-position: center;
+}
+
+#banner3 .banner-box:hover{
+    transform: translateY(-5px);
+    box-shadow: var(--shadow-hover);
 }
 
 #banner3 h2{
     color: var(--white);
-    font-weight: 900;
+    font-weight: 800;
     font-size: 22px;
+<<<<<<< HEAD
     
+=======
+    text-transform: uppercase;
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
 #banner3 h3{
-    color: #ec544e;
-    font-weight: 800;
-    font-size: 15px;
+    color: #ff8b85;
+    font-weight: 700;
+    font-size: 14px;
+    margin-top: 4px;
+    text-transform: uppercase;
 }
 
 /* =============================
@@ -256,35 +368,35 @@ newsletter
 #newsletter{
     display: flex;
     justify-content: space-between;
-    flex-wrap: wrap;
     align-items: center;
-    background-image:
-        url("../assets/images/banner.png");
-    background-repeat: no-repeat;
-    background-position:
-        20% 30%;
-    background-color: #041e42;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    padding: 60px 80px;
+    border-radius: 20px;
+    margin: 60px 80px;
 }
 
 #newsletter h4{
-    font-size: 22px;
+    font-size: 26px;
     font-weight: 700;
     color: var(--white);
+    margin-bottom: 6px;
 }
 
 #newsletter p{
     font-size: 14px;
-    font-weight: 600;
-    color: #818ea0;
+    color: #94a3b8;
+    margin: 0;
 }
 
 #newsletter p span{
     color: #ffbd27;
+    font-weight: 600;
 }
 
 #newsletter .form{
     display: flex;
-    width: 40%;
+    width: 45%;
+    gap: 0;
 }
 
 #newsletter input{
@@ -292,11 +404,20 @@ newsletter
     padding: 0 1.25rem;
     font-size: 14px;
     width: 100%;
-    border: 1px solid transparent;
-    border-radius: 4px;
-    outline: none;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.05);
+    color: var(--white);
+    border-radius: 8px;
     border-top-right-radius: 0;
     border-bottom-right-radius: 0;
+    outline: none;
+    transition: var(--transition-fast);
+}
+
+#newsletter input:focus{
+    border-color: var(--primary-color);
+    background: rgba(255,255,255,0.08);
+    box-shadow: 0 0 0 3px rgba(8, 129, 120, 0.25);
 }
 
 #newsletter button{
@@ -305,92 +426,112 @@ newsletter
     white-space: nowrap;
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
+    border-radius: 8px;
+    padding: 0 28px;
+    font-weight: 600;
+}
+
+#newsletter button:hover {
+    background-color: var(--primary-hover);
 }
 
 /* =============================
 responsive layout
-============================= */
+============================ */
 @media(max-width:799px){
     #hero{
         height: 70vh;
-        padding: 0 80px;
-        background-position: top 30% right 30%;
+        padding: 0 40px;
+        background-position: top 30% right 20%;
+    }
+
+    #hero::after {
+        display: none;
     }
 
     #feature{
-        justify-content: center;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
     }
 
-    #feature .fe-box{
-        margin: 15px;
+    #sm-banner{
+        grid-template-columns: 1fr;
+        gap: 20px;
     }
 
     #sm-banner .banner-box{
-        min-width: 100%;
-        height: 30vh;
+        height: 35vh;
+        padding: 30px;
     }
 
     #banner3{
-        padding: 0 40px;
+        grid-template-columns: 1fr;
+        gap: 20px;
+        padding: 0 30px;
     }
 
     #banner3 .banner-box{
-        width: 28%;
+        width: 100%;
+        margin-bottom: 0;
+    }
+
+    #newsletter{
+        margin: 40px 30px;
+        padding: 40px 30px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 20px;
     }
 
     #newsletter .form{
-        width: 70%;
+        width: 100%;
     }
 }
 
 @media(max-width:477px){
     #hero{
         padding: 0 20px;
-        background-position: 55%;
+        background-position: 65%;
     }
 
     #hero h1{
-        font-size: 38px;
+        font-size: 36px;
     }
 
     #hero h2{
-        font-size: 32px;
+        font-size: 30px;
     }
 
     #feature{
-        justify-content: space-between;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
     }
 
     #feature .fe-box{
-        width: 155px;
-        margin: 0 0 15px 0;
+        padding: 20px 12px;
     }
 
     #banner{
-        height: 40vh;
+        height: 35vh;
+        border-radius: 0;
     }
 
     #sm-banner .banner-box{
-        height: 40vh;
-    }
-
-    #sm-banner .banner-box2{
-        margin-top: 20px;
+        height: 35vh;
+        border-radius: 0;
     }
 
     #banner3{
-        padding: 0 20px;
+        padding: 0 15px;
     }
 
     #banner3 .banner-box{
-        width: 100%;
+        border-radius: 0;
     }
 
     #newsletter{
+        margin: 30px 0;
         padding: 40px 20px;
-    }
-
-    #newsletter .form{
-        width: 100%;
+        border-radius: 0;
     }
 }

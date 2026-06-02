@@ -1,37 +1,66 @@
 /* =============================
 product section
 ============================= */
-#product1{
+#product1 {
     text-align: center;
 }
 
+<<<<<<< HEAD
 /* product card */
 .pro{
     width: 280px;
     min-width: 250px;
     padding: 12px;
+=======
+#product1 .pro-container,
+#new-arrivals .pro-container,
+#recently-viewed .pro-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 30px;
+    padding-top: 30px;
+    width: 100%;
+}
+
+/* =============================
+product card
+============================= */
+#product1 .pro,
+#new-arrivals .pro,
+#recently-viewed .pro {
+    width: 100%;
+    min-width: unset;
+    padding: 16px;
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
     border: 1px solid var(--border-light);
     border-radius: 20px;
     cursor: pointer;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.06);
-    margin: 15px 0;
-    transition: var(--transition-fast);
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.02);
+    margin: 0;
+    transition: var(--transition-normal);
     position: relative;
     overflow: hidden;
     background: var(--white);
+<<<<<<< HEAD
 
     display: flex;
     flex-direction: column;
     justify-content: space-between;
+=======
+    display: flex;
+    flex-direction: column;
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
 #product1 .pro:hover,
 #new-arrivals .pro:hover,
-#recently-viewed .pro:hover{
-    transform: translateY(-10px);
-    box-shadow: 0 18px 35px rgba(0,0,0,0.12);
+#recently-viewed .pro:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 16px 35px rgba(15, 23, 42, 0.08);
+    border-color: var(--primary-color);
 }
 
+<<<<<<< HEAD
 /* product images */
 .product-image-wrapper{
     width: 100%;
@@ -50,14 +79,28 @@ product section
     border-radius: 16px;
     transition: 0.35s ease-in-out;
     background: #f5f5f5;
+=======
+/* =============================
+product images
+============================= */
+#product1 .pro img,
+#new-arrivals .pro img,
+#recently-viewed .pro img {
+    width: 100%;
+    height: 260px;
+    object-fit: cover;
+    border-radius: 14px;
+    transition: var(--transition-normal);
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
 #product1 .pro:hover img,
 #new-arrivals .pro:hover img,
-#recently-viewed .pro:hover img{
-    transform: scale(1.03) rotate(0.7deg);
+#recently-viewed .pro:hover img {
+    transform: scale(1.02);
 }
 
+<<<<<<< HEAD
 /* product description */
 .pro .des{
     text-align: start;
@@ -72,15 +115,68 @@ product section
 
 .pro .des h5{
     padding-top: 7px;
+=======
+/* =============================
+product description
+============================= */
+#product1 .pro .des,
+#new-arrivals .pro .des,
+#recently-viewed .pro .des {
+    text-align: left;
+    padding: 16px 0 0 0;
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+}
+
+#product1 .pro .des span,
+#new-arrivals .pro .des span,
+#recently-viewed .pro .des span {
+    color: var(--text-light);
+    opacity: 0.7;
+    font-size: 11px;
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+#product1 .pro .des h5,
+#new-arrivals .pro .des h5,
+#recently-viewed .pro .des h5 {
+    padding-top: 6px;
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
     color: var(--text-dark);
-    font-size: 14px;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.4;
+    margin-bottom: 8px;
+    /* Limit height to prevent visual misalignment */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    min-height: 42px;
 }
 
+#product1 .pro .des .star,
+#new-arrivals .pro .des .star,
+#recently-viewed .pro .des .star {
+    margin-bottom: 8px;
+}
+
+<<<<<<< HEAD
 .pro .des i{
+=======
+#product1 .pro .des i,
+#new-arrivals .pro .des i,
+#recently-viewed .pro .des i {
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
     font-size: 12px;
-    color: rgb(243,181,25);
+    color: #ffb800;
+    margin-right: 2px;
 }
 
+<<<<<<< HEAD
 .pro .des h4{
     padding-top: 7px;
     font-size: 15px;
@@ -138,18 +234,130 @@ product section
 
 /* product badge */
 .product-badge{
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    background: var(--primary-color);
-    color: var(--white);
-    padding: 6px 12px;
-    border-radius: 30px;
-    font-size: 12px;
-    font-weight: 600;
-    z-index: 2;
+=======
+#product1 .pro .des h4,
+#new-arrivals .pro .des h4,
+#recently-viewed .pro .des h4 {
+    padding-top: 4px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--primary-color);
+    margin-bottom: 14px;
+    margin-top: auto;
 }
 
+/* =============================
+product action buttons
+============================= */
+.product-actions {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    margin-top: auto;
+}
+
+.product-actions button {
+    flex: 1;
+    min-height: 38px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 1px solid var(--border-light);
+    background: var(--white);
+    color: var(--text-light);
+    transition: var(--transition-fast);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.product-actions button.add-cart-btn {
+    background: var(--primary-color);
+    color: var(--white);
+    border-color: var(--primary-color);
+}
+
+.product-actions button.add-cart-btn:hover {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+    box-shadow: 0 4px 10px rgba(8, 129, 120, 0.15);
+}
+
+.product-actions button.view-product-btn:hover {
+    background: var(--bg-light);
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+/* =============================
+wishlist button
+============================= */
+.wishlist-btn {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--white);
+    border: 1px solid var(--border-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    transition: var(--transition-fast);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.03);
+}
+
+.wishlist-btn i {
+    font-size: 15px;
+    color: var(--text-light);
+    transition: var(--transition-fast);
+}
+
+.wishlist-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.08);
+    border-color: rgba(239, 54, 54, 0.2);
+}
+
+.wishlist-btn:hover i {
+    color: #ef3636;
+}
+
+.wishlist-btn.active {
+    border-color: rgba(239, 54, 54, 0.1);
+    background: #fff5f5;
+}
+
+.wishlist-btn.active i {
+    color: #ef3636;
+}
+
+/* =============================
+product badge
+============================= */
+.product-badge {
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    background: var(--primary-color);
+    color: var(--white);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    z-index: 10;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 4px 8px rgba(8, 129, 120, 0.2);
+}
+
+<<<<<<< HEAD
 /* recently viewed */
 #recently-viewed{
     text-align: center;
@@ -183,10 +391,61 @@ product section
     .products-grid .pro{
         width: 100%;
         max-width: 320px;
+=======
+/* =============================
+recently viewed
+============================= */
+#recently-viewed {
+    text-align: center;
+}
+
+/* =============================
+responsive layout
+============================= */
+@media(max-width:799px) {
+    #product1 .pro-container,
+    #new-arrivals .pro-container,
+    #recently-viewed .pro-container {
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 20px;
     }
 
-    .product-actions{
-        flex-direction: column;
+    #product1 .pro,
+    #new-arrivals .pro,
+    #recently-viewed .pro {
+        padding: 12px;
+    }
+
+    #product1 .pro img,
+    #new-arrivals .pro img,
+    #recently-viewed .pro img {
+        height: 200px;
+    }
+    
+    .wishlist-btn {
+        top: 20px;
+        right: 20px;
+    }
+    
+    .product-badge {
+        top: 20px;
+        left: 20px;
+    }
+}
+
+@media(max-width:477px) {
+    #product1 .pro-container,
+    #new-arrivals .pro-container,
+    #recently-viewed .pro-container {
+        grid-template-columns: 1fr;
+        gap: 16px;
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
+    }
+
+    #product1 .pro img,
+    #new-arrivals .pro img,
+    #recently-viewed .pro img {
+        height: 260px;
     }
 }
 

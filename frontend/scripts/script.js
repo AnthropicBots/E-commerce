@@ -79,10 +79,14 @@ async function fetchAllProducts() {
                 allProducts;
 
             renderHomepageProducts();
+<<<<<<< HEAD
 
         } else {
 
             renderEmptyState();
+=======
+            renderRecentlyViewedProducts();
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
         }
 
     } catch (error) {
@@ -93,11 +97,15 @@ async function fetchAllProducts() {
         );
 
         renderEmptyState();
+<<<<<<< HEAD
 
     } finally {
 
         isLoading =
             false;
+=======
+        renderRecentlyViewedProducts();
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
     }
 }
 
@@ -517,6 +525,7 @@ function initializeProductCardFeatures() {
     );
 }
 
+<<<<<<< HEAD
 
 // navbar auth sync
 function syncNavbarAuth() {
@@ -570,3 +579,39 @@ document.addEventListener(
         fetchAllProducts();
     }
 );
+=======
+// render recently viewed products on homepage
+function renderRecentlyViewedProducts() {
+    const container = document.getElementById("recently-viewed-container");
+    const section = document.getElementById("recently-viewed");
+    
+    if (!container || !section) {
+        return;
+    }
+    
+    const recentlyViewed = AppUtils.getJSON("recentlyViewed") || [];
+    
+    if (recentlyViewed.length === 0) {
+        section.classList.add("hidden");
+        return;
+    }
+    
+    section.classList.remove("hidden");
+    container.innerHTML = "";
+    
+    const fragment = document.createDocumentFragment();
+    
+    // Display up to 4 recently viewed products
+    recentlyViewed.slice(0, 4).forEach((product) => {
+        const card = document.createElement("div");
+        card.innerHTML = createProductCard(product);
+        const productElement = card.firstElementChild;
+        if (productElement) {
+            fragment.appendChild(productElement);
+        }
+    });
+    
+    container.appendChild(fragment);
+    initializeProductCardFeatures();
+}
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)

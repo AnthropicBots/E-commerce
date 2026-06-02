@@ -101,6 +101,71 @@ async function initializeComponents() {
             "componentsLoaded"
         )
     );
+
+    // Initialize newsletter
+    initializeNewsletter();
+}
+
+// newsletter helper
+function initializeNewsletter() {
+    const newsletterForm = document.querySelector("#newsletter form, #newsletter .form");
+    if (!newsletterForm) {
+        return;
+    }
+
+    if (newsletterForm.tagName === "FORM") {
+        newsletterForm.addEventListener("submit", handleNewsletterSubmit);
+    } else {
+        const button = newsletterForm.querySelector("button");
+        if (button) {
+            button.addEventListener("click", handleNewsletterSubmit);
+        }
+        // Also listen to enter key in input
+        const input = newsletterForm.querySelector("input");
+        if (input) {
+            input.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleNewsletterSubmit(e);
+                }
+            });
+        }
+    }
+}
+
+function handleNewsletterSubmit(event) {
+    event.preventDefault();
+    const form = document.querySelector("#newsletter form, #newsletter .form");
+    if (!form) return;
+
+    const input = form.querySelector("input");
+    const email = input?.value.trim();
+    const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!email || !validEmail.test(email)) {
+        if (typeof window.showToast === "function") {
+            window.showToast("Please enter a valid email", "error");
+        } else if (typeof notify === "function") {
+            notify("Please enter a valid email", "error");
+        } else {
+            alert("Please enter a valid email");
+        }
+        return;
+    }
+
+    if (typeof window.showToast === "function") {
+        window.showToast("Newsletter subscription successful!", "success");
+    } else if (typeof notify === "function") {
+        notify("Newsletter subscription successful!", "success");
+    } else {
+        alert("Newsletter subscription successful!");
+    }
+
+    if (form.tagName === "FORM") {
+        form.reset();
+    } else if (input) {
+        input.value = "";
+    }
 }
 
 // init

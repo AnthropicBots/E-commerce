@@ -4,24 +4,46 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+<<<<<<< HEAD
     padding: 20px 80px;
     background: var(--bg-light, #ffffff);
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.06);
+=======
+    padding: 16px 80px;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.02);
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
     position: sticky;
     top: 0;
     left: 0;
     z-index: 999;
+    transition: var(--transition-fast);
 }
 
+<<<<<<< HEAD
 #header .logo {
     width: 130px; /* Logo ka size standard kiya */
     height: auto;
+=======
+/* LOGO */
+.logo {
+    width: 130px;
+    object-fit: contain;
+    transition: var(--transition-fast);
+}
+
+.logo:hover {
+    opacity: 0.85;
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
 #navbar-links {
     display: flex;
     align-items: center;
-    gap: 28px;
+    gap: 32px;
     list-style: none;
 }
 
@@ -32,13 +54,22 @@
 #navbar-links li a,
 #navbar-links li button {
     text-decoration: none;
+<<<<<<< HEAD
     font-size: 16px;
     font-weight: 600;
     color: var(--text-dark, #222);
     transition: var(--transition-fast, 0.3s);
+=======
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text-light);
+    transition: var(--transition-fast);
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
     background: none;
     border: none;
     cursor: pointer;
+    position: relative;
+    padding: 8px 0;
 }
 
 #navbar-links li a:hover,
@@ -46,6 +77,7 @@
     color: var(--primary-color, #088178);
 }
 
+<<<<<<< HEAD
 /* Hide Hamburger Button on Desktop */
 #mobile-menu-btn {
     display: none;
@@ -153,21 +185,49 @@
         top: 25px;
         right: 25px;
     }
+=======
+/* modern sliding underline */
+#navbar-links li a::after {
+    content: "";
+    width: 0;
+    height: 2px;
+    background: var(--primary-color);
+    position: absolute;
+    bottom: 2px;
+    left: 0;
+    transition: var(--transition-fast);
+}
+
+#navbar-links li a.active::after,
+#navbar-links li a:hover::after {
+    width: 100%;
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
 /* CART */
 .cart-link a {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
+    position: relative;
 }
 
 #cart-badge {
     background: var(--primary-color);
     color: white;
-    font-size: 12px;
+    font-size: 10px;
+    font-weight: 700;
     border-radius: 50%;
-    padding: 2px 6px;
+    padding: 1px 6px;
+    min-width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: -4px;
+    right: -10px;
+    box-shadow: 0 2px 6px rgba(8, 129, 120, 0.3);
 }
 
 /* PROFILE DROPDOWN */
@@ -177,17 +237,30 @@
 
 #profile-dropdown {
     position: absolute;
-    top: 45px;
+    top: 48px;
     right: 0;
-    min-width: 230px;
-    background: white;
+    min-width: 220px;
+    background: var(--white);
     border-radius: 12px;
-    box-shadow: var(--shadow-soft);
-    padding: 12px;
+    box-shadow: 0 10px 40px rgba(15, 23, 42, 0.08);
+    border: 1px solid var(--border-light);
+    padding: 8px;
     display: none;
     flex-direction: column;
-    gap: 8px;
+    gap: 4px;
     z-index: 1000;
+    animation: dropdownFade 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes dropdownFade {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* desktop hover */
@@ -205,22 +278,22 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 12px;
+    padding: 10px 12px;
     border-radius: 8px;
     text-decoration: none;
-    color: var(--text-dark);
+    color: var(--text-light);
     background: none;
     border: none;
     cursor: pointer;
     transition: var(--transition-fast);
     font-size: 14px;
     width: 100%;
-    min-height: 44px;
+    min-height: 40px;
 }
 
 #profile-dropdown a:hover,
 #profile-dropdown button:hover {
-    background: #f5f5f5;
+    background: var(--bg-light);
     color: var(--primary-color);
 }
 
@@ -235,7 +308,7 @@
 }
 
 #mobile-menu-btn i {
-    font-size: 24px;
+    font-size: 22px;
     color: var(--text-dark);
 }
 
@@ -244,43 +317,58 @@ footer {
     display: flex;
     flex-wrap: wrap;
     justify-content: space-between;
+<<<<<<< HEAD
     background: #fafafa;
     width: 100%;
     padding: 40px 80px; /* Thoda padding add kiya taaki desktop par acha lage */
     box-sizing: border-box;
+=======
+    background: var(--bg-light);
+    border-top: 1px solid var(--border-light);
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
 footer .col {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    margin-bottom: 20px;
+    margin-bottom: 24px;
 }
 
 footer .logo {
-    margin-bottom: 30px;
+    margin-bottom: 20px;
+    width: 120px;
 }
 
 footer h4 {
-    font-size: 14px;
-    padding-bottom: 20px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-dark);
+    padding-bottom: 16px;
 }
 
 footer p {
-    font-size: 13px;
-    margin: 0 0 8px 0;
+    font-size: 14px;
+    color: var(--text-light);
+    margin: 0 0 10px 0;
 }
 
 footer a {
-    font-size: 13px;
+    font-size: 14px;
     text-decoration: none;
     color: var(--text-light);
     margin-bottom: 10px;
     transition: var(--transition-fast);
+    display: inline-block;
+}
+
+footer a:hover {
+    color: var(--primary-color);
+    transform: translateX(4px);
 }
 
 footer .follow {
-    margin-top: 20px;
+    margin-top: 16px;
 }
 
 footer .follow .icon {
@@ -291,10 +379,12 @@ footer .follow .icon {
 footer .follow a {
     color: var(--text-light);
     transition: var(--transition-fast);
+    font-size: 16px;
 }
 
 footer .follow a:hover {
     color: var(--primary-color);
+    transform: translateY(-2px);
 }
 
 /* App Install section ki row (App Store + Play Store) */
@@ -305,8 +395,9 @@ footer .install .row {
 }
 
 footer .install .row img {
-    border: 1px solid var(--primary-color);
+    border: 1px solid var(--border-light);
     border-radius: 6px;
+<<<<<<< HEAD
     width: 130px; /* App buttons ka standard size fixed kiya */
     height: auto;
 }
@@ -320,20 +411,44 @@ footer .install > img {
 
 footer a:hover {
     color: var(--primary-color);
+=======
+    transition: var(--transition-fast);
+    cursor: pointer;
+}
+
+footer .install .row img:hover {
+    transform: translateY(-2px);
+    border-color: var(--primary-color);
+}
+
+footer .install img {
+    margin: 8px 0 16px 0;
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
 footer .copyright {
     width: 100%;
     text-align: center;
+<<<<<<< HEAD
     margin-top: 20px;
     border-top: 1px solid #e1e1e1;
     padding-top: 20px;
+=======
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border-light);
+}
+
+footer .copyright p {
+    font-size: 13px;
+    color: var(--text-muted);
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
 /* RESPONSIVE */
 @media(max-width:799px) {
     #header {
-        padding: 20px 30px;
+        padding: 16px 30px;
     }
 
     footer {
@@ -346,13 +461,14 @@ footer .copyright {
         right: -320px;
         height: 100vh;
         width: 300px;
-        background: var(--bg-light);
+        background: var(--white);
+        border-left: 1px solid var(--border-light);
         flex-direction: column;
         align-items: flex-start;
         justify-content: flex-start;
         padding: 100px 30px;
-        transition: 0.3s ease;
-        box-shadow: 0 40px 60px rgba(0,0,0,0.1);
+        transition: var(--transition-normal);
+        box-shadow: -10px 0 40px rgba(15, 23, 42, 0.08);
     }
 
     #navbar-links.active {
@@ -369,6 +485,8 @@ footer .copyright {
         width: 100%;
         box-shadow: none;
         padding: 10px 0;
+        border: none;
+        animation: none;
     }
 
     #profile-dropdown.active {
@@ -386,7 +504,7 @@ footer .copyright {
     }
 
     .logo {
-        width: 110px;
+        width: 100px;
     }
 
     footer {
@@ -396,7 +514,15 @@ footer .copyright {
 
     footer .col {
         align-items: center;
+<<<<<<< HEAD
         width: 100%; /* Pura space legi mobile par */
+=======
+        width: 100%;
+    }
+
+    footer .install .row {
+        justify-content: center;
+>>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
     }
 
     /* Mobile par buttons aur payment centrally align honge */

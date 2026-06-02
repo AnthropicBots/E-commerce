@@ -207,6 +207,21 @@ document.addEventListener(
                 toggleWishlist(
                     product
                 );
+
+                // Update visual heart state in DOM
+                const icon = wishlistBtn.querySelector("i");
+                if (icon) {
+                    const isWishlisted = wishlist.some(
+                        (item) => String(item.id) === String(product.id)
+                    );
+                    if (isWishlisted) {
+                        wishlistBtn.classList.add("active");
+                        icon.className = "fas fa-heart";
+                    } else {
+                        wishlistBtn.classList.remove("active");
+                        icon.className = "far fa-heart";
+                    }
+                }
             }
         }
 
