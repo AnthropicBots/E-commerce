@@ -5,30 +5,39 @@ hero section
     background-image: url("../assets/images/hero4.png");
     height: 90vh;
     width: 100%;
+
     background-size: cover;
     background-position: top 25% right 0;
-    padding: 0 80px;
+
+    padding: 0 8%;
+
     display: flex;
     flex-direction: column;
+
     align-items: flex-start;
     justify-content: center;
 }
 #herotexts{
-    height:90vh;
-    width:40%;
-    display:flexbox;
-    flex-direction: column;
-    align-content:center;
-    flex-wrap:wrap;
+
+    width:45%;
+
+    display:flex;
+    flex-direction:column;
+
+    justify-content:center;
+    align-items:flex-start;
+
+    gap:12px;
 }
 #hero h2{
     font-size:2.5rem;
     margin-bottom: 10px;
-    line-height: 1;
+    line-height: 1.2;
 }
 
 #hero h1{
     color: var(--primary-color);
+    font-size:3.2rem;
 }
 
 #hero button{
@@ -45,7 +54,7 @@ hero section
 }
 
 #hero button:hover{
-    transform: translateY(-2px);
+    transform: translateY(-3px);
 }
 
 /* =============================
@@ -313,9 +322,14 @@ responsive layout
 @media(max-width:799px){
     #hero{
         height: 70vh;
-        padding: 0 80px;
+        padding: 0 40px;
         background-position: top 30% right 30%;
     }
+    #herotexts{
+
+        width:60%;
+
+        }
 
     #feature{
         justify-content: center;
@@ -347,6 +361,11 @@ responsive layout
     #hero{
         padding: 0 20px;
         background-position: 55%;
+        text-align:left;
+    }
+
+    #herotexts{
+        width:100%;
     }
 
     #hero h1{

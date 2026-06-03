@@ -1,51 +1,111 @@
 /* HEADER */
 /* ==================== DESKTOP HEADER & NAVBAR ==================== */
+
 #header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 20px 80px;
+
+    padding: 18px 70px;
+
     background: var(--bg-light, #ffffff);
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.06);
+
+    box-shadow: 0 5px 15px rgba(0,0,0,0.06);
+
     position: sticky;
     top: 0;
     left: 0;
+
     z-index: 999;
 }
 
+
+/* Logo */
 #header .logo {
-    width: 130px; /* Logo ka size standard kiya */
+
+    width: 130px;
     height: auto;
+
+    display: block;
 }
 
+
+/* Navbar links container */
 #navbar-links {
+
     display: flex;
     align-items: center;
-    gap: 28px;
+    justify-content: center;
+
+    gap: 32px;
+
     list-style: none;
 }
 
+
+/* Individual nav items */
 #navbar-links li {
+
     position: relative;
+
 }
 
+
+/* Links and buttons */
 #navbar-links li a,
 #navbar-links li button {
+
     text-decoration: none;
+
     font-size: 16px;
     font-weight: 600;
+
     color: var(--text-dark, #222);
-    transition: var(--transition-fast, 0.3s);
+
     background: none;
     border: none;
+
     cursor: pointer;
+
+    transition: 0.3s ease;
 }
 
+
+/* Hover underline animation */
+#navbar-links li a::after {
+
+    content: "";
+
+    position: absolute;
+
+    left: 0;
+    bottom: -6px;
+
+    width: 0;
+    height: 2px;
+
+    background: var(--primary-color, #088178);
+
+    transition: 0.3s ease;
+
+}
+
+
+/* Hover effect */
 #navbar-links li a:hover,
 #navbar-links li a.active {
+
     color: var(--primary-color, #088178);
+
 }
 
+
+#navbar-links li a:hover::after,
+#navbar-links li a.active::after {
+
+    width: 100%;
+
+}
 /* Hide Hamburger Button on Desktop */
 #mobile-menu-btn {
     display: none;
