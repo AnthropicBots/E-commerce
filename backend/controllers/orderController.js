@@ -409,16 +409,9 @@ const getOrderById =
 
 // update order status
 const updateOrderStatus =
-    (req, res) => {
-        const id =
-            safeInteger(
-                req.params.id
-            );
-
-        const status =
-            sanitizeString(
-                req.body.status
-            ).toLowerCase();
+    async (req, res) => {
+        const id = safeInteger(req.params.id);
+        const newStatus = sanitizeString(req.body.status).toLowerCase();
 
         const validStatuses = [
             "pending",
@@ -429,73 +422,69 @@ const updateOrderStatus =
         ];
 
         if (!id) {
-            return res.status(400)
-                .json({
-                    success: false,
-                    message:
-                        "Invalid order ID"
-                });
+            return res.status(400).json({ success: false, message: "Invalid order ID" });
         }
 
-        if (
-            !validStatuses.includes(
-                status
-            )
-        ) {
-            return res.status(400)
-                .json({
-                    success: false,
-                    message:
-                        "Invalid order status"
-                });
+        if (!validStatuses.includes(newStatus)) {
+            return res.status(400).json({ success: false, message: "Invalid order status" });
         }
 
-        const query = `
-            UPDATE orders
-            SET status = ?
-            WHERE id = ?
-        `;
+        let connection;
+        try {
+            connection = await db.getConnection();
+            await connection.beginTransaction();
 
-        db.query(
-            query,
-            [
-                status,
-                id
-            ],
-            (
-                err,
-                result
-            ) => {
-                if (err) {
-                    console.error(err);
-                    return res.status(500)
-                        .json({
-                            success: false,
-                            message:
-                                "Server error"
-                        });
-                }
+            // fetch current order status
+            const [orders] = await connection.query(
+                "SELECT status FROM orders WHERE id = ? FOR UPDATE",
+                [id]
+            );
 
-                if (
-                    !result
-                    || result.affectedRows === 0
-                ) {
-                    return res.status(404)
-                        .json({
-                            success: false,
-                            message:
-                                "Order not found"
-                        });
-                }
-
-                res.status(200)
-                    .json({
-                        success: true,
-                        message:
-                            "Order status updated"
-                    });
+            if (!safeArray(orders).length) {
+                await connection.rollback();
+                return res.status(404).json({ success: false, message: "Order not found" });
             }
-        );
+
+            const currentStatus = orders[0].status;
+
+            // if cancelling a previously un-cancelled order, restore stock
+            if (newStatus === "cancelled" && currentStatus !== "cancelled") {
+                const [items] = await connection.query(
+                    "SELECT product_id, qty FROM order_items WHERE order_id = ?",
+                    [id]
+                );
+
+                for (const item of safeArray(items)) {
+                    if (item.product_id) {
+                        await connection.query(
+                            "UPDATE products SET stock = stock + ? WHERE id = ?",
+                            [item.qty, item.product_id]
+                        );
+                    }
+                }
+            }
+
+            // update order status
+            await connection.query(
+                "UPDATE orders SET status = ? WHERE id = ?",
+                [newStatus, id]
+            );
+
+            await connection.commit();
+
+            return res.status(200).json({ success: true, message: "Order status updated" });
+
+        } catch (error) {
+            if (connection) {
+                await connection.rollback();
+            }
+            console.error("UPDATE ORDER STATUS ERROR:", error);
+            return res.status(500).json({ success: false, message: "Server error" });
+        } finally {
+            if (connection) {
+                connection.release();
+            }
+        }
     };
 
 module.exports = {

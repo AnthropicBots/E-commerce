@@ -4,18 +4,15 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-<<<<<<< HEAD
     padding: 20px 80px;
     background: var(--bg-light, #ffffff);
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.06);
-=======
     padding: 16px 80px;
     background: rgba(255, 255, 255, 0.85);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid rgba(15, 23, 42, 0.06);
     box-shadow: 0 4px 20px rgba(0,0,0,0.02);
->>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
     position: sticky;
     top: 0;
     left: 0;
@@ -23,11 +20,9 @@
     transition: var(--transition-fast);
 }
 
-<<<<<<< HEAD
 #header .logo {
-    width: 130px; /* Logo ka size standard kiya */
+    width: 130px;
     height: auto;
-=======
 /* LOGO */
 .logo {
     width: 130px;
@@ -37,34 +32,30 @@
 
 .logo:hover {
     opacity: 0.85;
->>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
-#navbar-links {
+.desktop-nav #navbar-links {
     display: flex;
     align-items: center;
     gap: 32px;
     list-style: none;
 }
 
-#navbar-links li {
+.desktop-nav #navbar-links li {
     position: relative;
 }
 
-#navbar-links li a,
-#navbar-links li button {
+.desktop-nav #navbar-links li a,
+.desktop-nav #navbar-links li button {
     text-decoration: none;
-<<<<<<< HEAD
     font-size: 16px;
     font-weight: 600;
     color: var(--text-dark, #222);
     transition: var(--transition-fast, 0.3s);
-=======
     font-size: 15px;
     font-weight: 500;
     color: var(--text-light);
     transition: var(--transition-fast);
->>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
     background: none;
     border: none;
     cursor: pointer;
@@ -72,102 +63,184 @@
     padding: 8px 0;
 }
 
-#navbar-links li a:hover,
-#navbar-links li a.active {
+.desktop-nav #navbar-links li a:hover,
+.desktop-nav #navbar-links li a.active {
     color: var(--primary-color, #088178);
 }
 
-<<<<<<< HEAD
-/* Hide Hamburger Button on Desktop */
+/* ==================== MOBILE MENU BUTTON ==================== */
 #mobile-menu-btn {
     display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 32px;
+    height: 32px;
     background: none;
     border: none;
-    font-size: 24px;
     cursor: pointer;
-    color: var(--text-dark, #222);
-    z-index: 2000;
+    padding: 0;
+    z-index: 10000;
+    transition: opacity 0.3s ease;
 }
 
+#mobile-menu-btn.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.hamburger-line {
+    width: 24px;
+    height: 2px;
+    background: var(--text-dark, #222);
+    margin: 3px 0;
+    transition: all 0.3s ease;
+    border-radius: 2px;
+}
+
+#mobile-menu-btn:hover .hamburger-line {
+    background: var(--primary-color, #088178);
+}
+
+/* ==================== MOBILE MENU OVERLAY ==================== */
+#mobile-menu-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 100%;
+    max-width: 400px;
+    height: 100vh;
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+    box-shadow: -10px 0 40px rgba(0, 0, 0, 0.15);
+    z-index: 9999;
+    transform: translateX(100%);
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
+}
+
+#mobile-menu-overlay.active {
+    display: block;
+    transform: translateX(0);
+}
+
+/* Mobile Menu Header */
+.mobile-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    background: #ffffff;
+    border-bottom: 1px solid #e9ecef;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.mobile-logo {
+    width: 120px;
+    height: auto;
+}
 
 #mobile-close-btn {
-    display: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    padding: 0;
 }
 
+#mobile-close-btn:hover {
+    background: #e9ecef;
+    border-color: #ced4da;
+    transform: rotate(90deg);
+}
+
+#mobile-close-btn svg {
+    width: 20px;
+    height: 20px;
+    color: var(--text-dark, #222);
+}
+
+/* Mobile Navigation */
+.mobile-nav {
+    padding: 24px;
+}
+
+.mobile-nav-links {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.mobile-link {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    text-decoration: none;
+    color: var(--text-dark, #222);
+    font-size: 16px;
+    font-weight: 500;
+    border-radius: 12px;
+    transition: all 0.3s ease;
+    background: #ffffff;
+    border: 1px solid transparent;
+}
+
+.mobile-link:hover {
+    background: linear-gradient(135deg, #088178 0%, #066663 100%);
+    color: #ffffff;
+    transform: translateX(8px);
+    box-shadow: 0 4px 12px rgba(8, 129, 120, 0.2);
+}
+
+.mobile-link i {
+    font-size: 18px;
+    width: 24px;
+    text-align: center;
+}
+
+.mobile-badge {
+    background: var(--primary-color, #088178);
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+    margin-left: auto;
+}
+
+.mobile-divider {
+    height: 1px;
+    background: #e9ecef;
+    margin: 16px 0;
+}
 
 /* ==================== RESPONSIVE (TABLET & MOBILE) ==================== */
 
 @media (max-width: 799px) {
     #header {
-        padding: 20px 30px;
+        padding: 16px 24px;
+    }
+    
+    .desktop-nav {
+        display: none;
     }
 
     #mobile-menu-btn {
-        display: block;
-    }
-
-    #navbar-links {
         display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        justify-content: flex-start;
-        gap: 25px;
-        
-      
-        position: fixed;
-        top: 0;
-        right: -320px; 
-        height: 100vh;
-        width: 300px;
-        background: var(--bg-light, #ffffff);
-        padding: 100px 30px;
-        box-shadow: -10px 0 30px rgba(0, 0, 0, 0.05);
-        transition: 0.3s ease;
-        z-index: 9999; 
     }
 
-
-    #navbar-links.active {
-        right: 0;
-    }
-
-
-    #mobile-close-btn {
-        display: block;     
-        position: absolute;  
-        top: 30px;         
-        right: 30px;         
-        cursor: pointer;
-        z-index: 10005;       
-        background: none;
-        border: none;
-    }
-
-    #mobile-close-btn svg.cross {
-        width: 24px;
-        height: 24px;
-        fill: var(--text-dark, #222);
-        transition: 0.3s ease;
-        display: block;
-    }
-
-    #mobile-close-btn:hover svg.cross {
-        fill: var(--primary-color, #088178);
-    }
-
-    /* Profile Dropdown adjustments for Mobile */
-    #profile-dropdown {
-        position: static;
-        display: none;
-        width: 100%;
-        box-shadow: none;
-        padding: 10px 0 0 15px;
-    }
-
-    #profile-dropdown.active {
-        display: flex;
-        flex-direction: column;
-        gap: 15px;
+    #mobile-menu-overlay {
+        max-width: 350px;
     }
 }
 
@@ -179,13 +252,27 @@
     #header .logo {
         width: 110px;
     }
-    
 
-    #mobile-close-btn {
-        top: 25px;
-        right: 25px;
+    #mobile-menu-overlay {
+        max-width: 100%;
     }
-=======
+
+    .mobile-menu-header {
+        padding: 16px 20px;
+    }
+
+    .mobile-logo {
+        width: 100px;
+    }
+
+    .mobile-nav {
+        padding: 20px;
+    }
+
+    .mobile-link {
+        padding: 14px 16px;
+        font-size: 15px;
+    }
 /* modern sliding underline */
 #navbar-links li a::after {
     content: "";
@@ -201,7 +288,6 @@
 #navbar-links li a.active::after,
 #navbar-links li a:hover::after {
     width: 100%;
->>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
 /* CART */
@@ -311,21 +397,19 @@
     font-size: 22px;
     color: var(--text-dark);
 }
+/* MOBILE MENU - Removed duplicate, keeping styles above */
 
 /* FOOTER */
 footer {
     display: flex;
     flex-wrap: wrap;
     justify-content: space-between;
-<<<<<<< HEAD
     background: #fafafa;
     width: 100%;
     padding: 40px 80px; /* Thoda padding add kiya taaki desktop par acha lage */
     box-sizing: border-box;
-=======
     background: var(--bg-light);
     border-top: 1px solid var(--border-light);
->>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
 footer .col {
@@ -397,7 +481,6 @@ footer .install .row {
 footer .install .row img {
     border: 1px solid var(--border-light);
     border-radius: 6px;
-<<<<<<< HEAD
     width: 130px; /* App buttons ka standard size fixed kiya */
     height: auto;
 }
@@ -411,7 +494,6 @@ footer .install > img {
 
 footer a:hover {
     color: var(--primary-color);
-=======
     transition: var(--transition-fast);
     cursor: pointer;
 }
@@ -423,17 +505,14 @@ footer .install .row img:hover {
 
 footer .install img {
     margin: 8px 0 16px 0;
->>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
 footer .copyright {
     width: 100%;
     text-align: center;
-<<<<<<< HEAD
     margin-top: 20px;
     border-top: 1px solid #e1e1e1;
     padding-top: 20px;
-=======
     margin-top: 24px;
     padding-top: 24px;
     border-top: 1px solid var(--border-light);
@@ -442,7 +521,6 @@ footer .copyright {
 footer .copyright p {
     font-size: 13px;
     color: var(--text-muted);
->>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
 }
 
 /* RESPONSIVE */
@@ -514,15 +592,12 @@ footer .copyright p {
 
     footer .col {
         align-items: center;
-<<<<<<< HEAD
         width: 100%; /* Pura space legi mobile par */
-=======
         width: 100%;
     }
 
     footer .install .row {
         justify-content: center;
->>>>>>> cc215fb (feat(ui): redesign e-commerce landing page with premium UX and product experience)
     }
 
     /* Mobile par buttons aur payment centrally align honge */
