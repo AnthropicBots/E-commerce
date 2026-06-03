@@ -1,63 +1,66 @@
-// mobile navbar
-function initializeMobileNavbar() {
-    const bar = document.getElementById("mobile-menu-btn");
-    const closeBtn = document.getElementById("mobile-close-btn");
-    const navLinks = document.getElementById("navbar-links");
-    const authLink = document.getElementById("auth-link");
-    const profileDropdown = document.getElementById("profile-dropdown");
+// mobile menu functionality
+function initializeMobileMenu() {
+    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+    const mobileMenuOverlay = document.getElementById('mobile-menu-overlay');
+    const mobileCloseBtn = document.getElementById('mobile-close-btn');
+    const mobileLinks = document.querySelectorAll('.mobile-link');
 
-    if (!bar || !navLinks) {
-        console.warn("Navbar elements not found!");
+    if (!mobileMenuBtn || !mobileMenuOverlay || !mobileCloseBtn) {
+        console.warn('Mobile menu elements not found');
         return;
     }
 
-    // 1. Hamburger Button Click -
-    bar.addEventListener("click", (e) => {
-        navLinks.classList.add("active");
-   
-        e.stopPropagation();    //
+    // open mobile menu
+    mobileMenuBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        mobileMenuOverlay.classList.add('active');
+        mobileMenuBtn.classList.add('hidden');
+        document.body.style.overflow = 'hidden';
     });
 
-    // 2. Cross Button Click 
-    if (closeBtn) {
-        closeBtn.addEventListener("click", (e) => {
-            navLinks.classList.remove("active");
-            e.stopPropagation(); 
-        });
-    }
+    // close mobile menu via close button
+    mobileCloseBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeMobileMenu();
+    });
 
-    // 3. Profile Link Click
-    if (authLink && profileDropdown) {
-        authLink.addEventListener("click", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            profileDropdown.classList.toggle("active"); 
-        });
-    }
-
-
-    navLinks.querySelectorAll("a").forEach((link) => {
-        link.addEventListener("click", () => {
-            if (link.id === "auth-link") return;
-            navLinks.classList.remove("active");
+    // close mobile menu when clicking on links
+    mobileLinks.forEach(link => {
+        link.addEventListener('click', () => {
+            closeMobileMenu();
         });
     });
 
-    // 5. Outside Click Auto-Close System
-    window.addEventListener("click", (e) => {
-        // Dropdown band karne ke liye
-        if (profileDropdown && profileDropdown.classList.contains("active") && !profileDropdown.contains(e.target) && e.target !== authLink) {
-            profileDropdown.classList.remove("active");
+    // close mobile menu when clicking outside
+    document.addEventListener('click', (e) => {
+        if (mobileMenuOverlay.classList.contains('active')) {
+            if (!mobileMenuOverlay.contains(e.target) && !mobileMenuBtn.contains(e.target)) {
+                closeMobileMenu();
+            }
         }
-        
+    });
 
-        if (navLinks.classList.contains("active") && !navLinks.contains(e.target) && !bar.contains(e.target)) {
-            navLinks.classList.remove("active");
+    // close on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && mobileMenuOverlay.classList.contains('active')) {
+            closeMobileMenu();
         }
     });
 }
 
-
+function closeMobileMenu() {
+    const mobileMenuOverlay = document.getElementById('mobile-menu-overlay');
+    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+    if (mobileMenuOverlay) {
+        mobileMenuOverlay.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+    if (mobileMenuBtn) {
+        mobileMenuBtn.classList.remove('hidden');
+    }
+}
 
 
 
@@ -255,31 +258,41 @@ function updateCartCount() {
         total > 0
             ? "block"
             : "none";
+
+    // Update mobile cart badge
+    const mobileBadge = document.getElementById('mobile-cart-badge');
+    if (mobileBadge) {
+        mobileBadge.innerText = total;
+        mobileBadge.style.display = total > 0 ? 'inline-block' : 'none';
+    }
+
+    // Update desktop cart badge
+    const desktopBadge = document.getElementById('cart-badge');
+    if (desktopBadge) {
+        desktopBadge.innerText = total;
+        desktopBadge.style.display = total > 0 ? 'inline-block' : 'none';
+    }
 }
+
+let uiInitialized = false;
 
 // initialize ui
 function initializeUI() {
-    initializeMobileNavbar();
+    if (uiInitialized) return;
+    console.log("🎯 InitializeUI called");
+    initializeMobileMenu();
     initializeStickyHeader();
     initializeRippleEffect();
     updateCartCount();
+    uiInitialized = true;
 }
 
-// init after components load
+// init after components load - PRIMARY METHOD
 document.addEventListener(
     "componentsLoaded",
-    initializeUI
-);
-
-// fallback init
-document.addEventListener(
-    "DOMContentLoaded",
     () => {
-
-        setTimeout(
-            initializeUI,
-            300
-        );
+        console.log("🎊 componentsLoaded event fired!");
+        initializeUI();
     }
 );
 

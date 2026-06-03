@@ -4,19 +4,9 @@
         <img src="assets/images/logo.png" class="logo" alt="AnthropicBots Logo" loading="lazy">
     </a>
 
-    <!-- Mobile Menu Button -->
-    <button id="mobile-menu-btn" aria-label="Toggle Navigation">
-        <i class="fas fa-bars"></i>
-    </button>
-
-    <!-- Navigation -->
-    <nav>
+    <!-- Desktop Navigation -->
+    <nav class="desktop-nav">
         <ul id="navbar-links">
-            <li id="mobile-close-btn">
-                <svg class="cross" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                    <path d="M10.5859 12L2.79297 4.20706L4.20718 2.79285L12.0001 10.5857L19.793 2.79285L21.2072 4.20706L13.4143 12L21.2072 19.7928L19.793 21.2071L12.0001 13.4142L4.20718 21.2071L2.79297 19.7928L10.5859 12Z"></path>
-                </svg>
-            </li>
             <li><a href="index.html">Home</a></li>
             <li><a href="shop.html">Shop</a></li>
             <li><a href="blog.html">Blog</a></li>
@@ -48,4 +38,39 @@
             </li>
         </ul>
     </nav>
+
+    <!-- Mobile Menu Button -->
+    <button id="mobile-menu-btn" aria-label="Toggle Navigation">
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+    </button>
+
+    <!-- Mobile Menu Overlay -->
+    <div id="mobile-menu-overlay">
+        <!-- Mobile Menu Header -->
+        <div class="mobile-menu-header">
+            <img src="assets/images/logo.png" class="mobile-logo" alt="Logo" loading="lazy">
+            <button id="mobile-close-btn" aria-label="Close Menu">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Mobile Menu Links -->
+        <nav class="mobile-nav">
+            <ul class="mobile-nav-links">
+                <li><a href="index.html" class="mobile-link"><i class="fas fa-home"></i> Home</a></li>
+                <li><a href="shop.html" class="mobile-link"><i class="fas fa-store"></i> Shop</a></li>
+                <li><a href="blog.html" class="mobile-link"><i class="fas fa-blog"></i> Blog</a></li>
+                <li><a href="about.html" class="mobile-link"><i class="fas fa-info-circle"></i> About</a></li>
+                <li><a href="contact.html" class="mobile-link"><i class="fas fa-envelope"></i> Contact</a></li>
+                <li class="mobile-divider"></li>
+                <li><a href="cart.html" class="mobile-link"><i class="fas fa-shopping-bag"></i> Cart <span id="mobile-cart-badge" class="mobile-badge">0</span></a></li>
+                <li><a href="signin.html" class="mobile-link"><i class="fas fa-user"></i> Sign In</a></li>
+            </ul>
+        </nav>
+    </div>
 </section>
