@@ -1,16 +1,17 @@
-/* HEADER */
+
 /* ==================== DESKTOP HEADER & NAVBAR ==================== */
-#header {
+#header{
+    position: fixed;
+    top: 0;
+    z-index: 999;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 20px 80px;
-    background: var(--bg-light, #ffffff);
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.06);
-    position: sticky;
-    top: 0;
-    left: 0;
-    z-index: 999;
+    padding: 18px 70px;
+    background: rgba(255,255,255,0.95);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 2px 15px rgba(0,0,0,0.08);
+    width: 100%;
 }
 
 #header .logo {
@@ -289,7 +290,7 @@
 }
 
 /* desktop hover */
-.profile-wrapper:hover #profile-dropdown {
+.profile-wrapper:hover #profile-dropdown[data-loggedin="true"] {
     display: flex;
 }
 

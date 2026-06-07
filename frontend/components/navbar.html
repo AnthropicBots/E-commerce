@@ -27,7 +27,7 @@
                     Sign In <i class="fas fa-caret-down" style="font-size: 12px; margin-left: 3px;"></i>
                 </a>
                 <!-- Dropdown -->
-                <div id="profile-dropdown">
+               <div id="profile-dropdown" data-loggedin="false">
                     <a href="profile.html"><i class="fas fa-user"></i> My Profile</a>
                     <a href="dashboard.html#orders"><i class="fas fa-shopping-bag"></i> Orders</a>
                     <a href="dashboard.html#wishlist"><i class="fas fa-heart"></i> Wishlist</a>
@@ -73,4 +73,14 @@
             </ul>
         </nav>
     </div>
+
+    <script>
+        const user = JSON.parse(localStorage.getItem("user"));
+
+        if(user){
+        document
+            .getElementById("profile-dropdown")
+            .setAttribute("data-loggedin","true");
+        }
+    </script>
 </section>
