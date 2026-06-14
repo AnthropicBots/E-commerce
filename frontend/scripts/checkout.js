@@ -1,19 +1,10 @@
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+
 // CART STATE
 const cart =
     AppUtils.getCart();
-
-// require authentication
-const currentUser =
-    AppUtils.requireAuth();
-
-if (
-    !currentUser
-) {
-
-    throw new Error(
-        "Authentication required"
-    );
-}
 
 // EMPTY CART REDIRECT
 if (
@@ -37,9 +28,7 @@ if (
         1000
     );
 
-    throw new Error(
-        "Empty cart"
-    );
+    return;
 }
 
 // CHECKOUT ELEMENTS
@@ -711,3 +700,6 @@ if (
         }
     );
 }
+
+    }
+);
