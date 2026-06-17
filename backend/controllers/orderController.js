@@ -146,6 +146,9 @@ const createOrder =
                 });
 
         } catch (error) {
+            if (connection) {
+                await connection.rollback();
+            }
             console.error(
                 "CREATE ORDER ERROR:",
                 error
@@ -301,6 +304,32 @@ const getOrderById = async (req, res) => {
     }
 };
 
+// shared helper for updating order status and managing inventory
+const performOrderStatusUpdate = async (connection, id, currentStatus, newStatus) => {
+    // if cancelling a previously un-cancelled order, restore stock
+    if (newStatus === "cancelled" && currentStatus !== "cancelled") {
+        const [items] = await connection.query(
+            "SELECT product_id, qty FROM order_items WHERE order_id = ?",
+            [id]
+        );
+
+        for (const item of safeArray(items)) {
+            if (item.product_id) {
+                await connection.query(
+                    "UPDATE products SET stock = stock + ? WHERE id = ?",
+                    [item.qty, item.product_id]
+                );
+            }
+        }
+    }
+
+    // update order status
+    await connection.query(
+        "UPDATE orders SET status = ? WHERE id = ?",
+        [newStatus, id]
+    );
+};
+
 // update order status
 const updateOrderStatus =
     async (req, res) => {
@@ -341,28 +370,7 @@ const updateOrderStatus =
 
             const currentStatus = orders[0].status;
 
-            // if cancelling a previously un-cancelled order, restore stock
-            if (newStatus === "cancelled" && currentStatus !== "cancelled") {
-                const [items] = await connection.query(
-                    "SELECT product_id, qty FROM order_items WHERE order_id = ?",
-                    [id]
-                );
-
-                for (const item of safeArray(items)) {
-                    if (item.product_id) {
-                        await connection.query(
-                            "UPDATE products SET stock = stock + ? WHERE id = ?",
-                            [item.qty, item.product_id]
-                        );
-                    }
-                }
-            }
-
-            // update order status
-            await connection.query(
-                "UPDATE orders SET status = ? WHERE id = ?",
-                [newStatus, id]
-            );
+            await performOrderStatusUpdate(connection, id, currentStatus, newStatus);
 
             await connection.commit();
 
@@ -381,10 +389,63 @@ const updateOrderStatus =
         }
     };
 
+// cancel user order
+const cancelUserOrder = async (req, res) => {
+    const id = safeInteger(req.params.id);
+
+    if (!id) {
+        return res.status(400).json({ success: false, message: "Invalid order ID" });
+    }
+
+    let connection;
+    try {
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        // fetch current order status and check ownership
+        const [orders] = await connection.query(
+            "SELECT user_id, status FROM orders WHERE id = ? FOR UPDATE",
+            [id]
+        );
+
+        if (!safeArray(orders).length || orders[0].user_id !== req.user.id) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        const currentStatus = orders[0].status;
+
+        // check if order can be cancelled
+        if (["shipped", "delivered", "cancelled"].includes(currentStatus)) {
+            await connection.rollback();
+            return res.status(400).json({ success: false, message: `Cannot cancel a ${currentStatus} order` });
+        }
+
+        await performOrderStatusUpdate(connection, id, currentStatus, "cancelled");
+
+        await connection.commit();
+
+        return res.status(200).json({ success: true, message: "Order cancelled successfully" });
+
+    } catch (error) {
+        if (connection) {
+            await connection.rollback();
+        }
+        console.error("CANCEL ORDER ERROR:", error);
+        return res.status(500).json({ success: false, message: "Server error" });
+    } finally {
+        if (connection) {
+            connection.release();
+        }
+    }
+};
+
 module.exports = {
     createOrder,
     getAllOrders,
     getUserOrders,
+    getUserOrders,
     getOrderById,
-    updateOrderStatus
+    updateOrderStatus,
+    cancelUserOrder
 };

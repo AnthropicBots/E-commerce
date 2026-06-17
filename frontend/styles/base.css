@@ -144,6 +144,7 @@ body{
     background: var(--white);
     color: var(--text-dark);
     -webkit-font-smoothing: antialiased;
+    padding-top: 80px;
 }
 
 /* accessibility */
@@ -186,7 +187,7 @@ img{
 }
 
 /* responsive utilities */
-@media(max-width:799px){
+@media(max-width:1024px){
     .section-p1{
         padding: 30px 20px;
     }

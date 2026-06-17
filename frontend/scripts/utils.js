@@ -139,19 +139,6 @@ const removeStorage = (
 };
 
 // auth helpers
-const getToken = () => {
-
-    return localStorage.getItem(
-        CONFIG.STORAGE_KEYS.TOKEN
-    );
-};
-
-const getRefreshToken = () => {
-
-    return localStorage.getItem(
-        CONFIG.STORAGE_KEYS.REFRESH_TOKEN
-    );
-};
 
 const getUser = () => {
 
@@ -178,15 +165,10 @@ const clearAuthData = () => {
 
 const requireAuth = () => {
 
-    const token =
-        getToken();
-
     const user =
         getUser();
 
     if (
-        !token
-        ||
         !user
     ) {
 
@@ -217,18 +199,6 @@ const refreshAccessToken =
 
         try {
 
-            const refreshToken =
-                getRefreshToken();
-
-            if (
-                !refreshToken
-            ) {
-
-                clearAuthData();
-
-                return null;
-            }
-
             const response =
                 await fetch(
                     `${CONFIG.API_BASE}/auth/refresh-token`,
@@ -242,12 +212,8 @@ const refreshAccessToken =
                             "Content-Type":
                                 "application/json"
                         },
-
-                        body:
-                            JSON.stringify({
-
-                                refreshToken
-                            })
+                        credentials: "include",
+                        body: JSON.stringify({})
                     }
                 );
 
@@ -258,7 +224,7 @@ const refreshAccessToken =
             if (
                 !response.ok
                 ||
-                !data.accessToken
+                !data.success
             ) {
 
                 clearAuthData();
@@ -266,34 +232,14 @@ const refreshAccessToken =
                 return null;
             }
 
-            // save tokens
-            localStorage.setItem(
-                CONFIG.STORAGE_KEYS.TOKEN,
-                data.accessToken
-            );
-
-            if (
-                data.refreshToken
-            ) {
-
-                localStorage.setItem(
-                    CONFIG.STORAGE_KEYS.REFRESH_TOKEN,
-                    data.refreshToken
-                );
-            }
-
             // save user
-            if (
-                data.user
-            ) {
-
-                setJSON(
-                    CONFIG.STORAGE_KEYS.USER,
-                    data.user
-                );
+            if (data.user) {
+                setJSON(CONFIG.STORAGE_KEYS.USER, data.user);
             }
 
-            return data.accessToken;
+            return data.success ? true : null;
+
+
 
         } catch (error) {
 
@@ -340,20 +286,10 @@ const apiRequest =
 
         try {
 
-            const token =
-                getToken();
-
             const headers = {
 
                 "Content-Type":
                     "application/json",
-
-                ...(token
-                    ? {
-                        Authorization:
-                            `Bearer ${token}`
-                    }
-                    : {}),
 
                 ...(options.headers || {})
             };
@@ -362,13 +298,10 @@ const apiRequest =
                 await fetch(
                     `${CONFIG.API_BASE}${url}`,
                     {
-
                         ...options,
-
+                        credentials: options.credentials || "include",
                         headers,
-
-                        signal:
-                            controller.signal
+                        signal: controller.signal
                     }
                 );
 
@@ -742,8 +675,7 @@ window.AppUtils = {
     getJSON,
     setJSON,
     removeStorage,
-    getToken,
-    getRefreshToken,
+
     getUser,
     clearAuthData,
     requireAuth,

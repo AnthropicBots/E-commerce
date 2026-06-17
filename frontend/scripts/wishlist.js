@@ -1,3 +1,4 @@
+try {
 // wishlist state
 let wishlist =
     AppUtils.getWishlist();
@@ -18,31 +19,45 @@ const elements = {
 
 // render wishlist
 function renderWishlist() {
+    const wishlistContainer = document.getElementById("wishlist-container");
+    const emptyWishlist = document.getElementById("empty-wishlist");
+
     if (
-        !elements.wishlistContainer
+        !wishlistContainer
     ) {
         return;
     }
-    elements.wishlistContainer.innerHTML =
+    wishlistContainer.innerHTML =
         "";
+    
+    // Clean up any corrupted data
+    if (Array.isArray(wishlist)) {
+        wishlist = wishlist.filter(product => product && typeof product === 'object');
+        AppUtils.saveWishlist(wishlist);
+    }
+
     if (
         !Array.isArray(wishlist)
         ||
         wishlist.length === 0
     ) {
         if (
-            elements.emptyWishlist
+            emptyWishlist
         ) {
-            elements.emptyWishlist.style.display =
+            emptyWishlist.style.display =
                 "block";
         }
         return;
     }
+    
+    if (emptyWishlist) {
+        emptyWishlist.style.display = "none";
+    }
 
     if (
-        elements.emptyWishlist
+        emptyWishlist
     ) {
-        elements.emptyWishlist.style.display =
+        emptyWishlist.style.display =
             "none";
     }
     const fragment =
@@ -50,6 +65,7 @@ function renderWishlist() {
 
     wishlist.forEach(
         (product, index) => {
+            if (!product) return;
             const card =
                 document.createElement(
                     "div"
@@ -62,19 +78,19 @@ function renderWishlist() {
             card.innerHTML =
                 `
                     <img
-                        src="${AppUtils.defaultImage(product.image || product.img)}"
-                        alt="${product.name || "Product"}"
+                        src="${AppUtils.defaultImage(product?.image || product?.img)}"
+                        alt="${product?.name || "Product"}"
                         loading="lazy"
                     >
                     <div class="wishlist-content">
                         <span>
-                            ${product.brand || "Brand"}
+                            ${product?.brand || "Brand"}
                         </span>
                         <h4>
-                            ${product.name || "Product"}
+                            ${product?.name || "Product"}
                         </h4>
                         <p class="wishlist-price">
-                            ${AppUtils.formatPrice(product.price || 0)}
+                            ${AppUtils.formatPrice(product?.price || 0)}
                         </p>
                         <div class="wishlist-buttons">
                             <button
@@ -107,7 +123,7 @@ function renderWishlist() {
                         "click",
                         () => {
                             if (
-                                product.id
+                                product?.id
                             ) {
                                 window.location.href =
                                     `product.html?id=${product.id}`;
@@ -121,7 +137,7 @@ function renderWishlist() {
             );
         }
     );
-    elements.wishlistContainer.appendChild(
+    wishlistContainer.appendChild(
         fragment
     );
     attachWishlistEventListeners();
@@ -333,12 +349,39 @@ async function addToCartFromWishlist(
             );
         }
     }
+    
+    // Remove from wishlist
+    await removeWishlist(index);
 }
 
 // init
-document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-        renderWishlist();
+async function initWishlist() {
+    const token = AppUtils.getToken();
+    if (token) {
+        try {
+            const response = await AppUtils.apiRequest("/wishlist");
+            if (response.success && response.wishlist) {
+                wishlist = response.wishlist;
+                AppUtils.saveWishlist(wishlist);
+            }
+        } catch (error) {
+            console.error("Failed to fetch wishlist:", error);
+        }
     }
-);
+    renderWishlist();
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initWishlist);
+} else {
+    initWishlist();
+}
+
+} catch (err) {
+    const errorDiv = document.createElement('div');
+    errorDiv.style.cssText = 'position:fixed;top:10%;left:50%;transform:translate(-50%,0);background:yellow;color:black;padding:20px;z-index:99999;font-size:20px;width:80%;word-wrap:break-word;';
+    errorDiv.innerText = 'TOP LEVEL ERROR: ' + err.toString() + '\n' + err.stack;
+    document.addEventListener("DOMContentLoaded", () => {
+        document.body.appendChild(errorDiv);
+    });
+}

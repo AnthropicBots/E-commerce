@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: ecom-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: yourpassword
+      MYSQL_DATABASE: ecommerce
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - db_data:/var/lib/mysql
+
+  adminer:
+    image: adminer
+    container_name: ecom-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+
+volumes:
+  db_data:

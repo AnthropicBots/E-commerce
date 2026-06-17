@@ -13,9 +13,7 @@
     z-index: 999;
 }
 
-#hero {
-    margin-top: 77px;
-}
+
 
 html, body {
     overflow-x: hidden;
@@ -43,7 +41,7 @@ html, body {
     font-size: 16px;
     font-weight: 600;
     color: var(--text-dark, #222);
-    transition: var(--transition-fast, 0.3s);
+    transition: color 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
     background: none;
     border: none;
     cursor: pointer;
@@ -54,7 +52,15 @@ html, body {
     color: var(--primary-color, #088178);
 }
 
-/* ==================== MOBILE MENU BUTTON ==================== */
+/* Active underline for current page */
+#navbar-links li a.active::after {
+    width: 100%;
+    height: 2px;
+    background-color: var(--primary-color, #088178);
+}
+
+
+/* Hide Hamburger Button on Desktop */
 #mobile-menu-btn {
     display: none;
     flex-direction: column;
@@ -128,19 +134,17 @@ html, body {
     height: auto;
 }
 
-#mobile-close-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
-    border-radius: 50%;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    padding: 0;
-}
+    /* Animate mobile menu slide-in smoothly */
+    #navbar-links {
+        will-change: transform;
+        transform: translateX(0);
+        transition: right 0.3s ease, transform 0.3s ease;
+    }
+
+
+    #mobile-menu-btn {
+        display: block;
+    }
 
 #mobile-close-btn:hover {
     background: #e9ecef;
@@ -211,7 +215,7 @@ html, body {
 }
 
 /* ==================== RESPONSIVE (TABLET & MOBILE) ==================== */
-@media (max-width: 799px) {
+@media (max-width: 1024px) {
     #header {
         padding: 16px 24px;
     }
@@ -423,9 +427,12 @@ footer .copyright {
 }
 
 /* RESPONSIVE */
-@media(max-width:799px) {
+@media(max-width:1024px) {
+    #header {
+        padding: 16px 40px;
+    }
     footer {
-        padding: 40px 30px;
+        padding: 40px 40px;
     }
 
     .profile-wrapper:hover #profile-dropdown {
@@ -609,6 +616,7 @@ body.dark-theme #profile-dropdown button{
     background-color: transparent !important;
 }
 
+
 .stock-wrapper {
     margin-top: 6px;
     margin-bottom: 6px;
@@ -637,4 +645,12 @@ body.dark-theme #profile-dropdown button{
 
 .stock-badge.out {
     background: #dc3545;
+
+/* Active nav link */
+#navbar-links a.active {
+    font-weight: 600;
+    color: #088178;
+    border-bottom: 2px solid #088178;
+    padding-bottom: 2px;
+
 }

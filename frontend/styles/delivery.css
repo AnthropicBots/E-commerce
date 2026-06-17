@@ -269,13 +269,13 @@
 }
 
 /* ── RESPONSIVE ── */
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
     .delivery-cards {
         grid-template-columns: 1fr 1fr;
     }
 }
 
-@media (max-width: 799px) {
+@media (max-width: 1024px) {
     #delivery-content .delivery-container {
         padding: 20px;
     }

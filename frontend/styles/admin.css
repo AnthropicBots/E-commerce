@@ -134,7 +134,7 @@ table td{
     background: red;
 }
 
-@media (max-width: 991px){
+@media (max-width: 1024px){
 
     #admin-dashboard{
         flex-direction: column;

@@ -57,7 +57,7 @@ function createReviewCard(
             <div class="review-header">
                 <h4>
                     ${
-                        review.name
+                        AppUtils.escapeHTML(review.name)
                     }
                 </h4>
 
@@ -72,7 +72,7 @@ function createReviewCard(
 
             <p class="review-message">
                 ${
-                    review.message
+                    AppUtils.escapeHTML(review.message)
                 }
             </p>
 

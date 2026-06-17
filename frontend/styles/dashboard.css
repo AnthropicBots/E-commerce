@@ -152,7 +152,7 @@
     cursor: pointer;
 }
 
-@media (max-width: 991px){
+@media (max-width: 1024px){
 
     #dashboard{
         flex-direction: column;

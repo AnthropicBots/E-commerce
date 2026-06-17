@@ -100,7 +100,7 @@
     margin-bottom: 6px;
 }
 
-@media (max-width: 799px){
+@media (max-width: 1024px){
 
     .tracking-line{
         display: none;

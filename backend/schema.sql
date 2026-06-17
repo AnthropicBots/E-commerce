@@ -179,3 +179,34 @@ ON order_items(order_id);
 
 CREATE INDEX idx_order_items_product
 ON order_items(product_id);
+
+-- wishlist items table
+CREATE TABLE IF NOT EXISTS wishlist_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+
+    user_id INT
+        NOT NULL,
+
+    product_id INT
+        NOT NULL,
+
+    created_at TIMESTAMP
+        DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (product_id)
+        REFERENCES products(id)
+        ON DELETE CASCADE,
+
+    UNIQUE KEY user_product_unique (user_id, product_id)
+);
+
+-- indexes
+CREATE INDEX idx_wishlist_items_user
+ON wishlist_items(user_id);
+
+CREATE INDEX idx_wishlist_items_product
+ON wishlist_items(product_id);

@@ -150,16 +150,8 @@ function saveAuthSession(
         return;
     }
 
-    localStorage.setItem(
-        CONFIG.STORAGE_KEYS.TOKEN,
-        response.accessToken || ""
-    );
-
-    localStorage.setItem(
-        CONFIG.STORAGE_KEYS.REFRESH_TOKEN,
-        response.refreshToken || ""
-    );
-
+    // Tokens are securely stored in HttpOnly cookies by the backend.
+    
     AppUtils.setJSON(
         CONFIG.STORAGE_KEYS.USER,
         response.user || {}
@@ -173,7 +165,7 @@ async function clearAuthSession() {
 
         // invalidate refresh token
         if (
-            AppUtils.getToken()
+            AppUtils.getUser()
         ) {
 
             await logoutUser();
@@ -443,7 +435,24 @@ if (
 
 // auth ui
 
+function syncNavbarAuth() {
+    const user = AppUtils.getUser();
+    const authButtons = document.querySelectorAll("[data-auth-state]");
+
+    authButtons.forEach((element) => {
+        const requiredState = element.dataset.authState;
+        if (requiredState === "authenticated") {
+            element.style.display = user ? "" : "none";
+        }
+        if (requiredState === "guest") {
+            element.style.display = user ? "none" : "";
+        }
+    });
+}
+
 function initializeAuthUI() {
+    syncNavbarAuth();
+
     const authLink =
         document.getElementById(
             "auth-link"
@@ -463,18 +472,7 @@ function initializeAuthUI() {
         return;
     }
 
-    const token =
-        AppUtils.getToken();
-    
-    // invalid token cleanup
-    if (
-        token
-        &&
-        !AppUtils.getUser()
-    ) {
-
-        AppUtils.clearAuthData();
-    }
+    const user = AppUtils.getUser();
 
     const socialUser =
         AppUtils.getJSON(
@@ -483,7 +481,7 @@ function initializeAuthUI() {
         );
 
     if (
-        token
+        user
         || socialUser
     ) {
         authLink.innerHTML =

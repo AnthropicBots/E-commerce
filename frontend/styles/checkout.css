@@ -140,7 +140,7 @@
     font-weight: 700;
 }
 
-@media (max-width: 991px){
+@media (max-width: 1024px){
 
     #checkout-page{
         flex-direction: column;

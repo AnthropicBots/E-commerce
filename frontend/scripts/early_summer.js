@@ -23,6 +23,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             summerProducts
         );
 
+        window.allProducts = summerProducts;
+
     } catch (error) {
 
         console.error(error);

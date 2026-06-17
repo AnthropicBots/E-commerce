@@ -45,6 +45,12 @@ product controls
 /* =============================
 responsive layout
 ============================= */
+@media(max-width:1024px){
+    .product-controls{
+        flex-wrap: wrap;
+    }
+}
+
 @media(max-width:799px){
 
     .product-controls{
@@ -89,6 +95,15 @@ homepage product grid fix
     height: 260px;
     object-fit: cover;
     object-position: center;
+}
+
+@media(max-width:1024px){
+    #product1 .pro,
+    #new-arrivals .pro,
+    #recently-viewed .pro{
+        flex: 0 0 calc(33.333% - 20px);
+        max-width: calc(33.333% - 20px);
+    }
 }
 
 @media(max-width:799px){

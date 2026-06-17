@@ -190,7 +190,7 @@
 
 /* responsive */
 
-@media(max-width:991px){
+@media(max-width:1024px){
 
     .profile-container{
         flex-direction: column;

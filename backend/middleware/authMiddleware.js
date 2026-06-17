@@ -68,14 +68,15 @@ const authMiddleware =
 
         try {
 
-            const authHeader =
-                req.headers.authorization;
+            const authHeader = req.headers.authorization;
 
             // extract token
-            const token =
-                extractToken(
-                    authHeader
-                );
+            let token = extractToken(authHeader);
+
+            // check cookies if header is missing
+            if (!token && req.cookies && req.cookies.accessToken) {
+                token = req.cookies.accessToken;
+            }
 
             if (
                 !token

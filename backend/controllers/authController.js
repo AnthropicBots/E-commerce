@@ -8,7 +8,7 @@ const crypto =
     require("crypto");
 
 const db =
-    require("../config/db").promise;
+    require("../config/db");
 
 const {
     sanitizeString,
@@ -77,31 +77,29 @@ function sendAuthResponse(
         user
     }
 ) {
+    const cookieOptions = {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    };
+
+    if (refreshToken) {
+        res.cookie("refreshToken", refreshToken, cookieOptions);
+    }
+    if (accessToken) {
+        res.cookie("accessToken", accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
+    }
 
     return res.status(200)
         .json({
-
             success: true,
-
             message,
-
-            accessToken,
-
-            refreshToken,
-
             user: {
-
-                id:
-                    user.id,
-
-                name:
-                    user.name,
-
-                email:
-                    user.email,
-
-                role:
-                    user.role
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role
             }
         });
 }
@@ -462,10 +460,7 @@ const refreshAccessToken =
     ) => {
 
         try {
-
-            const {
-                refreshToken
-            } = req.body;
+            const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
 
             const cleanRefreshToken =
                 sanitizeString(

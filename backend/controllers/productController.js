@@ -39,11 +39,12 @@ const getProducts = async (req, res) => {
         const conditions = [];
         const params = [];
 
-        // category filter
+        // category filter (case/format-insensitive)
         if (req.query.category) {
 
+            // normalize by removing hyphens/spaces and comparing lowercase
             conditions.push(
-                "category = ?"
+                "LOWER(REPLACE(REPLACE(category, '-', ''), ' ', '')) = LOWER(REPLACE(REPLACE(?, '-', ''), ' ', ''))"
             );
 
             params.push(

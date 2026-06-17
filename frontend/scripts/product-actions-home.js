@@ -74,7 +74,7 @@ function addToCart(
 }
 
 // add to wishlist
-function toggleWishlist(
+async function toggleWishlist(
     product
 ) {
     if (
@@ -92,6 +92,8 @@ function toggleWishlist(
                 === String(product.id)
         );
 
+    const token = AppUtils.getToken();
+
     if (
         exists
     ) {
@@ -106,6 +108,17 @@ function toggleWishlist(
             "Removed from wishlist",
             "info"
         );
+        
+        if (token) {
+            try {
+                await AppUtils.apiRequest("/wishlist/remove", {
+                    method: "POST",
+                    body: JSON.stringify({ productId: product.id })
+                });
+            } catch (e) {
+                console.error("Failed to remove from wishlist backend:", e);
+            }
+        }
     } else {
         wishlist.push(
             product
@@ -115,8 +128,34 @@ function toggleWishlist(
             "Added to wishlist",
             "success"
         );
+        
+        if (token) {
+            try {
+                await AppUtils.apiRequest("/wishlist/add", {
+                    method: "POST",
+                    body: JSON.stringify({ productId: product.id })
+                });
+            } catch (e) {
+                console.error("Failed to add to wishlist backend:", e);
+            }
+        }
     }
     saveHomeWishlist();
+
+    // Update DOM icons dynamically
+    const buttons = document.querySelectorAll(`.wishlist-btn[data-id="${product.id}"], .wishlist-btn-shop[data-id="${product.id}"]`);
+    buttons.forEach(btn => {
+        const icon = btn.querySelector("i");
+        if (icon) {
+            if (exists) {
+                icon.classList.remove("fas");
+                icon.classList.add("far");
+            } else {
+                icon.classList.remove("far");
+                icon.classList.add("fas");
+            }
+        }
+    });
 }
 
 // get product by id

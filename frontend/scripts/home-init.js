@@ -83,7 +83,13 @@ async function loadHomeProducts() {
         ) {
             applyShopFilters();
         }
+
+        // ensure animations are applied after product HTML is injected
+        if (typeof initializeScrollAnimations === "function") {
+            initializeScrollAnimations();
+        }
     } catch (error) {
+
         console.error(
             "HOME PRODUCTS ERROR:",
             error
@@ -101,14 +107,18 @@ document.addEventListener(
     "DOMContentLoaded",
     () => {
         loadHomeProducts();
-        if (
-            typeof updateCartCount ===
-            "function"
-        ) {
+
+        // Ensure scroll animations work with dynamically rendered sections
+        if (typeof initializeScrollAnimations === "function") {
+            initializeScrollAnimations();
+        }
+
+        if (typeof updateCartCount === "function") {
             updateCartCount();
         }
     }
 );
+
 
 // expose globally
 window.loadHomeProducts =

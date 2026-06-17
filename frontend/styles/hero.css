@@ -2,23 +2,67 @@
 hero section
 ============================= */
 #hero{
-    background-image: url("../assets/images/hero4.png");
+    position: relative;
     height: 90vh;
     width: 100%;
-    background-size: cover;
-    background-position: top 25% right 0;
     padding: 0 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+#hero-slider{
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+}
+
+#hero-slider .hero-slide{
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top 25% right 0;
+    opacity: 0;
+    transform: scale(1.02);
+    transition: opacity 1s ease, transform 1s ease;
+    will-change: opacity, transform;
+}
+
+#hero-slider .hero-slide.is-active{
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* overlay to improve text contrast */
+#hero::before{
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(4, 30, 66, 0.35);
+    z-index: 1;
+    pointer-events: none;
+}
+
+#hero-content{
+    position: relative;
+    z-index: 2;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     justify-content: center;
+    padding: 0;
+    max-width: 700px;
 }
+
 #herotexts{
     height:90vh;
-    width:40%;
-    display:flexbox;
+    width:50%;
+    display: flex;
     flex-direction: column;
-    align-content:center;
+    justify-content: center;
     flex-wrap:wrap;
 }
 #hero h2{
@@ -50,6 +94,12 @@ body.dark-theme #hero h1 {
 #hero button:hover{
     transform: translateY(-2px);
 }
+
+/* Subtle premium zoom on hero image load */
+#hero-slider .hero-slide.is-active{
+    animation: zoomInSlight 0.7s ease-out both;
+}
+
 
 /* =============================
 feature section
@@ -126,6 +176,8 @@ banner
     height: 40vh;
     background-size: cover;
     background-position: center;
+    padding-bottom: 30px;
+    box-sizing: border-box;
 }
 
 #banner h4{
@@ -155,6 +207,9 @@ small banners
     display: flex;
     justify-content: space-between;
     flex-wrap: wrap;
+    gap: 16px;
+    padding: 0 80px;
+    box-sizing: border-box;
 }
 
 #sm-banner .banner-box{
@@ -163,11 +218,13 @@ small banners
     justify-content: flex-end;
     align-items: flex-start;
     background-image: url("../assets/images/b17.jpg");
-    min-width: 48%;
+    flex: 1 1 calc(50% - 8px);
+    min-width: 280px;
     height: 50vh;
     background-size: cover;
     background-position: center;
     padding: 30px;
+    box-sizing: border-box;
 }
 
 #sm-banner .banner-box2{
@@ -346,12 +403,12 @@ newsletter
 /* =============================
 responsive layout
 ============================= */
-@media(max-width:799px){
+@media(max-width:1024px){
     #hero{
         height: 70vh;
         padding: 0 80px;
-        background-position: top 30% right 30%;
     }
+
 
     #feature{
         justify-content: center;
@@ -361,17 +418,24 @@ responsive layout
         margin: 15px;
     }
 
+    #sm-banner{
+        padding: 0 40px;
+        gap: 12px;
+    }
     #sm-banner .banner-box{
-        min-width: 100%;
+        flex: 1 1 100%;
         height: 30vh;
     }
-
     #banner3{
         padding: 0 40px;
     }
-
+    #banner3 .banner-link{
+        width: 48%;
+        margin-bottom: 16px;
+    }
     #banner3 .banner-box{
-        width: 28%;
+        width: 100%;
+        min-width: unset;
     }
 
     #newsletter .form{
@@ -380,17 +444,42 @@ responsive layout
 }
 
 @media(max-width:477px){
+    #header{
+        position: fixed;
+        width: 100%;
+    }
+
     #hero{
-        padding: 0 20px;
-        background-position: 55%;
+        min-height: 520px;
+        height: auto;
+        margin-top: 70px;
+        padding: 40px 20px;
+        align-items: center;
     }
-
     #hero h1{
-        font-size: 38px;
+        font-size: 2rem;
+        line-height: 1.15;
+        margin: 8px 0;
     }
-
+    #hero p {
+        font-size: 0.9rem;
+        line-height: 1.6;
+        margin: 15px 0;
+    }
+    #hero button{
+        font-size: 0.6rem;
+        padding: 0;
+        justify-content: center;
+        align-items: center;
+        width: 100px;
+        height: 20px;
+        font-weight: 600;
+        background-size: 100% 100%;
+        background-repeat: no-repeat;
+        background-position: center;
+    }
     #hero h2{
-        font-size: 32px;
+        font-size: 1.75rem;
     }
 
     #feature{
@@ -414,12 +503,38 @@ responsive layout
         margin-top: 20px;
     }
 
+    #sm-banner{
+        padding: 0 16px;
+        gap: 12px;
+    }
     #banner3{
         padding: 0 20px;
     }
-
+    #banner3 .banner-link{
+        width: 100%;
+    }
     #banner3 .banner-box{
         width: 100%;
+        min-width: unset;
+        height: 160px;
+    }
+    #sm-banner h2{
+        font-size: 20px;
+    }
+    #sm-banner h4{
+        font-size: 16px;
+    }
+    #sm-banner span{
+        font-size: 12px;
+    }
+    #banner h2{
+        font-size: 22px;
+    }
+    #banner3 .banner-box h2{
+        font-size: 1.2rem;
+    }
+    #banner3 .banner-box h4{
+        font-size: 1rem;
     }
 
     #newsletter{
@@ -430,9 +545,6 @@ responsive layout
         width: 100%;
     }
 }
-/* ===========================
-   DARK MODE FIXES - hero.css
-=========================== */
 
 /* Feature boxes */
 body.dark-theme #feature .fe-box {

@@ -134,7 +134,7 @@
     padding: 50px 20px;
 }
 
-@media (max-width: 991px){
+@media (max-width: 1024px){
 
     #cart-page{
         flex-direction: column;

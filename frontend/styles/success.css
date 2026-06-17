@@ -83,7 +83,7 @@
     background: #066e67;
 }
 
-@media (max-width: 799px){
+@media (max-width: 1024px){
 
     .success-box{
         padding: 35px 25px;

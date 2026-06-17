@@ -12,6 +12,7 @@
 
     <!-- SEO -->
 
+    <link rel="canonical" href="https://www.bhuvansh.xyz/blog.html">
     <meta
         name="description"
         content="Read fashion trends, ecommerce insights, styling tips, and case studies from AnthropicBots E-Commerce."
@@ -69,6 +70,11 @@
     <link
         rel="stylesheet"
         href="styles/style.css"
+    >
+
+    <link
+        rel="stylesheet"
+        href="styles/back-to-top.css"
     >
 
     <link
@@ -199,10 +205,10 @@
             <h4>Sign Up For Newsletters</h4>
             <p>Get E-mail updates about our latest shop and <span>special offers.</span></p>
         </div>
-        <div class="form">
+        <form class="form">
             <input type="email" id="newsletter-email" placeholder="Your email address">
-            <button class="normal" id="newsletter-btn">Sign Up</button>
-        </div>
+            <button class="normal" id="newsletter-btn" type="submit">Sign Up</button>
+        </form>
     </section>
 
     <!-- Blog Modal Overlay -->
@@ -226,6 +232,10 @@
     <script defer src="scripts/utils.js"></script>
     <script defer src="scripts/auth.js"></script>
     <script defer src="scripts/script.js"></script>
+    <script
+        defer
+        src="scripts/back-to-top.js"
+    ></script>
     <script defer src="scripts/components.js"></script>
 
     <!-- Blog Script -->

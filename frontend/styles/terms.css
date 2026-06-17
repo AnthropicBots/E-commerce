@@ -49,7 +49,7 @@
     font-size: 15px;
 }
 
-@media (max-width: 799px){
+@media (max-width: 1024px){
     #terms-content .terms-container{
         padding: 20px;
     }

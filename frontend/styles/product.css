@@ -147,7 +147,7 @@
     margin-bottom: 12px;
 }
 
-@media (max-width: 991px){
+@media (max-width: 1024px){
     #product-details{
         flex-direction: column;
     }
@@ -274,7 +274,7 @@ RECOMMENDED PRODUCTS
     color: #088178;
 }
 
-@media(max-width:799px){
+@media(max-width:1024px){
 
     #recommended-products .pro{
         width: 100%;
@@ -372,7 +372,7 @@ PRODUCT VARIANTS
     gap: 12px;
 }
 
-@media(max-width: 799px){
+@media(max-width: 1024px){
 
     .product-buttons{
         flex-direction: column;
@@ -385,7 +385,7 @@ PRODUCT VARIANTS
 
 }
 
-@media(max-width: 799px){
+@media(max-width: 1024px){
 
     #main-product-image{
         max-height: 420px;

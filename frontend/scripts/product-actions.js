@@ -8,6 +8,23 @@ function setCurrentProduct(
 ) {
     currentProduct =
         product || null;
+        
+    if (currentProduct) {
+        const wishlistBtn = document.getElementById("wishlist-btn");
+        if (wishlistBtn) {
+            const icon = wishlistBtn.querySelector("i");
+            if (icon) {
+                const exists = AppUtils.getWishlist().some(item => String(item.id) === String(currentProduct.id));
+                if (exists) {
+                    icon.classList.remove("far");
+                    icon.classList.add("fas");
+                } else {
+                    icon.classList.remove("fas");
+                    icon.classList.add("far");
+                }
+            }
+        }
+    }
 }
 
 // get quantity
@@ -227,7 +244,7 @@ function buyNow() {
 }
 
 // wishlist
-function toggleProductWishlist() {
+async function toggleProductWishlist() {
     if (
         !currentProduct
     ) {
@@ -247,6 +264,8 @@ function toggleProductWishlist() {
                 )
         );
 
+    const token = AppUtils.getToken();
+
     if (
         exists
     ) {
@@ -265,6 +284,17 @@ function toggleProductWishlist() {
             "Removed from wishlist",
             "info"
         );
+        
+        if (token) {
+            try {
+                await AppUtils.apiRequest("/wishlist/remove", {
+                    method: "POST",
+                    body: JSON.stringify({ productId: currentProduct.id })
+                });
+            } catch (e) {
+                console.error("Failed to remove from wishlist backend:", e);
+            }
+        }
 
     } else {
         wishlist.push({
@@ -288,11 +318,35 @@ function toggleProductWishlist() {
             "Added to wishlist",
             "success"
         );
+        
+        if (token) {
+            try {
+                await AppUtils.apiRequest("/wishlist/add", {
+                    method: "POST",
+                    body: JSON.stringify({ productId: currentProduct.id })
+                });
+            } catch (e) {
+                console.error("Failed to add to wishlist backend:", e);
+            }
+        }
     }
 
-    AppUtils.saveWishlist(
-        wishlist
-    );
+    AppUtils.saveWishlist(wishlist);
+    
+    // Update DOM icon
+    const wishlistBtn = document.getElementById("wishlist-btn");
+    if (wishlistBtn) {
+        const icon = wishlistBtn.querySelector("i");
+        if (icon) {
+            if (exists) {
+                icon.classList.remove("fas");
+                icon.classList.add("far");
+            } else {
+                icon.classList.remove("far");
+                icon.classList.add("fas");
+            }
+        }
+    }
 }
 
 // action bindings

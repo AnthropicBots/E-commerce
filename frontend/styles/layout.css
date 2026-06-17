@@ -213,6 +213,16 @@ animations
 /* =============================
 responsive layout
 ============================= */
+@media(max-width:1024px){
+    .grid-4{
+        grid-template-columns: repeat(3, 1fr);
+    }
+    
+    .container{
+        padding: 0 40px;
+    }
+}
+
 @media(max-width:799px){
     .grid-4{
         grid-template-columns:

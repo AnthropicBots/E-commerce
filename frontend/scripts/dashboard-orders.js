@@ -33,109 +33,139 @@ function getOrderStatusClass(
 }
 
 // render orders
-function renderDashboardOrders() {
-    const orders =
-        AppUtils.getJSON(
-            "orders",
-            []
-        );
-
-    if (
-        dashboardOrderElements.ordersCount
-    ) {
-        dashboardOrderElements.ordersCount.innerText =
-            orders.length;
-    }
-
-    if (
-        !orders.length
-    ) {
-        renderDashboardEmptyState(
-            dashboardOrderElements.ordersContainer,
-            "No orders found."
-        );
-
-        return;
-    }
-
+async function renderDashboardOrders() {
     if (
         !dashboardOrderElements.ordersContainer
     ) {
         return;
     }
 
-    dashboardOrderElements.ordersContainer.innerHTML =
-        "";
+    try {
+        const data = await AppUtils.apiRequest("/orders/my-orders");
+        const orders = data.orders || [];
 
-    orders.forEach(
-        (order) => {
-            const card =
-                document.createElement(
-                    "div"
+        if (
+            dashboardOrderElements.ordersCount
+        ) {
+            dashboardOrderElements.ordersCount.innerText =
+                orders.length;
+        }
+
+        if (
+            !orders.length
+        ) {
+            if (typeof renderDashboardEmptyState === "function") {
+                renderDashboardEmptyState(
+                    dashboardOrderElements.ordersContainer,
+                    "No orders found."
                 );
+            }
+            return;
+        }
 
-            card.className =
-                "dashboard-order-card";
+        dashboardOrderElements.ordersContainer.innerHTML =
+            "";
 
-            card.innerHTML = `
-                <div class="dashboard-order-top">
-                    <div>
-                        <h4>
-                            Order #${
-                                order.id
-                            }
-                        </h4>
+        orders.forEach(
+            (order) => {
+                const card =
+                    document.createElement(
+                        "div"
+                    );
 
-                        <small>
+                card.className =
+                    "dashboard-order-card";
+
+                const isCancellable = ["pending", "processing"].includes((order.status || "").toLowerCase());
+                const cancelBtnHtml = isCancellable
+                    ? `<button class="btn btn-sm" style="color:red; border:1px solid red; padding: 4px 8px; border-radius:4px; background:transparent; cursor:pointer;" onclick="cancelDashboardOrder(${order.id})">Cancel Order</button>`
+                    : "";
+
+                card.innerHTML = `
+                    <div class="dashboard-order-top">
+                        <div>
+                            <h4>
+                                Order #${
+                                    order.id
+                                }
+                            </h4>
+
+                            <small>
+                                ${
+                                    order.created_at
+                                    ? new Date(order.created_at).toLocaleDateString()
+                                    : "Recently"
+                                }
+                            </small>
+                        </div>
+
+                        <span class="
+                            order-status-badge
                             ${
-                                order.date
-                                || "Recently"
+                                getOrderStatusClass(
+                                    order.status
+                                )
                             }
-                        </small>
+                        ">
+                            ${
+                                order.status
+                                || "Pending"
+                            }
+                        </span>
                     </div>
 
-                    <span class="
-                        order-status-badge
-                        ${
-                            getOrderStatusClass(
-                                order.status
-                            )
-                        }
-                    ">
-                        ${
-                            order.status
-                            || "Pending"
-                        }
-                    </span>
-                </div>
+                    <div class="dashboard-order-body">
+                        <p>
+                            Items:
+                            ${
+                                order.items?.length
+                                || 0
+                            }
+                        </p>
 
-                <div class="dashboard-order-body">
-                    <p>
-                        Items:
-                        ${
-                            order.items?.length
-                            || 0
-                        }
-                    </p>
+                        <strong>
+                            ${
+                                AppUtils.formatPrice(
+                                    order.total || 0
+                                )
+                            }
+                        </strong>
+                    </div>
+                    ${cancelBtnHtml ? `<div style="text-align: right; margin-top: 10px;">${cancelBtnHtml}</div>` : ""}
+                `;
 
-                    <strong>
-                        ${
-                            AppUtils.formatPrice(
-                                order.total || 0
-                            )
-                        }
-                    </strong>
-                </div>
-            `;
-
-            dashboardOrderElements
-                .ordersContainer
-                .appendChild(
-                    card
-                );
-        }
-    );
+                dashboardOrderElements
+                    .ordersContainer
+                    .appendChild(
+                        card
+                    );
+            }
+        );
+    } catch (error) {
+        console.error("Failed to fetch dashboard orders:", error);
+    }
 }
+
+window.cancelDashboardOrder = async (orderId) => {
+    if (!window.confirm("Are you sure you want to cancel this order?")) {
+        return;
+    }
+    
+    try {
+        const response = await AppUtils.apiRequest(`/orders/${orderId}/cancel`, {
+            method: "PATCH"
+        });
+        
+        if (response.success) {
+            AppUtils.notify("Order cancelled successfully", "success");
+            renderDashboardOrders();
+        } else {
+            AppUtils.notify(response.message || "Failed to cancel order", "error");
+        }
+    } catch (error) {
+        AppUtils.notify(error.message || "An error occurred", "error");
+    }
+};
 
 // expose globally
 window.renderDashboardOrders =

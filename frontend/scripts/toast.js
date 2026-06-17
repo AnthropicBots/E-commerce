@@ -132,8 +132,18 @@ function showToast(
             "p"
         );
 
-    text.innerText =
-        message;
+    let displayMessage = message;
+    if (message.toLowerCase().includes("wishlist")) {
+        displayMessage += " (Click to view)";
+        toast.style.cursor = "pointer";
+        toast.addEventListener("click", (e) => {
+            if (e.target !== closeButton) {
+                window.location.href = "wishlist.html";
+            }
+        });
+    }
+
+    text.innerText = displayMessage;
 
     text.style.cssText = `
         margin:0;

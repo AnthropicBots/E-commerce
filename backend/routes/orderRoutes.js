@@ -239,6 +239,13 @@ router.put(
     orderController.updateOrderStatus
 );
 
+// cancel order (user)
+router.patch(
+    "/:id/cancel",
+    authMiddleware,
+    orderController.cancelUserOrder
+);
+
 // route fallback
 router.use(
     (

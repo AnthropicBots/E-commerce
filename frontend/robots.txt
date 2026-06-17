@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Disallow: /admin.html
+Disallow: /dashboard.html
+Disallow: /profile.html
+Disallow: /cart.html
+Disallow: /checkout.html
+Disallow: /success.html
+Disallow: /order.html
+Disallow: /wishlist.html
+
+Sitemap: https://www.bhuvansh.xyz/sitemap.xml
