@@ -608,3 +608,33 @@ body.dark-theme #profile-dropdown button{
     color: #ffffff !important;
     background-color: transparent !important;
 }
+
+.stock-wrapper {
+    margin-top: 6px;
+    margin-bottom: 6px;
+}
+
+/* Stock badge base */
+.stock-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: white;
+    white-space: nowrap;
+}
+
+/* Colors */
+.stock-badge.available {
+    background: #28a745;
+}
+
+.stock-badge.low {
+    background: #ffc107;
+    color: #000;
+}
+
+.stock-badge.out {
+    background: #dc3545;
+}

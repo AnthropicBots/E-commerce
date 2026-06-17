@@ -62,18 +62,52 @@ function createProductCard(
             }
         ).join("");
 
+
+    const stock =
+    Number(product.stock || 0);
+
+let stockBadge = "";
+
+if (stock === 0) {
+    stockBadge =
+        `
+        <span class="stock-badge out">
+            Out of Stock
+        </span>
+        `;
+}
+else if (stock <= 10) {
+    stockBadge =
+        `
+        <span class="stock-badge low">
+            Low Stock
+        </span>
+        `;
+}
+else {
+    stockBadge =
+        `
+        <span class="stock-badge available">
+            In Stock
+        </span>
+        `;
+}
     return `
         <div class="pro fade-in">
             ${
                 product.featured
                     ? `
-                        <span class="product-badge">
-                            Featured
-                        </span>
+                        <div class="badge-container">
+    
+            <span class="product-badge">
+                Featured
+            </span>
+           
+</div>
                     `
                     : ""
             }
-
+            
             <img
                 src="${
                     defaultImage(
@@ -111,7 +145,9 @@ function createProductCard(
                 <div class="star">
                     ${stars}
                 </div>
-
+                <div class="stock-wrapper">
+                    ${stockBadge}
+                </div>
                 <h4>
                     ${
                         formatPrice(
