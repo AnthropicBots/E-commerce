@@ -1,6 +1,13 @@
 // ===== THEME - Apply INSTANTLY before anything loads =====
-if (localStorage.getItem('theme') === 'dark') {
-    document.body.classList.add('dark-theme');
+document.addEventListener("DOMContentLoaded", () => {
+    if (localStorage.getItem('theme') === 'dark') {
+        document.body.classList.add('dark-theme');
+    }
+});
+
+// Prevent browser/session scroll restoration
+if ('scrollRestoration' in history) {
+    history.scrollRestoration = 'manual';
 }
 
 // load component

@@ -5,13 +5,28 @@
 
   /** Returns the current scroll position regardless of scroll container */
   function getScrollTop() {
-    return document.body.scrollTop || 0;
+    return (
+      document.scrollingElement?.scrollTop ||
+      document.documentElement.scrollTop ||
+      document.body.scrollTop ||
+      window.scrollY ||
+      0
+    );
   }
 
   /** Scroll to top — calls both targets so either scroll container responds */
   function scrollToTop() {
-    document.body.scrollTo({ top: 0, behavior: "smooth" });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    });
+  
+    if (document.body.scrollTop > 0) {
+      document.body.scrollTo({
+        top: 0,
+        behavior: "smooth"
+      });
+    }
   }
 
   /** Create and append the button to <body> */
@@ -41,7 +56,7 @@
   function initScrollListener(btn) {
     let ticking = false;
 
-    document.body.addEventListener(
+    window.addEventListener(
       "scroll",
       function () {
         if (!ticking) {

@@ -150,16 +150,8 @@ function saveAuthSession(
         return;
     }
 
-    localStorage.setItem(
-        CONFIG.STORAGE_KEYS.TOKEN,
-        response.accessToken || ""
-    );
-
-    localStorage.setItem(
-        CONFIG.STORAGE_KEYS.REFRESH_TOKEN,
-        response.refreshToken || ""
-    );
-
+    // Tokens are securely stored in HttpOnly cookies by the backend.
+    
     AppUtils.setJSON(
         CONFIG.STORAGE_KEYS.USER,
         response.user || {}
@@ -173,7 +165,7 @@ async function clearAuthSession() {
 
         // invalidate refresh token
         if (
-            AppUtils.getToken()
+            AppUtils.getUser()
         ) {
 
             await logoutUser();
@@ -480,18 +472,7 @@ function initializeAuthUI() {
         return;
     }
 
-    const token =
-        AppUtils.getToken();
-    
-    // invalid token cleanup
-    if (
-        token
-        &&
-        !AppUtils.getUser()
-    ) {
-
-        AppUtils.clearAuthData();
-    }
+    const user = AppUtils.getUser();
 
     const socialUser =
         AppUtils.getJSON(
@@ -500,7 +481,7 @@ function initializeAuthUI() {
         );
 
     if (
-        token
+        user
         || socialUser
     ) {
         authLink.innerHTML =
@@ -585,7 +566,70 @@ document.addEventListener(
     }
 );
 
-// google login 
+// password visibility toggle
+document.querySelectorAll(
+    ".password-toggle"
+).forEach((toggle) => {
+
+    toggle.addEventListener(
+        "click",
+        () => {
+
+            const field =
+                toggle.closest(
+                    ".password-field"
+                );
+
+            const input =
+                field?.querySelector(
+                    "input"
+                );
+
+            if (
+                !input
+            ) {
+                return;
+            }
+
+            const isHidden =
+                input.type === "password";
+
+            input.type =
+                isHidden
+                    ? "text"
+                    : "password";
+
+            toggle.setAttribute(
+                "aria-pressed",
+                String(isHidden)
+            );
+
+            toggle.setAttribute(
+                "aria-label",
+                isHidden
+                    ? "Hide password"
+                    : "Show password"
+            );
+
+            const icon =
+                toggle.querySelector("i");
+
+            if (icon) {
+                icon.classList.toggle(
+                    "fa-eye",
+                    !isHidden
+                );
+
+                icon.classList.toggle(
+                    "fa-eye-slash",
+                    isHidden
+                );
+            }
+        }
+    );
+});
+
+// google login
 elements.googleLogin?.addEventListener(
     "click",
     async () => {

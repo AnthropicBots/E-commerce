@@ -89,15 +89,51 @@
     margin-bottom: 14px;
     font-weight: 600;
     padding: 14px;
+    padding-left: 42px;
     border: 1px solid #eee;
     border-radius: 8px;
     cursor: pointer;
     transition: 0.3s ease;
+    position: relative;
 }
 
 .payment-options label:hover{
     border-color: #088178;
     background: #f8fffe;
+}
+
+/* Hide native radio button */
+.payment-options label input[type="radio"]{
+    display: none;
+}
+
+/* Custom radio circle */
+.payment-options label::before{
+    content: '';
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    border: 2px solid #ddd;
+    border-radius: 50%;
+    background: #fff;
+    transition: 0.3s ease;
+}
+
+/* Selected state — filled dot with white ring */
+.payment-options label:has(input[type="radio"]:checked)::before{
+    background: #088178;
+    border-color: #088178;
+    box-shadow: inset 0 0 0 4px #fff;
+}
+
+/* Highlight selected label */
+.payment-options label:has(input[type="radio"]:checked){
+    border-color: #088178;
+    background: #f0fffe;
+    color: #088178;
 }
 
 #card-details{
@@ -155,36 +191,4 @@
         flex-direction: column;
     }
 
-}
-
-.payment-options input[type="radio"]:checked + span {
-    font-weight: 700;
-    color: #088178;
-}
-
-.payment-options label {
-    position: relative;
-}
-
-.payment-options label input[type="radio"] {
-    display: none;
-}
-
-.payment-options label::before {
-    content: '';
-    position: absolute;
-    left: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 18px;
-    height: 18px;
-    border: 2px solid #ddd;
-    border-radius: 50%;
-    background: #fff;
-    transition: 0.3s ease;
-}
-
-.payment-options input[type="radio"]:checked + span::before {
-    background: #088178;
-    border-color: #088178;
 }

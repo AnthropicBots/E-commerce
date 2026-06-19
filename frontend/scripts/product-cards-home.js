@@ -125,44 +125,40 @@ function createProductCard(
                 <div class="product-actions">
                     <button
                         type="button"
-                        class="view-product-btn"
+                        class="view-product-btn primary-action"
                         data-id="${
                             product.id
                         }"
                     >
                         View
                     </button>
-
                     <button
                         type="button"
-                        class="add-cart-btn"
+                        class="add-cart-btn primary-action"
                         data-id="${
                             product.id
                         }"
                     >
                         Add Cart
                     </button>
-
-                    <button
-    type="button"
-    class="compare-btn"
-    data-id="${
-        product.id
-    }"
->
-    Compare
-</button>
-
-                    
                     <button
                         type="button"
-                        class="wishlist-btn"
+                        class="compare-btn icon-action"
+                        data-id="${product.id}"
+                        aria-label="Compare"
+                        title="Compare"
+                    >
+                        <i class="fas fa-balance-scale"></i>
+                    </button>
+                    <button
+                        type="button"
+                        class="wishlist-btn icon-action"
                         data-id="${product.id}"
                         aria-label="Add to Wishlist"
+                        title="Add to Wishlist"
                     >
                         <i class="${ AppUtils.getWishlist().some(item => String(item.id) === String(product.id)) ? 'fas' : 'far' } fa-heart"></i>
                     </button>
-
                 </div>
             </div>
         </div>
@@ -201,36 +197,26 @@ function renderFeaturedProducts(
 
     // Add stagger indices for scroll animation
     requestAnimationFrame(() => {
-        const cards = homeFeaturedContainer.querySelectorAll('.pro');
+        const cards =
+            homeFeaturedContainer.querySelectorAll(".pro");
+
         cards.forEach((card, i) => {
-            card.setAttribute('data-anim-index', String(i));
+            card.setAttribute(
+                "data-anim-index",
+                String(i)
+            );
         });
 
-        if (typeof initializeScrollAnimations === "function") {
-            initializeScrollAnimations();
-        }
-
-        // Ensure product cards are animated only once per element
-        if (typeof addProductCardAnimations === "function") {
-            addProductCardAnimations('#featured-products');
-        }
-
-        // Ensure above-the-fold cards animate
-        const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        if (!reduce) {
-            cards.forEach(card => {
-                const rect = card.getBoundingClientRect();
-                const inView = rect.top < window.innerHeight * 0.85 && rect.bottom > 0;
-                if (inView) {
-                    card.classList.add('in-view');
-                }
-            });
+        if (
+            typeof addProductCardAnimations ===
+            "function"
+        ) {
+            addProductCardAnimations(
+                "#featured-products"
+            );
         }
     });
 }
-
-
-
 
 // render new arrivals
 function renderNewArrivals(
@@ -264,17 +250,14 @@ function renderNewArrivals(
 
     // Force animations for already-visible cards (above-the-fold)
     requestAnimationFrame(() => {
-        if (typeof initializeScrollAnimations === "function") {
-            initializeScrollAnimations();
+        if (
+            typeof addProductCardAnimations ===
+            "function"
+        ) {
+            addProductCardAnimations(
+                "#new-arrivals-container"
+            );
         }
-        const cards = homeArrivalsContainer.querySelectorAll('.pro');
-        cards.forEach(card => {
-            const rect = card.getBoundingClientRect();
-            const inView = rect.top < window.innerHeight * 0.85 && rect.bottom > 0;
-            if (inView) {
-                card.classList.add('in-view');
-            }
-        });
     });
 }
 

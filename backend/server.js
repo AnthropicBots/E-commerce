@@ -1,6 +1,7 @@
 const express = require("express");
 
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 
 const dotenv = require("dotenv");
 
@@ -108,22 +109,25 @@ app.use(
 
 // allowed origins
 const allowedOrigins = [
+  // localhost
   "http://localhost:5500",
-
   "http://127.0.0.1:5500",
 
   "http://localhost:5501",
-
   "http://127.0.0.1:5501",
 
   "http://localhost:5502",
   "http://127.0.0.1:5502",
 
+  // local network testing
+  "http://172.18.208.1:5500",
+  "http://172.18.208.1:5501",
+  "http://172.18.208.1:5502",
+
   FRONTEND_URL,
 
-  // vercel deployments
+  // production
   "https://e-commerce-git-main-bhuvanshs-projects.vercel.app",
-
   "https://www.bhuvansh.xyz",
 ];
 
@@ -136,7 +140,9 @@ app.use(
         return callback(null, true);
       }
 
-      const isAllowed = allowedOrigins.includes(origin);
+      const isAllowed =
+        allowedOrigins.includes(origin) ||
+        /^http:\/\/172\.\d+\.\d+\.\d+:\d+$/.test(origin);
 
       if (isAllowed) {
         return callback(null, true);
@@ -159,6 +165,8 @@ app.use(
     limit: "1mb",
   }),
 );
+
+app.use(cookieParser());
 
 app.use(
   express.urlencoded({

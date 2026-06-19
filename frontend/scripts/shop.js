@@ -415,17 +415,51 @@ function setupProductCard(
                             item.id
                     );
 
-                if (
-                    existingIndex >= 0
-                ) {
-                    cart[
-                        existingIndex
-                    ].qty += 1;
-                } else {
-                    cart.push(
-                        item
-                    );
-                }
+                    const stock =
+                        Number(product.stock) || 0;
+
+                    if (
+                        existingIndex >= 0
+                    ) {
+
+                        if (
+                            cart[existingIndex].qty + 1 >
+                            stock
+                        ) {
+
+                            AppUtils.notify(
+                                `Only ${stock} item(s) available`,
+                                "error"
+                            );
+
+                            return;
+                        }
+
+                        cart[
+                            existingIndex
+                        ].qty += 1;
+
+                    } else {
+
+                        if (
+                            stock <= 0
+                        ) {
+
+                            AppUtils.notify(
+                                "Product out of stock",
+                                "error"
+                            );
+
+                            return;
+                        }
+
+                        item.stock =
+                            stock;
+
+                        cart.push(
+                            item
+                        );
+                    }
 
                 AppUtils.saveCart(
                     cart

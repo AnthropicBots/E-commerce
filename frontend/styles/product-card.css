@@ -116,14 +116,12 @@ product section
 /* product action buttons */
 .product-actions{
     display: flex;
-    gap: 10px;
+    gap: 8px;
     margin-top: 15px;
     width: 100%;
     align-items: center;
 }
-
-.product-actions button,
-.product-actions a{
+.product-actions .primary-action{
     flex: 1;
     border: none;
     padding: 12px;
@@ -134,6 +132,27 @@ product section
     background: var(--primary-color);
     color: white;
     transition: 0.3s ease;
+    font-size: 0.85rem;
+}
+.product-actions .icon-action{
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    border: 1px solid rgba(8,129,120,0.25);
+    border-radius: 8px;
+    cursor: pointer;
+    background: var(--white);
+    color: var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: 0.3s ease;
+    padding: 0;
+}
+.product-actions .icon-action:hover{
+    background: var(--primary-color);
+    color: var(--white);
+    transform: translateY(-2px);
 }
 
 /* product badge */
@@ -185,13 +204,14 @@ product section
         max-width: 320px;
     }
 
-    .product-actions{
-        flex-direction: column;
+.product-actions{
+        flex-wrap: wrap;
+    }
+    .product-actions .primary-action{
+        flex: 1 1 calc(50% - 4px);
     }
 }
-
-.product-actions button:hover,
-.product-actions a:hover{
+.product-actions .primary-action:hover{
     opacity: 0.9;
     transform: translateY(-2px);
 }

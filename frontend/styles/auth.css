@@ -41,6 +41,46 @@
     font-size: 14px;
 }
 
+/* password field with visibility toggle */
+.password-field{
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.password-field input{
+    margin-bottom: 0;
+    padding-right: 46px;
+}
+
+.password-toggle{
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    padding: 4px;
+    color: #555;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.password-toggle:hover{
+    color: #088178;
+}
+
+body.dark-theme .password-toggle{
+    color: #aaa;
+}
+
+body.dark-theme .password-toggle:hover{
+    color: #88c9c0;
+}
+
 .auth-btn{
     background: #088178;
     color: #fff;

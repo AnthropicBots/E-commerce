@@ -1,9 +1,12 @@
 # Node modules
 node_modules/
 
-# Environment variables
-backend/.env
-frontend/.env
+# Environment variables — never commit real secrets.
+# Ignores .env and all variants in every directory, but keeps
+# the placeholder template files (.env.example) tracked.
+.env
+.env.*
+!.env.example
 
 # System files
 .DS_Store
