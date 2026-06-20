@@ -48,6 +48,8 @@ const wishlistRoutes =
         "./routes/wishlistRoutes"
     );
 
+const pincodeRoutes = require("./routes/pincodeRoutes");
+
 // app
 const app = express();
 
@@ -257,6 +259,8 @@ app.use(
     "/api/wishlist",
     wishlistRoutes
 );
+
+app.use("/api/pincode", pincodeRoutes);
 
 // 404 handler
 app.use((req, res) => {

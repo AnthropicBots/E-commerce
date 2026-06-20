@@ -210,3 +210,25 @@ ON wishlist_items(user_id);
 
 CREATE INDEX idx_wishlist_items_product
 ON wishlist_items(product_id);
+
+-- Serviceable pincodes for delivery availability check
+CREATE TABLE IF NOT EXISTS serviceable_pincodes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    pincode VARCHAR(6) NOT NULL UNIQUE,
+    city VARCHAR(100),
+    state VARCHAR(100),
+    eta_days INT NOT NULL DEFAULT 5,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+INSERT INTO serviceable_pincodes (pincode, city, state, eta_days) VALUES
+('110001', 'New Delhi', 'Delhi', 2),
+('400001', 'Mumbai', 'Maharashtra', 2),
+('560001', 'Bengaluru', 'Karnataka', 3),
+('302001', 'Jaipur', 'Rajasthan', 3),
+('700001', 'Kolkata', 'West Bengal', 4),
+('600001', 'Chennai', 'Tamil Nadu', 4),
+('500001', 'Hyderabad', 'Telangana', 3),
+('380001', 'Ahmedabad', 'Gujarat', 4),
+('411001', 'Pune', 'Maharashtra', 3),
+('226001', 'Lucknow', 'Uttar Pradesh', 5);

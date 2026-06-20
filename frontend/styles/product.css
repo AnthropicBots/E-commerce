@@ -539,3 +539,60 @@ body.dark-theme .no-products {
 body.dark-theme .review-container p {
     color: #aaaaaa;
 }
+
+/* Pincode Availability Check */
+
+.pincode-check {
+    margin: 16px 0;
+}
+
+.pincode-check h4 {
+    margin-bottom: 8px;
+}
+
+.pincode-input-row {
+    display: flex;
+    gap: 8px;
+}
+
+#pincode-input {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    width: 180px;
+    font-size: 14px;
+}
+
+#pincode-check-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: none;
+    background-color: #088178;
+    color: #fff;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+#pincode-check-btn:hover {
+    background-color: #066b63;
+}
+
+.pincode-success {
+    color: #1a7f37;
+    margin-top: 8px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.pincode-error {
+    color: #cf222e;
+    margin-top: 8px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.pincode-loading {
+    color: #666;
+    margin-top: 8px;
+    font-size: 14px;
+}

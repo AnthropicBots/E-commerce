@@ -127,46 +127,4 @@ homepage product grid fix
 
 /* =============================
 Password Strength Meter (Issue #166)
-============================= */
-#password-strength-container {
-    margin-top: 8px;
-}
-
-#password-strength-bar {
-    height: 6px;
-    border-radius: 4px;
-    background: #e0e0e0;
-    overflow: hidden;
-}
-
-#password-strength-fill {
-    height: 100%;
-    width: 0%;
-    border-radius: 4px;
-    transition: width 0.3s ease;
-}
-
-.strength-weak {
-    background: #ff4d4d;
-}
-
-.strength-medium {
-    background: #ffa500;
-}
-
-.strength-strong {
-    background: #28a745;
-}
-
-#password-strength-text {
-    font-size: 0.85rem;
-    margin-top: 4px;
-    font-weight: 500;
-}
-
-#password-strength-tips {
-    font-size: 0.8rem;
-    color: #888;
-    margin-top: 4px;
-    min-height: 20px;
 }

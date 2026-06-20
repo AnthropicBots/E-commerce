@@ -130,7 +130,18 @@ async function fetchProducts(
             );
 
         if (!data.success) {
-            renderEmptyState(data.message || "Failed to load products.");
+            const normCat = normalizeCategoryString(currentCategory);
+            const fallback = normCat === 'all'
+                ? fallbackProducts
+                : fallbackProducts.filter(p => categoriesMatch(p.category, currentCategory));
+            if (fallback.length > 0) {
+                currentProducts = fallback;
+                totalPages = 1;
+                applySorting();
+                renderPagination();
+            } else {
+                renderEmptyState("No products found.");
+            }
             return;
         }
 
@@ -146,16 +157,15 @@ async function fetchProducts(
                 ? fallbackProducts
                 : fallbackProducts.filter(p => categoriesMatch(p.category, currentCategory));
 
+            totalPages =
+                Number(
+                    data.totalPages || 1
+                );
             if (fallback.length > 0) {
-                currentProducts = fallback;
-                totalPages = 1;
+                    currentProducts = fallback;
+                    totalPages = 1;
+                }
             }
-        }
-
-        totalPages =
-            Number(
-                data.totalPages || 1
-            );
 
         // sorting
         applySorting();
@@ -164,15 +174,22 @@ async function fetchProducts(
         renderPagination();
 
     } catch (error) {
-
         console.error(
             "SHOP FETCH ERROR:",
             error
         );
-
-        renderEmptyState(
-            "Failed to load products."
-        );
+        const normCat = normalizeCategoryString(currentCategory);
+        const fallback = normCat === 'all'
+            ? fallbackProducts
+            : fallbackProducts.filter(p => categoriesMatch(p.category, currentCategory));
+        if (fallback.length > 0) {
+            currentProducts = fallback;
+            totalPages = 1;
+            applySorting();
+            renderPagination();
+        } else {
+            renderEmptyState("No products found.");
+        }
     }
 }
 

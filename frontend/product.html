@@ -507,6 +507,33 @@
 
             </div>
 
+            <!-- Pincode Availability Check -->
+
+            <div class="pincode-check">
+
+                <h4>
+                    Check Delivery Availability
+                </h4>
+
+                <div class="pincode-input-row">
+
+                    <input
+                        type="text"
+                        id="pincode-input"
+                        maxlength="6"
+                        placeholder="Enter 6-digit pincode"
+                    >
+
+                    <button id="pincode-check-btn">
+                        Check
+                    </button>
+
+                </div>
+
+                <p id="pincode-result"></p>
+
+            </div>
+
             <!-- Delivery -->
 
             <div class="delivery-box">
@@ -748,6 +775,11 @@
     <script
         defer
         src="scripts/related-products.js"
+    ></script>
+
+     <script
+        defer
+        src="scripts/pincode.js"
     ></script>
 
     <!-- Main Bootstrap -->
