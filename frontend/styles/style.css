@@ -107,7 +107,6 @@ homepage product grid fix
 }
 
 @media(max-width:799px){
-
     #product1 .pro,
     #new-arrivals .pro,
     #recently-viewed .pro{
@@ -116,7 +115,6 @@ homepage product grid fix
 }
 
 @media(max-width:477px){
-
     #product1 .pro,
     #new-arrivals .pro,
     #recently-viewed .pro{

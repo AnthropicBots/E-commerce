@@ -271,3 +271,39 @@ body.dark-theme .pro .des span {
 body.dark-theme .pro .des i {
     color: rgb(243, 181, 25);
 }
+/* Syling for men's and women's section  */
+.quantity-controller {
+    display:flex !important;
+    align-items: center;
+    justify-content: center;
+    background-color: #088178;
+    border-radius: 4px;
+    padding: 10px 15px;
+    min-width: 120px;
+    transition: all 0.3s ease;
+}
+
+.qty-text{
+    color: #ffffff !important;
+    font-weight: 600;
+    font-size: 14ox;
+    margin: 0 15px;
+    user-select: none;
+}
+
+.qty-btn{
+    background: transparent !important;
+    border: none !important;
+    color: #ffffff !important;
+    cursor: pointer;
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 5px;
+}
+
+.quantity-controller .hidden {
+    display: none !important;
+}
+
