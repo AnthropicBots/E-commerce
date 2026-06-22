@@ -33,7 +33,8 @@ const createOrder =
                 address,
                 paymentMethod,
                 items,
-                total
+                total,
+                promoCode
             } = req.body;
 
             // validation
@@ -132,7 +133,8 @@ const createOrder =
                         full_address: sanitizeString(address.fullAddress),
                         payment_method: sanitizeString(paymentMethod).toLowerCase(),
                         total: safeNumber(total),
-                        items
+                        items,
+                        promo_code: promoCode ? sanitizeString(promoCode) : null
                     }
                 );
 

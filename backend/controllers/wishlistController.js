@@ -96,7 +96,7 @@ const wishlistController = {
             }
 
             const [result] = await promisePool.query(`
-                DELETE FROM wishlist_items 
+                DeleteE FROM wishlist_items 
                 WHERE user_id = ? AND product_id = ?
             `, [userId, productId]);
 
@@ -118,6 +118,86 @@ const wishlistController = {
                 success: false,
                 message: "Failed to remove from wishlist"
             });
+        }
+    },
+
+    // Replace the user's entire wishlist with the posted items
+    syncWishlist: async (req, res) => {
+        const connection = await promisePool.getConnection();
+
+        try {
+            const userId = req.user.id;
+            const items = Array.isArray(req.body.items)
+                ? req.body.items
+                : [];
+
+            // normalize to a unique set of product ids
+            const productIds = new Set();
+
+            for (const item of items) {
+                if (!item) continue;
+
+                const productId = safeNumber(
+                    item.productId != null ? item.productId : item.id
+                );
+
+                if (!productId || productId < 1) continue;
+
+                productIds.add(productId);
+            }
+
+            await connection.beginTransaction();
+
+            // clear existing wishlist
+            await connection.query(
+                "DELETE FROM wishlist_items WHERE user_id = ?",
+                [userId]
+            );
+
+            if (productIds.size) {
+                const ids = [...productIds];
+
+                // keep only products that still exist
+                const [products] = await connection.query(
+                    `SELECT id FROM products WHERE id IN (${ids.map(() => "?").join(",")})`,
+                    ids
+                );
+
+                const validIds = products.map((p) => p.id);
+
+                if (validIds.length) {
+                    const placeholders = validIds
+                        .map(() => "(?, ?)")
+                        .join(",");
+
+                    const values = [];
+                    validIds.forEach((productId) => {
+                        values.push(userId, productId);
+                    });
+
+                    await connection.query(
+                        `INSERT INTO wishlist_items (user_id, product_id) VALUES ${placeholders}`,
+                        values
+                    );
+                }
+            }
+
+            await connection.commit();
+
+            return res.status(200).json({
+                success: true,
+                message: "Wishlist synced"
+            });
+
+        } catch (error) {
+            await connection.rollback();
+            console.error("SYNC WISHLIST ERROR:", error);
+            return res.status(500).json({
+                success: false,
+                message: "Failed to sync wishlist"
+            });
+        } finally {
+            connection.release();
         }
     }
 };

@@ -148,7 +148,21 @@ const AnimationController = (() => {
 })();
 
 function initializeScrollAnimations() {
-  if (AnimationController.prefersReduced) return;
+  // Reduced-motion: skip animations but make all flagged content visible,
+  // otherwise the opacity:0 sections would stay permanently blank.
+  if (AnimationController.prefersReduced) {
+    document
+      .querySelectorAll(".animate-on-scroll")
+      .forEach((el) => el.classList.add("in-view"));
+    return;
+  }
+
+  // Register every section flagged with .animate-on-scroll so the section
+  // wrappers themselves get revealed. Previously only their children were
+  // observed, leaving #feature / #product1 / #new-arrivals stuck at opacity:0.
+  AnimationController.registerGroup(".animate-on-scroll", {
+    variant: "fade-up",
+  });
 
   AnimationController.registerGroup("#feature .fe-box", {
     variant: "zoom",

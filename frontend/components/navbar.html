@@ -4,56 +4,45 @@
         <img src="assets/images/logo.png" class="logo" alt="AnthropicBots Logo" loading="lazy">
     </a>
 
+    <!-- Search Autocomplete Container -->
+    <div class="search-container" style="position: relative; margin-right: 16px;">
+        <input type="text" id="searchInput" placeholder="Search products..." autocomplete="off" class="search-input">
+        <div id="suggestionsDropdown" class="suggestions-dropdown" style="display: none;"></div>
+    </div>
+
     <!-- Desktop Navigation -->
-    <nav class="desktop-nav">
-        <ul id="navbar-links">
-            <li><a href="index.html">Home</a></li>
-            <li><a href="shop.html">Shop</a></li>
-            <li><a href="blog.html">Blog</a></li>
-            <li><a href="about.html">About</a></li>
-            <li><a href="contact.html">Contact</a></li>
+   <nav class="desktop-nav">
 
-            <!-- Wishlist -->
-            <li class="wishlist-link">
-                <a href="wishlist.html" aria-label="Wishlist" style="display: flex; align-items: center; gap: 6px;">
-                    <i class="far fa-heart"></i>
-                </a>
-            </li>
+    <ul id="navbar-links" class="nav-links">        
+        <li><a href="index.html">Home</a></li>
+        <li><a href="shop.html">Shop</a></li>
+        <li><a href="blog.html">Blog</a></li>
+        <li><a href="about.html">About</a></li>
+        <li><a href="contact.html">Contact</a></li>
+        <li class="wishlist-link">
+            <a href="wishlist.html" aria-label="Wishlist">
+                <i class="far fa-heart"></i>
+            </a>
+        </li>
 
-            <!-- Cart -->
-            <li class="cart-link">
-                <a href="cart.html" aria-label="Shopping Cart">
-                    <i class="far fa-shopping-bag"></i>
-                    <span id="cart-badge">0</span>
-                </a>
-            </li>
+        <li class="cart-link">
+            <a href="cart.html" aria-label="Shopping Cart">
+                <i class="far fa-shopping-bag"></i>
+                <span id="cart-badge">0</span>
+            </a>
+        </li>
 
-            <!-- Profile -->
-            <li class="profile-wrapper">
-                <a href="signin.html" id="auth-link">
-                    Sign In <i class="fas fa-caret-down" style="font-size: 12px; margin-left: 3px;"></i>
-                </a>
-                <!-- Dropdown -->
-                <div id="profile-dropdown">
-                    <a href="profile.html"><i class="fas fa-user"></i> My Profile</a>
-                    <a href="dashboard.html#orders"><i class="fas fa-shopping-bag"></i> Orders</a>
-                    <a href="dashboard.html#wishlist"><i class="fas fa-heart"></i> Wishlist</a>
-                    <a href="dashboard.html#settings"><i class="fas fa-cog"></i> Settings</a>
-                    <a href="dashboard.html#cart"><i class="fas fa-shopping-cart"></i> Saved Cart</a>
-                    <button id="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</button>
-                </div>
-            </li>
-            
+        <li class="profile-wrapper">
+            <a href="signin.html" id="auth-link">Sign In</a>
+        </li>
 
- <li class="theme-toggle-item">
-    <button id="theme-toggle" aria-label="Toggle theme">
-        <span id="theme-icon">🌙</span>
-    </button>
-
- </li>
- 
-        </ul>
-    </nav>
+        <li class="theme-toggle-item">
+            <button id="theme-toggle" aria-label="Toggle theme">
+                <span id="theme-icon">🌙</span>
+            </button>
+        </li>
+    </ul>
+</nav>
 
     <!-- Mobile Menu Button -->
     <button id="mobile-menu-btn" aria-label="Toggle Navigation">

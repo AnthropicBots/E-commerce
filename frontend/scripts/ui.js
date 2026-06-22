@@ -194,6 +194,20 @@ function updateCartCount() {
             0
         );
 
+    // Update mobile cart badge
+    const mobileBadge = document.getElementById('mobile-cart-badge');
+    if (mobileBadge) {
+        mobileBadge.innerText = total;
+        mobileBadge.style.display = total > 0 ? 'inline-block' : 'none';
+    }
+
+    // Update desktop cart badge
+    const desktopBadge = document.getElementById('cart-badge');
+    if (desktopBadge) {
+        desktopBadge.innerText = total;
+        desktopBadge.style.display = total > 0 ? 'inline-block' : 'none';
+    }
+
     let badge =
         document.getElementById(
             "cart-count"
@@ -258,20 +272,29 @@ function updateCartCount() {
         total > 0
             ? "block"
             : "none";
+}
 
-    // Update mobile cart badge
-    const mobileBadge = document.getElementById('mobile-cart-badge');
-    if (mobileBadge) {
-        mobileBadge.innerText = total;
-        mobileBadge.style.display = total > 0 ? 'inline-block' : 'none';
+// wishlist count badge
+function updateWishlistCount() {
+    const total =
+        AppUtils.getWishlist().length;
+
+    const badge =
+        document.getElementById(
+            "wishlist-badge"
+        );
+
+    if (!badge) {
+        return;
     }
 
-    // Update desktop cart badge
-    const desktopBadge = document.getElementById('cart-badge');
-    if (desktopBadge) {
-        desktopBadge.innerText = total;
-        desktopBadge.style.display = total > 0 ? 'inline-block' : 'none';
-    }
+    badge.innerText =
+        total;
+
+    badge.style.display =
+        total > 0
+            ? "inline-block"
+            : "none";
 }
 
 let uiInitialized = false;
@@ -284,6 +307,7 @@ function initializeUI() {
     initializeStickyHeader();
     initializeRippleEffect();
     updateCartCount();
+    updateWishlistCount();
     initializeThemeToggle();
     uiInitialized = true;
 }
@@ -300,6 +324,9 @@ document.addEventListener(
 // expose globally
 window.updateCartCount =
     updateCartCount;
+
+window.updateWishlistCount =
+    updateWishlistCount;
 
 // Theme Toggle
 function initializeThemeToggle() {

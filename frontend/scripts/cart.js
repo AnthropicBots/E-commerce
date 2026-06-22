@@ -239,6 +239,9 @@ function renderCart() {
     cart =
         AppUtils.getCart();
 
+    const wishlist =
+        AppUtils.getWishlist();
+
     if (
        !AppUtils.safeArray(
            cart
@@ -264,6 +267,10 @@ function renderCart() {
             item,
             index
         ) => {
+
+            const inWishlist = wishlist.some(
+                (wItem) => String(wItem.id) === String(item.id)
+            );
 
             const price =
                 safePrice(
@@ -371,10 +378,10 @@ function renderCart() {
 
                         <button
                             type="button"
-                            class="move-wishlist-btn"
+                            class="move-wishlist-btn${inWishlist ? ' in-wishlist' : ''}"
                             data-index="${index}"
                         >
-                            Move to Wishlist
+                            ${inWishlist ? 'Remove from Wishlist' : 'Add to Wishlist'}
                         </button>
 
                         <button
@@ -553,49 +560,51 @@ document.addEventListener(
                 return;
             }
 
-            const wishlist =
+            const itemToMove = cart[index];
+            let wishlist =
                 AppUtils.getWishlist();
 
             const exists =
-                wishlist.find(
+                wishlist.some(
                     (item) =>
-
-                        item.id ===
-                        cart[index].id
-                        &&
-                        item.color ===
-                        cart[index].color
-                        &&
-                        item.size ===
-                        cart[index].size
+                        String(item.id) === String(itemToMove.id)
                 );
 
             if (
-                !exists
+                exists
             ) {
+                // Remove from wishlist
+                wishlist = wishlist.filter(
+                    (item) =>
+                        String(item.id) !== String(itemToMove.id)
+                );
+                // saveWishlist persists locally and syncs to the backend
+                AppUtils.saveWishlist(wishlist);
 
-                wishlist.push(
-                    cart[index]
+                AppUtils.notify(
+                    "Removed from wishlist 🤍",
+                    "success"
+                );
+            } else {
+                // Add to wishlist
+                wishlist.push({
+                    id: itemToMove.id,
+                    name: itemToMove.name,
+                    price: itemToMove.price,
+                    image: itemToMove.image || itemToMove.img,
+                    img: itemToMove.image || itemToMove.img,
+                    brand: itemToMove.brand || "Brand"
+                });
+                // saveWishlist persists locally and syncs to the backend
+                AppUtils.saveWishlist(wishlist);
+
+                AppUtils.notify(
+                    "Added to wishlist ❤️",
+                    "success"
                 );
             }
 
-            AppUtils.saveWishlist(
-                wishlist
-            );
-
-            cart.splice(
-                index,
-                1
-            );
-
-            saveCart();
-
             renderCart();
-
-            AppUtils.notify(
-                "Moved to wishlist ❤️",
-                "success"
-            );
         }
     }
 );

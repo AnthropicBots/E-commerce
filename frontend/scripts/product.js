@@ -372,6 +372,11 @@ function initializeProductPage() {
         product
     );
 
+    // clamp the quantity selector to this product's stock on load
+    if (typeof window.syncProductQtyControls === "function") {
+        window.syncProductQtyControls();
+    }
+
     if (
         typeof loadProductReviews ===
         "function"
@@ -417,6 +422,11 @@ function addProductToCart(
         !product
     ) {
 
+        return;
+    }
+
+    // cart is account-bound: guests must sign in first
+    if (!AppUtils.requireLogin("Please sign in to add items to your cart")) {
         return;
     }
 
@@ -527,37 +537,11 @@ function addProductToCart(
 }
 
 // setup cart actions
-function setupCartActions(
-    product
-) {
-
-    if (
-        productElements.addToCartBtn
-    ) {
-
-        productElements.addToCartBtn.onclick =
-            () => {
-
-                addProductToCart(
-                    product
-                );
-            };
-    }
-
-    if (
-        productElements.buyNowBtn
-    ) {
-
-        productElements.buyNowBtn.onclick =
-            () => {
-
-                addProductToCart(
-                    product,
-                    true
-                );
-            };
-    }
-}
+// NOTE: Add to Cart / Buy Now are handled by product-actions.js, which
+// captures the selected size/color and validates against stock. Binding
+// them here too caused every click to add the item twice (and fire two
+// toasts), so this is intentionally a no-op.
+function setupCartActions() {}
 
 // render product
 function renderProduct(
@@ -697,47 +681,41 @@ function renderProduct(
         `${product.name} | AnthropicBots E-Commerce`;
 }
 
-// image zoom
 function initializeImageZoom() {
 
-    if (
-        !productElements.mainImage
-    ) {
+    const mainImage = productElements.mainImage;
 
+    if (!mainImage) {
+        return;
+    }
+
+    const container = document.getElementById("zoom-container");
+    if (!container) {
         return;
     }
 
     // avoid duplicate listeners
-    if (
-        productElements.mainImage.dataset.zoomReady
-    ) {
-
+    if (mainImage.dataset.zoomReady) {
         return;
     }
 
-    productElements.mainImage.dataset.zoomReady =
-        "true";
+    mainImage.dataset.zoomReady = "true";
 
-    productElements.mainImage.style.transition =
-        "0.3s ease";
+    container.addEventListener("mousemove", (e) => {
+        const rect = container.getBoundingClientRect();
+        
+        // Calculate cursor position as a percentage
+        const x = ((e.clientX - rect.left) / rect.width) * 100;
+        const y = ((e.clientY - rect.top) / rect.height) * 100;
 
-    productElements.mainImage.addEventListener(
-        "mouseenter",
-        () => {
+        mainImage.style.transformOrigin = `${x}% ${y}%`;
+        mainImage.style.transform = "scale(2.5)";
+    });
 
-            productElements.mainImage.style.transform =
-                "scale(1.05)";
-        }
-    );
-
-    productElements.mainImage.addEventListener(
-        "mouseleave",
-        () => {
-
-            productElements.mainImage.style.transform =
-                "scale(1)";
-        }
-    );
+    container.addEventListener("mouseleave", () => {
+        mainImage.style.transformOrigin = "center center";
+        mainImage.style.transform = "scale(1)";
+    });
 }
 
 // gallery
@@ -783,6 +761,36 @@ function initializeProductGallery(
 }
 
 // quantity controls
+// read the live available stock (updated per variant in product-variants.js)
+function getStockCap() {
+    const raw = productElements.variantStock
+        ? parseInt(productElements.variantStock.innerText, 10)
+        : NaN;
+
+    // no numeric stock shown -> don't cap
+    return isNaN(raw) ? Infinity : raw;
+}
+
+// clamp the quantity to [1, stock] and enable/disable the +/- buttons
+function syncQtyControls() {
+    if (!productElements.qtyInput) {
+        return;
+    }
+
+    const cap = getStockCap();
+    const qty = Math.max(1, Math.min(cap, safeQty(productElements.qtyInput.value)));
+
+    productElements.qtyInput.value = qty;
+
+    if (productElements.plusBtn) {
+        productElements.plusBtn.disabled = qty >= cap;
+    }
+
+    if (productElements.minusBtn) {
+        productElements.minusBtn.disabled = qty <= 1;
+    }
+}
+
 if (
     productElements.plusBtn
 ) {
@@ -790,14 +798,9 @@ if (
     productElements.plusBtn.addEventListener(
         "click",
         () => {
-
             productElements.qtyInput.value =
-                Math.min(
-                    10,
-                    safeQty(
-                        productElements.qtyInput.value
-                    ) + 1
-                );
+                safeQty(productElements.qtyInput.value) + 1;
+            syncQtyControls();
         }
     );
 }
@@ -809,17 +812,15 @@ if (
     productElements.minusBtn.addEventListener(
         "click",
         () => {
-
             productElements.qtyInput.value =
-                Math.max(
-                    1,
-                    safeQty(
-                        productElements.qtyInput.value
-                    ) - 1
-                );
+                safeQty(productElements.qtyInput.value) - 1;
+            syncQtyControls();
         }
     );
 }
+
+// expose so the variant switcher can re-clamp when stock changes
+window.syncProductQtyControls = syncQtyControls;
 
 // keyboard accessibility
 document.addEventListener(

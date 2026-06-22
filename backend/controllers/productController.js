@@ -10,11 +10,9 @@ const {
     safeArray
 } = require("../utils/helpers");
 
-// get all products
+// ---------- Get all products ----------
 const getProducts = async (req, res) => {
-
     try {
-
         const {
             page,
             limit,
@@ -41,12 +39,9 @@ const getProducts = async (req, res) => {
 
         // category filter (case/format-insensitive)
         if (req.query.category) {
-
-            // normalize by removing hyphens/spaces and comparing lowercase
             conditions.push(
                 "LOWER(REPLACE(REPLACE(category, '-', ''), ' ', '')) = LOWER(REPLACE(REPLACE(?, '-', ''), ' ', ''))"
             );
-
             params.push(
                 sanitizeString(
                     req.query.category
@@ -58,7 +53,6 @@ const getProducts = async (req, res) => {
         if (
             req.query.featured === "true"
         ) {
-
             conditions.push(
                 "featured = 1"
             );
@@ -66,17 +60,14 @@ const getProducts = async (req, res) => {
 
         // search filter
         if (search) {
-
             conditions.push(
                 "name LIKE ?"
             );
-
             params.push(search);
         }
 
         // build where clause
         if (conditions.length) {
-
             baseQuery += `
                 WHERE ${conditions.join(" AND ")}
             `;
@@ -156,19 +147,15 @@ const getProducts = async (req, res) => {
             });
 
     } catch (error) {
-
         console.error(
             "GET PRODUCTS ERROR:"
         );
-
         console.error(
             error
         );
-
         console.error(
             "STACK:"
         );
-
         console.error(
             error.stack
         );
@@ -182,7 +169,7 @@ const getProducts = async (req, res) => {
     }
 };
 
-// get single product
+// ---------- Get single product ----------
 const getSingleProduct = async (req, res) => {
     const id =
         safeInteger(
@@ -236,7 +223,7 @@ const getSingleProduct = async (req, res) => {
     }
 };
 
-// create product
+// ---------- Create product ----------
 const createProduct = async (req, res) => {
     const {
         name,
@@ -307,7 +294,7 @@ const createProduct = async (req, res) => {
     }
 };
 
-// update product
+// ---------- Update product ----------
 const updateProduct = async (req, res) => {
     const id =
         safeInteger(
@@ -406,8 +393,8 @@ const updateProduct = async (req, res) => {
     }
 };
 
-// delete product
-const deleteProduct = async (req, res) => {
+// Deletee product
+const DeleteeProduct = async (req, res) => {
     const id =
         safeInteger(
             req.params.id
@@ -422,7 +409,7 @@ const deleteProduct = async (req, res) => {
             });
     }
 
-    const query = "DELETE FROM products WHERE id = ?";
+    const query = "DeleteE FROM products WHERE id = ?";
 
     try {
         const [result] = await db.query(query, [id]);
@@ -436,7 +423,7 @@ const deleteProduct = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            message: "Product deleted successfully"
+            message: "Product Deleteed successfully"
         });
     } catch (error) {
         console.error(error);
@@ -448,10 +435,27 @@ const deleteProduct = async (req, res) => {
     }
 };
 
+// ---------- Get product suggestions for autocomplete (Issue #165) ----------
+const getProductSuggestions = async (req, res) => {
+    const keyword = req.query.q;
+    if (!keyword || keyword.trim() === '') {
+        return res.json([]);
+    }
+    const searchTerm = `%${keyword}%`;
+    const query = `SELECT id, name FROM products WHERE name LIKE ? LIMIT 10`;
+    try {
+        const [results] = await db.query(query, [searchTerm]);
+        res.json(results);
+    } catch (err) {
+        console.error("Suggestions error:", err);
+        res.status(500).json({ success: false, message: "Database error" });
+    }
+};
+
 module.exports = {
     getProducts,
     getSingleProduct,
     createProduct,
     updateProduct,
-    deleteProduct
+    DeleteeProduct
 };

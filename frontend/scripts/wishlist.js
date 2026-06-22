@@ -94,13 +94,6 @@ function renderWishlist() {
                         </p>
                         <div class="wishlist-buttons">
                             <button
-                                class="add-cart-btn"
-                                data-index="${index}"
-                            >
-                                <i class="fas fa-shopping-cart"></i>
-                                Add To Cart
-                            </button>
-                            <button
                                 class="remove-btn"
                                 data-index="${index}"
                             >
@@ -145,39 +138,6 @@ function renderWishlist() {
 
 // wishlist listeners
 function attachWishlistEventListeners() {
-    document
-        .querySelectorAll(
-            ".add-cart-btn"
-        )
-        .forEach((btn) => {
-            btn.addEventListener(
-                "click",
-                async (event) => {
-                    event.stopPropagation();
-                    const button =
-                        event.target.closest(
-                            "button"
-                        );
-
-                    if (
-                        !button
-                    ) {
-                        return;
-                    }
-
-                    const index =
-                        parseInt(
-                            button.dataset.index,
-                            10
-                        );
-
-                    await addToCartFromWishlist(
-                        index
-                    );
-                }
-            );
-        });
-
     document
         .querySelectorAll(
             ".remove-btn"
@@ -230,6 +190,7 @@ async function removeWishlist(
         1
     );
 
+    // saveWishlist persists locally and syncs the whole list to the backend
     AppUtils.saveWishlist(
         wishlist
     );
@@ -240,11 +201,11 @@ async function removeWishlist(
         "success"
     );
 
-    const token =
-        AppUtils.getToken();
+    const user =
+        AppUtils.getUser();
 
     if (
-        token
+        user
     ) {
         try {
             await AppUtils.apiRequest(
@@ -268,47 +229,6 @@ async function removeWishlist(
     }
 }
 
-// add to cart
-async function addToCartFromWishlist(
-    index
-) {
-    if (
-        !wishlist[index]
-    ) {
-        return;
-    }
-
-    const product =
-        wishlist[index];
-
-    const item = {
-        id:
-            product.id,
-        name:
-            product.name,
-        price:
-            parseFloat(
-                product.price
-            ) || 0,
-        img:
-            product.image ||
-            product.img,
-        qty: 1
-    };
-
-    // prevent duplicates
-    const existingIndex =
-        cart.findIndex(
-            (p) =>
-                p.id === item.id
-        );
-
-    if (
-        existingIndex >= 0
-    ) {
-        cart[
-            existingIndex
-        ].qty += 1;
 
     } else {
         cart.push(
@@ -325,11 +245,11 @@ async function addToCartFromWishlist(
         "success"
     );
 
-    const token =
-        AppUtils.getToken();
+    const user =
+        AppUtils.getUser();
 
     if (
-        token
+        user
     ) {
         try {
             await AppUtils.apiRequest(
@@ -356,8 +276,8 @@ async function addToCartFromWishlist(
 
 // init
 async function initWishlist() {
-    const token = AppUtils.getToken();
-    if (token) {
+    const user = AppUtils.getUser();
+    if (user) {
         try {
             const response = await AppUtils.apiRequest("/wishlist");
             if (response.success && response.wishlist) {

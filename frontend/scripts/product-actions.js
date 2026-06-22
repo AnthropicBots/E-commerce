@@ -146,6 +146,11 @@ function buildCartProduct() {
 
 // add to cart
 function addProductToCart() {
+    // cart is account-bound: guests must sign in first
+    if (!AppUtils.requireLogin("Please sign in to add items to your cart")) {
+        return;
+    }
+
     const product =
         buildCartProduct();
 
@@ -225,6 +230,10 @@ function addProductToCart() {
         renderCartDrawer();
     }
 
+    if (window.Recommendations && typeof window.Recommendations.postInteraction === 'function') {
+        window.Recommendations.postInteraction(product.id, "cart_add");
+    }
+
     AppUtils.notify(
         "Added to cart",
         "success"
@@ -244,10 +253,15 @@ function buyNow() {
 }
 
 // wishlist
-async function toggleProductWishlist() {
+function toggleProductWishlist() {
     if (
         !currentProduct
     ) {
+        return;
+    }
+
+    // wishlist is account-bound: guests must sign in first
+    if (!AppUtils.requireLogin("Please sign in to use your wishlist")) {
         return;
     }
 
@@ -264,7 +278,7 @@ async function toggleProductWishlist() {
                 )
         );
 
-    const token = AppUtils.getToken();
+    const user = AppUtils.getUser();
 
     if (
         exists
@@ -285,7 +299,7 @@ async function toggleProductWishlist() {
             "info"
         );
         
-        if (token) {
+        if (user) {
             try {
                 await AppUtils.apiRequest("/wishlist/remove", {
                     method: "POST",
@@ -319,7 +333,7 @@ async function toggleProductWishlist() {
             "success"
         );
         
-        if (token) {
+        if (user) {
             try {
                 await AppUtils.apiRequest("/wishlist/add", {
                     method: "POST",
@@ -329,8 +343,13 @@ async function toggleProductWishlist() {
                 console.error("Failed to add to wishlist backend:", e);
             }
         }
+
+        if (window.Recommendations && typeof window.Recommendations.postInteraction === 'function') {
+            window.Recommendations.postInteraction(currentProduct.id, "wishlist_add");
+        }
     }
 
+    // saveWishlist persists locally and syncs the whole list to the backend
     AppUtils.saveWishlist(wishlist);
     
     // Update DOM icon

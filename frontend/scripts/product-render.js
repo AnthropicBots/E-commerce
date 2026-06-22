@@ -154,18 +154,6 @@ function createProductCardHTML(
 
         <div class="product-actions">
 
-            <a
-                href="product.html?id=${
-                    encodeURIComponent(
-                        product.id
-                    )
-                }"
-
-                class="view-btn"
-            >
-                View
-            </a>
-
             <button
                 type="button"
 
@@ -179,13 +167,6 @@ function createProductCardHTML(
             >
                 Add Cart
             </button>
-            <button
-    type="button"
-    class="compare-btn"
-    data-id="${encodeURIComponent(product.id)}"
->
-    Compare
-</button>
         </div>
     `;
 }

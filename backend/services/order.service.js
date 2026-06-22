@@ -6,10 +6,12 @@ const {
     sanitizeString
 } = require("../utils/helpers");
 
+const { validatePromo, calculateDiscount } = require("./promo.service");
+
 // create order service
 const createOrderService = async (connection, orderData) => {
     try {
-        const { user_id, customer_name, customer_email, customer_phone, city, state, zip, full_address, payment_method, items } = orderData;
+        const { user_id, customer_name, customer_email, customer_phone, city, state, zip, full_address, payment_method, items, promo_code } = orderData;
         
         // validated items
         const validatedItems = [];
@@ -78,6 +80,21 @@ const createOrderService = async (connection, orderData) => {
             });
         }
 
+        // calculate discount if promo provided
+        let discountAmount = 0;
+        let finalAmount = calculatedTotal;
+        let appliedPromoCode = null;
+
+        if (promo_code) {
+            const promoValidation = await validatePromo(promo_code, calculatedTotal);
+            if (!promoValidation.valid) {
+                throw new Error(`Promo Code Error: ${promoValidation.message}`);
+            }
+            discountAmount = calculateDiscount(promoValidation.promo, calculatedTotal);
+            finalAmount = Number((calculatedTotal - discountAmount).toFixed(2));
+            appliedPromoCode = promoValidation.promo.code;
+        }
+
         // create order
         const orderQuery = `
             INSERT INTO orders (
@@ -91,9 +108,13 @@ const createOrderService = async (connection, orderData) => {
                 full_address,
                 payment_method,
                 total,
-                status
+                status,
+                subtotal,
+                promo_code,
+                discount_amount,
+                final_amount
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         const [orderResult] = await connection.query(orderQuery, [
@@ -106,8 +127,12 @@ const createOrderService = async (connection, orderData) => {
             zip,
             full_address,
             payment_method,
+            finalAmount, // maintain total for backwards compatibility
+            "pending",
             calculatedTotal,
-            "pending"
+            appliedPromoCode,
+            discountAmount,
+            finalAmount
         ]);
 
         const orderId = orderResult.insertId;
@@ -144,6 +169,17 @@ const createOrderService = async (connection, orderData) => {
                 WHERE id = ?
             `;
             await connection.query(stockQuery, [item.qty, item.id]);
+        }
+
+        // record purchase interaction
+        if (user_id) {
+            for (const item of validatedItems) {
+                const interactionQuery = `
+                    INSERT INTO user_interactions (user_id, product_id, interaction_type)
+                    VALUES (?, ?, ?)
+                `;
+                await connection.query(interactionQuery, [user_id, item.id, 'purchase']);
+            }
         }
 
         await connection.commit();

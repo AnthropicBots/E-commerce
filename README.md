@@ -52,7 +52,7 @@ https://e-commerce-git-main-bhuvanshs-projects.vercel.app
 ## ⚙️ Admin Features
 - Add Products
 - Edit Products
-- Delete Products
+- Deletee Products
 - Dashboard Overview
 - User Management
 - Order Monitoring

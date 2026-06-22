@@ -1,6 +1,4 @@
-/* =============================
-product controls
-============================= */
+/* product controls */
 .product-controls{
     width: 100%;
     display: flex;
@@ -42,9 +40,7 @@ product controls
     background: var(--white);
 }
 
-/* =============================
-responsive layout
-============================= */
+/* responsive layout */
 @media(max-width:1024px){
     .product-controls{
         flex-wrap: wrap;
@@ -52,7 +48,6 @@ responsive layout
 }
 
 @media(max-width:799px){
-
     .product-controls{
         flex-direction: column;
         align-items: stretch;
@@ -66,10 +61,6 @@ responsive layout
         width: 100%;
     }
 }
-
-/* =============================
-homepage product grid fix
-============================= */
 
 #product1 .pro-container,
 #new-arrivals .pro-container,
@@ -107,7 +98,6 @@ homepage product grid fix
 }
 
 @media(max-width:799px){
-
     #product1 .pro,
     #new-arrivals .pro,
     #recently-viewed .pro{
@@ -116,11 +106,14 @@ homepage product grid fix
 }
 
 @media(max-width:477px){
-
     #product1 .pro,
     #new-arrivals .pro,
     #recently-viewed .pro{
         flex: 0 0 100%;
         max-width: 100%;
     }
+}
+
+/* =============================
+Password Strength Meter (Issue #166)
 }

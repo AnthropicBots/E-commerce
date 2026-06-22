@@ -6,7 +6,7 @@ services:
     container_name: ecom-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: yourpassword
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
       MYSQL_DATABASE: ecommerce
     ports:
       - "3306:3306"

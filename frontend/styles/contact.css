@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500&family=Outfit:wght@300;400;500;600&family=Sacramento&display=swap');
+
 #contact-header{
     background-image: url('../assets/images/banner.png');
     width: 100%;
@@ -150,7 +152,7 @@ body.dark-theme #form-details {
     background-color: #1e1e1e;
 }
 
-body.dark-theme #form-details form h2,
+/* Changed this block to only affect span tags */
 body.dark-theme #form-details form span {
     color: #f0f0f0 !important;
 }
@@ -187,4 +189,335 @@ body.light-theme #form-details form textarea {
     background-color: #ffffff;
     border-color: #e1e1e1;
     color: #222;
+}
+
+/* Layout container to split left and right sides - Widened to 100% width space */
+#form-details {
+    padding: 60px 40px; 
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* ========================================================
+   FEEDBACK CARD BALANCED & SPACED OUT OVERRIDE
+======================================================== */
+
+.feedback-container, 
+section.feedback-container,
+div[class*="feedback"] {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important; 
+    align-items: flex-start !important;
+    
+    max-width: 1050px !important;       
+    width: 94% !important;             
+    margin: 50px auto !important;      
+    
+    background: linear-gradient(145deg, #fbfbfd, #eeeef2) !important;
+    background-color: #fbfbfd !important;
+    border: 1px solid #dcd0f0 !important; /* Soft purple border to catch the light */
+    border-radius: 20px !important;     
+    
+    /* VIBRANT PURPLE GLOW: Clean outer depth mixed with a radiant purple bloom aura */
+    box-shadow: 0 15px 35px rgba(109, 68, 184, 0.08), 
+                0 0 25px rgba(168, 85, 247, 0.45), 
+                0 0 50px rgba(168, 85, 247, 0.2) !important;
+    
+    padding: 50px 60px !important; 
+    box-sizing: border-box !important;
+}
+/* LEFT SIDE: Feedback Form Box */
+.form-left {
+    flex: 0 1 420px !important;        
+    width: 100% !important;
+}
+
+/* RIGHT SIDE: Ratings Panel Box */
+.ratings-right {
+    flex: 0 1 440px !important;        
+    width: 100% !important;
+}
+
+/* Responsive breakdown for mobile views */
+@media (max-width: 820px) {
+    .feedback-container, 
+    section.feedback-container,
+    div[class*="feedback"] {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 45px !important;
+        padding: 35px 25px !important;
+        
+        /* Retain the premium grey metallic gradient on mobile stacks */
+        background: linear-gradient(145deg, #fbfbfd, #eeeef2) !important;
+        background-color: #fbfbfd !important;
+        border-color: #e2e2e7 !important;
+    }
+    
+    .form-left, .ratings-right {
+        flex: 1 1 100% !important;
+        max-width: 100% !important;
+    }
+}
+
+/* ========================================================
+   HEADINGS: Locked Black for Both Themes (Outfit Font)
+======================================================== */
+
+/* Left Side Heading: "Got feedback? We're all ears." */
+.form-left h2 {
+    font-family: 'Outfit', sans-serif !important;
+    font-size: 20px !important;   
+    font-weight: 500 !important;  
+    color: #000000 !important;          /* Solid Black */
+    letter-spacing: 0.3px !important;
+    text-transform: none !important;
+    -webkit-text-stroke: 0px transparent !important;
+    margin-top: 2px !important;
+    padding: 4px 0 20px 0 !important;
+}
+
+/* Right Side Heading: "Rate your vibe with us!" */
+.ratings-heading,
+.ratings-right h2 {
+    font-family: 'Outfit', sans-serif !important; 
+    font-weight: 500 !important;       
+    font-size: 24px !important;        
+    color: #000000 !important;          /* Solid Black */
+    letter-spacing: 0.3px !important;  
+    text-transform: none !important;
+    -webkit-text-stroke: 0px transparent !important;
+    margin-bottom: 25px !important;
+    display: block !important;
+}
+
+/* This highly detailed path completely cuts through and forces black color on dark mode frames */
+body.dark-theme #form-details form h2.form-left-heading,
+body.dark-theme .form-left h2,
+body.dark-theme .ratings-heading,
+body.dark-theme .ratings-right h2 {
+    color: #000000 !important;
+}
+
+/* Matching clean subtitle labels */
+.form-left span, .ratings-right .rating-title {
+    font-family: "Century Gothic", "Avant Garde", Montserrat, sans-serif;
+    font-size: 10px;
+    font-weight: 600;
+    color: #a0a0a0; 
+    letter-spacing: 3px; 
+}
+
+.form-left input, .form-left textarea {
+    width: 100%;
+    padding: 14px 18px;
+    outline: none;
+    margin-bottom: 24px;
+    border: 1px solid #e1e1e1;
+    border-radius: 4px;
+    font-size: 15px;
+    background-color: #fcfcfc;
+}
+
+/* RIGHT SIDE: Keeps its original size but glides over to fill the right side */
+.ratings-right {
+    flex: 0 1 380px !important;    
+    width: 100% !important;
+    margin-left: auto;             
+}
+.rating-metrics {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+}
+
+.metric-row {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    padding: 16px 0 !important;
+    gap: 14px !important; 
+}
+
+/* Metric labels text aligned directly above stars */
+.metric-question,
+.metric-row span {
+    margin-left: 45px !important;   
+    display: inline-block !important;
+    font-family: 'Outfit', sans-serif !important; 
+    font-weight: 500 !important;      
+    font-size: 15px !important;       
+    color: #2d3748 !important;        
+    letter-spacing: 0.3px !important; 
+}
+
+.metric-controls {
+    display: flex !important;
+    align-items: center !important;
+    gap: 20px !important; 
+    width: 100% !important;
+}
+
+/* Space for logo icons */
+.metric-controls i.fal,
+.metric-controls i[class*="fa-"] {
+    font-size: 20px !important;    
+    width: 32px !important;        
+    text-align: left !important;
+    display: inline-block !important;
+}
+
+/* Star layout alignment */
+.stars {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 13px;
+}
+
+.stars i {
+    font-size: 22px;
+    cursor: pointer;
+    transition: transform 0.2s ease, color 0.2s ease, text-shadow 0.2s ease;
+    display: inline-block;
+}
+
+.stars i:hover {
+    transform: scale(1.15);
+}
+
+/* Button Styling matches clean E-commerce specs */
+.form-left button.normal {
+    background-color: #088178;
+    color: #fff;
+    padding: 14px 30px;
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 4px;
+    cursor: pointer;
+    border: none;
+    width: fit-content;
+    transition: background-color 0.2s ease;
+}
+
+.form-left button.normal:hover {
+    background-color: #06655e;
+}
+
+/* Smooth adjustments for mobile tablets */
+@media (max-width: 991px) {
+    .feedback-container {
+        flex-direction: column;
+        gap: 50px;
+        padding: 30px;
+    }
+    .form-left, .ratings-right {
+        width: 100%;
+    }
+}
+
+/* Universal Form Field Override - Smooth Pastel Lilac */
+.form-left input, 
+.form-left textarea,
+.form-left .form-control,
+.form-left .input-field {
+    background: #ebdfff !important;       
+    background-color: #ebdfff !important; 
+    border: 1px solid #dcd0f0 !important; 
+    color: #222222 !important;            
+}
+
+.form-left input:focus, 
+.form-left textarea:focus {
+    background: #e2d4f7 !important;       
+    background-color: #e2d4f7 !important;
+    border-color: #c4b3e6 !important;     
+}
+
+/* Update the Submit Feedback Button to a Sleek Purple Palette */
+.form-left button,
+.form-left input[type="submit"],
+.form-left .btn,
+#submit-feedback,
+.form-left button[type="submit"] {
+    background-color: #6d44b8 !important; 
+    color: #ffffff !important;             
+    border: none !important;
+    padding: 12px 30px !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;         
+    cursor: pointer !important;
+    transition: background-color 0.3s ease, transform 0.2s ease !important;
+}
+
+.form-left button:hover,
+.form-left input[type="submit"]:hover,
+.form-left .btn:hover,
+.form-left button[type="submit"]:hover {
+    background-color: #855cd6 !important; 
+    transform: translateY(-1px) !important; 
+}
+
+/* ========================================================
+   LIGHT THEME STYLES (Default / Standard Page View)
+======================================================== */
+
+/* Empty / Standard state for stars only */
+.stars i {
+    color: #cccccc !important; 
+    transition: color 0.3s ease;
+}
+
+/* FILLED State for Light Theme - Changes to solid black */
+.stars i.active,
+.stars i.filled,
+.stars i.selected,
+.stars i.fas { 
+    color: #000000 !important; 
+}
+
+/* ========================================================
+   DARK THEME STYLES (Triggers when .dark-theme is on body)
+======================================================== */
+
+/* Empty state for stars inside dark mode frame */
+body.dark-theme .stars i {
+    color: #555555 !important; 
+}
+
+/* FILLED State for Dark Theme - Changes to bright white */
+body.dark-theme .stars i.active,
+body.dark-theme .stars i.filled,
+body.dark-theme .stars i.selected,
+body.dark-theme .stars i.fas {
+    color: #ffffff !important; 
+    text-shadow: 0 0 8px rgba(255, 255, 255, 0.5); 
+}
+
+/* ========================================================
+   ISOLATED METRIC LOGO COLORS (Independent From Stars)
+======================================================== */
+/* ========================================================
+   ISOLATED METRIC LOGO COLORS (Locked Black for Both Themes)
+======================================================== */
+.metric-controls > i.fal,
+.metric-controls > i[class*="fa-"],
+body.dark-theme .metric-controls > i.fal,
+body.dark-theme .metric-controls > i[class*="fa-"] {
+    color: #000000 !important; /* Forces logos to stay black in both light and dark themes */
+    transition: color 0.3s ease !important;
+}
+/* Forces the card gradient frame to stay, but shifts the outer glow to bright neon white */
+body.dark-theme .feedback-container,
+body.dark-theme div[class*="feedback"] {
+    background: linear-gradient(145deg, #fbfbfd, #eeeef2) !important;
+    background-color: #fbfbfd !important;
+    border-color: #ffffff !important; /* Crisp white border ring */
+    
+    /* NEON WHITE GLOW: Deep structural shadows mixed with a multi-layered high-intensity white aura */
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 
+                0 0 30px rgba(255, 255, 255, 0.6), 
+                0 0 60px rgba(255, 255, 255, 0.25) !important;
 }

@@ -43,13 +43,29 @@ const authRoutes = require("./routes/authRoutes");
 
 const orderRoutes = require("./routes/orderRoutes");
 
+const promoRoutes = require("./routes/promoRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+const chatRoutes = require("./routes/chatRoutes");
+
 const wishlistRoutes =
     require(
         "./routes/wishlistRoutes"
     );
+const recommendationRoutes = require("./routes/recommendationRoutes");
 
-// app
+const cartRoutes =
+    require(
+        "./routes/cartRoutes"
+    );
+
+const pincodeRoutes = require("./routes/pincodeRoutes");
+
+// init app
 const app = express();
+const http = require("http");
+const server = http.createServer(app);
+const { initSocket } = require("./utils/socketManager");
+initSocket(server);
 
 // constants
 const PORT = Number(process.env.PORT) || 5000;
@@ -128,7 +144,11 @@ const allowedOrigins = [
 
   // production
   "https://e-commerce-git-main-bhuvanshs-projects.vercel.app",
-  "https://www.bhuvansh.xyz",
+
+    "https://www.bhuvansh.xyz",
+    
+    // local file execution
+    "null"
 ];
 
 // cors
@@ -153,7 +173,7 @@ app.use(
 
     credentials: true,
 
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DeleteE"],
 
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
@@ -252,12 +272,17 @@ app.use("/api/products", productRoutes);
 app.use("/api/auth", authRoutes);
 
 app.use("/api/orders", orderRoutes);
+app.use("/api/promos", promoRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/chat", chatRoutes);
 
 app.use(
     "/api/wishlist",
     wishlistRoutes
 );
 
+app.use("/api/recommendations", recommendationRoutes);
+app.use("/api/pincode", pincodeRoutes);
 // 404 handler
 app.use((req, res) => {
   return res.status(404).json({
@@ -314,7 +339,7 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 // start server
-app.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 
   console.log(`Environment: ${process.env.NODE_ENV || "development"}`);

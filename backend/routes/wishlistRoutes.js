@@ -12,4 +12,7 @@ router.post("/add", authMiddleware, wishlistController.addToWishlist);
 // Remove from wishlist
 router.post("/remove", authMiddleware, wishlistController.removeFromWishlist);
 
+// Replace entire wishlist with the posted items
+router.post("/sync", authMiddleware, wishlistController.syncWishlist);
+
 module.exports = router;

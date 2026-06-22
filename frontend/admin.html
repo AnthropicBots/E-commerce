@@ -82,12 +82,19 @@
     >
 
     <!-- Icons -->
+    <link rel="stylesheet" href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css">
 
-    <link
-        rel="stylesheet"
-        href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css"
-    >
-
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .admin-charts { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px; }
+        .chart-container { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .user-filters { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .user-filters input, .user-filters select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .badge.active { background: #d4edda; color: #155724; }
+        .badge.blocked { background: #f8d7da; color: #721c24; }
+    </style>
 </head>
 
 <body>
@@ -112,7 +119,7 @@
 
             <ul>
 
-                <li class="active-admin-tab">
+                <li class="admin-tab active-admin-tab" data-tab="dashboard">
 
                     <i class="fas fa-chart-line"></i>
 
@@ -120,7 +127,7 @@
 
                 </li>
 
-                <li>
+                <li class="admin-tab" data-tab="products">
 
                     <i class="fas fa-box"></i>
 
@@ -128,7 +135,7 @@
 
                 </li>
 
-                <li>
+                <li class="admin-tab" data-tab="orders">
 
                     <i class="fas fa-shopping-bag"></i>
 
@@ -136,7 +143,7 @@
 
                 </li>
 
-                <li>
+                <li class="admin-tab" data-tab="users">
 
                     <i class="fas fa-users"></i>
 
@@ -144,7 +151,15 @@
 
                 </li>
 
-                <li>
+                <li class="admin-tab" data-tab="support">
+
+                    <i class="fas fa-headset"></i>
+
+                    Support
+
+                </li>
+
+                <li class="admin-tab" data-tab="settings">
 
                     <i class="fas fa-cog"></i>
 
@@ -230,9 +245,108 @@
 
             </div>
 
+            <!-- Dashboard Charts -->
+            <div class="admin-charts admin-section" id="section-dashboard">
+                <div class="chart-container">
+                    <h3>Revenue Analytics (30 Days)</h3>
+                    <canvas id="revenueChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3>Order Status Distribution</h3>
+                    <canvas id="orderStatusChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Users Management -->
+            <div class="admin-section" id="section-users" style="display: none;">
+                <h2>User Management</h2>
+                <div class="user-filters">
+                    <input type="text" id="user-search" placeholder="Search by name or email...">
+                    <select id="user-status-filter">
+                        <option value="">All Statuses</option>
+                        <option value="active">Active</option>
+                        <option value="blocked">Blocked</option>
+                    </select>
+                    <button id="user-bulk-block" class="normal" style="background: #dc3545; color: white;">Block Selected</button>
+                    <button id="user-bulk-unblock" class="normal" style="background: #28a745; color: white;">Unblock Selected</button>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="user-select-all"></th>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Status</th>
+                                <th>Registered</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-table-body">
+                            <!-- Users will be injected here -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination" id="users-pagination" style="margin-top:20px; display:flex; justify-content:center; gap:5px;"></div>
+            </div>
+
+            <!-- Customer Support -->
+            <div class="admin-section" id="section-support" style="display: none;">
+                <div class="support-layout" style="display: grid; grid-template-columns: 300px 1fr 300px; gap: 20px; height: 75vh; border: 1px solid #eee; border-radius: 8px; overflow: hidden; background: #fff;">
+                    
+                    <!-- Conversations List -->
+                    <div style="border-right: 1px solid #eee; display: flex; flex-direction: column;">
+                        <div style="padding: 15px; border-bottom: 1px solid #eee; background: #fafafa;">
+                            <input type="text" id="admin-chat-search" placeholder="Search customers..." style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            <select id="admin-chat-filter" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-top: 10px;">
+                                <option value="open">Open</option>
+                                <option value="pending">Pending</option>
+                                <option value="closed">Closed</option>
+                                <option value="unassigned">Unassigned</option>
+                            </select>
+                        </div>
+                        <div id="admin-conversations-list" style="flex: 1; overflow-y: auto; padding: 0;">
+                            <!-- Items go here -->
+                        </div>
+                    </div>
+
+                    <!-- Active Chat -->
+                    <div style="display: flex; flex-direction: column; background: #fafafa;">
+                        <div id="admin-chat-header" style="padding: 15px; background: #fff; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <h3 style="margin:0; font-size:16px;" id="admin-chat-customer-name">Select a conversation</h3>
+                                <small style="color: #666;" id="admin-chat-customer-status"></small>
+                            </div>
+                            <div id="admin-chat-actions" style="display: none;">
+                                <button id="admin-chat-assign-btn" class="normal" style="padding: 6px 12px; background: #088178; color: #fff;">Assign to Me</button>
+                                <button id="admin-chat-close-btn" class="normal" style="padding: 6px 12px; background: #dc3545; color: #fff;">Close Chat</button>
+                            </div>
+                        </div>
+                        
+                        <div id="admin-chat-messages" style="flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+                            <!-- Messages -->
+                        </div>
+
+                        <div style="padding: 15px; background: #fff; border-top: 1px solid #eee; display: flex; gap: 10px;">
+                            <textarea id="admin-chat-input" placeholder="Type a message... (Shift+Enter for new line)" style="flex: 1; resize: none; padding: 10px; border: 1px solid #ddd; border-radius: 4px; height: 50px;" disabled></textarea>
+                            <button id="admin-chat-send" class="normal" style="background: #088178; color: #fff;" disabled>Send</button>
+                        </div>
+                    </div>
+
+                    <!-- Customer Info -->
+                    <div id="admin-chat-customer-info" style="border-left: 1px solid #eee; padding: 20px; background: #fff;">
+                        <h3 style="margin-top:0;">Customer Details</h3>
+                        <div id="admin-chat-info-content" style="color: #555; font-size: 14px; line-height: 1.6;">
+                            Select a conversation to view details.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Product Form -->
 
-            <div class="admin-section">
+            <div class="admin-section" id="section-products-form" style="display: none;">
 
                 <h2>
 
@@ -357,7 +471,7 @@
 
             <!-- Product Table -->
 
-            <div class="admin-section">
+            <div class="admin-section" id="section-products-list" style="display: none;">
 
                 <h2>
 
@@ -399,7 +513,7 @@
 
             <!-- Orders -->
 
-            <div class="admin-section">
+            <div class="admin-section" id="section-orders" style="display: none;">
 
                 <h2>
 
@@ -474,6 +588,8 @@
         src="scripts/components.js"
     ></script>
 
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    
     <!-- Admin Script -->
     <script
         defer
