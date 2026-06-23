@@ -130,7 +130,18 @@ async function fetchProducts(
             );
 
         if (!data.success) {
-            renderEmptyState(data.message || "Failed to load products.");
+            const normCat = normalizeCategoryString(currentCategory);
+            const fallback = normCat === 'all'
+                ? fallbackProducts
+                : fallbackProducts.filter(p => categoriesMatch(p.category, currentCategory));
+            if (fallback.length > 0) {
+                currentProducts = fallback;
+                totalPages = 1;
+                applySorting();
+                renderPagination();
+            } else {
+                renderEmptyState("No products found.");
+            }
             return;
         }
 
@@ -146,16 +157,15 @@ async function fetchProducts(
                 ? fallbackProducts
                 : fallbackProducts.filter(p => categoriesMatch(p.category, currentCategory));
 
+            totalPages =
+                Number(
+                    data.totalPages || 1
+                );
             if (fallback.length > 0) {
-                currentProducts = fallback;
-                totalPages = 1;
+                    currentProducts = fallback;
+                    totalPages = 1;
+                }
             }
-        }
-
-        totalPages =
-            Number(
-                data.totalPages || 1
-            );
 
         // sorting
         applySorting();
@@ -164,33 +174,37 @@ async function fetchProducts(
         renderPagination();
 
     } catch (error) {
-
         console.error(
             "SHOP FETCH ERROR:",
             error
         );
-
-        renderEmptyState(
-            "Failed to load products."
-        );
+        const normCat = normalizeCategoryString(currentCategory);
+        const fallback = normCat === 'all'
+            ? fallbackProducts
+            : fallbackProducts.filter(p => categoriesMatch(p.category, currentCategory));
+        if (fallback.length > 0) {
+            currentProducts = fallback;
+            totalPages = 1;
+            applySorting();
+            renderPagination();
+        } else {
+            renderEmptyState("No products found.");
+        }
     }
 }
 
 // EMPTY STATE
-function renderEmptyState(
-    message
-) {
-    if (
-        !elements.productContainer
-    ) {
-        return;
-    }
-    elements.productContainer.innerHTML =
-        `
-            <div class="empty-products">
-                <h3>${message}</h3>
-            </div>
-        `;
+function renderEmptyState(message) {
+    if (!elements.productContainer) return;
+    const isError = message.toLowerCase().includes("failed") || message.toLowerCase().includes("error");
+    elements.productContainer.innerHTML = `
+        <div class="empty-state-container">
+            <div class="empty-state-icon">${isError ? '📡' : '🛍️'}</div>
+            <h3 class="empty-state-title">${isError ? "Couldn't load products" : "No products found"}</h3>
+            <p class="empty-state-message">${isError ? "Please check your connection and try again." : message}</p>
+            ${isError ? `<button class="retry-btn" onclick="window.fetchProducts(1)">🔄 Retry</button>` : ''}
+        </div>
+    `;
 }
 
 // STAR RATINGS
@@ -219,7 +233,8 @@ function renderStars(
 
 // PRODUCT CARD
 function createProductCard(
-    product
+    product,
+    wishlistIds = null
 ) {
     const displayName =
         product.name ||
@@ -227,6 +242,10 @@ function createProductCard(
 
     const stock =
         Number(product.stock) || 0;
+
+    const isWishlisted = (wishlistIds instanceof Set)
+        ? wishlistIds.has(String(product.id))
+        : AppUtils.getWishlist().some(item => String(item.id) === String(product.id));
 
     return `
         <div
@@ -278,7 +297,7 @@ function createProductCard(
                     : `
                         <div style="position: absolute; bottom: 20px; right: 12px; display: flex; gap: 8px; z-index: 2;">
                             <button class="wishlist-btn-shop cart" data-id="${product.id}" aria-label="Add to Wishlist" style="position: relative; bottom: 0; right: 0;">
-                                <i class="${ AppUtils.getWishlist().some(item => String(item.id) === String(product.id)) ? 'fas' : 'far' } fa-heart"></i>
+                                <i class="${ isWishlisted ? 'fas' : 'far' } fa-heart"></i>
                             </button>
                             <button class="add-to-cart-icon cart" aria-label="Add to cart" style="position: relative; bottom: 0; right: 0;">
                                 <i class="fal fa-shopping-cart"></i>
@@ -312,10 +331,11 @@ function renderProducts(products = []) {
     }
 
     const fragment = document.createDocumentFragment();
+    const wishlistIds = new Set(AppUtils.getWishlist().map((item) => String(item.id)));
 
     displayList.forEach((product) => {
         const wrapper = document.createElement('div');
-        wrapper.innerHTML = createProductCard(product);
+        wrapper.innerHTML = createProductCard(product, wishlistIds);
         const card = wrapper.firstElementChild;
         if (card) {
             setupProductCard(card, product);
@@ -376,6 +396,12 @@ function setupProductCard(
         async (event) => {
             event.preventDefault();
             event.stopPropagation();
+
+            // cart is account-bound: guests must sign in first
+            if (!AppUtils.requireLogin("Please sign in to add items to your cart")) {
+                return;
+            }
+
             const item = {
                 id: product.id,
                 name:
@@ -465,8 +491,22 @@ function setupProductCard(
                     cart
                 );
 
+                if (
+                    typeof updateCartCount ===
+                    "function"
+                ) {
+                    updateCartCount();
+                }
+
+                if (
+                    typeof renderCartDrawer ===
+                    "function"
+                ) {
+                    renderCartDrawer();
+                }
+
                 AppUtils.notify(
-                    "Added to cart 🛍️",
+                    "Added to cart =���n+�",
                     "success"
                 );
 
@@ -490,19 +530,24 @@ function setupProductCard(
         wishlistBtn.addEventListener("click", async (event) => {
             event.preventDefault();
             event.stopPropagation();
-            
+
+            // wishlist is account-bound: guests must sign in first
+            if (!AppUtils.requireLogin("Please sign in to use your wishlist")) {
+                return;
+            }
+
             // Re-use logic from product-actions-home.js if it's available, otherwise fallback
             if (typeof window.toggleWishlist === "function") {
                 await window.toggleWishlist(product);
             } else {
                 let wishlist = AppUtils.getWishlist();
                 const exists = wishlist.some(item => String(item.id) === String(product.id));
-                const token = AppUtils.getToken();
+                const user = AppUtils.getUser();
 
                 if (exists) {
                     wishlist = wishlist.filter(item => String(item.id) !== String(product.id));
                     AppUtils.notify("Removed from wishlist", "info");
-                    if (token) {
+                    if (user) {
                         try {
                             await AppUtils.apiRequest("/wishlist/remove", {
                                 method: "POST",
@@ -513,7 +558,7 @@ function setupProductCard(
                 } else {
                     wishlist.push(product);
                     AppUtils.notify("Added to wishlist ❤️", "success");
-                    if (token) {
+                    if (user) {
                         try {
                             await AppUtils.apiRequest("/wishlist/add", {
                                 method: "POST",
@@ -522,6 +567,7 @@ function setupProductCard(
                         } catch (e) {}
                     }
                 }
+                // saveWishlist persists locally and syncs the whole list to the backend
                 AppUtils.saveWishlist(wishlist);
                 
                 // Update DOM icons dynamically
@@ -738,7 +784,7 @@ function renderPagination() {
         );
 
     prevBtn.innerText =
-        "← Prev";
+        "G�� Prev";
 
     prevBtn.className = 
         "pagination-btn";
@@ -786,7 +832,7 @@ function renderPagination() {
         );
 
     nextBtn.innerText =
-        "Next →";
+        "Next G��";
 
     nextBtn.className = 
         "pagination-btn";
@@ -822,4 +868,6 @@ document.addEventListener(
         setupSorting();
     }
 );
+window.fetchProducts = fetchProducts;
 })()
+

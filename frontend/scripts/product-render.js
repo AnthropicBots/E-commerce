@@ -154,18 +154,6 @@ function createProductCardHTML(
 
         <div class="product-actions">
 
-            <a
-                href="product.html?id=${
-                    encodeURIComponent(
-                        product.id
-                    )
-                }"
-
-                class="view-btn"
-            >
-                View
-            </a>
-
             <button
                 type="button"
 

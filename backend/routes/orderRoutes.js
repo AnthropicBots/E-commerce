@@ -11,7 +11,7 @@ const authMiddleware =
 
 const {
     authorizeRoles
-} = authMiddleware;
+} = require("../middleware/rbacMiddleware");
 
 const orderController =
     require(
@@ -181,7 +181,8 @@ router.get(
     "/",
     authMiddleware,
     authorizeRoles(
-        "admin"
+        "admin",
+        "support"
     ),
     orderController.getAllOrders
 );
@@ -191,7 +192,8 @@ router.put(
     "/:id/status",
     authMiddleware,
     authorizeRoles(
-        "admin"
+        "admin",
+        "support"
     ),
     (
         req,

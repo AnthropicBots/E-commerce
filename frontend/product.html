@@ -108,13 +108,15 @@
 
         <div class="single-product-image">
 
-            <img
-                src=""
-                width="100%"
-                id="main-product-image"
-                alt="Product"
-                loading="lazy"
-            >
+            <div id="zoom-container" class="zoom-container">
+                <img
+                    src=""
+                    width="100%"
+                    id="main-product-image"
+                    alt="Product"
+                    loading="lazy"
+                >
+            </div>
 
             <div class="small-image-group">
 
@@ -436,7 +438,7 @@
 
                 <span id="variant-stock">
 
-                    12
+                    0
 
                 </span>
 
@@ -504,6 +506,33 @@
                     Wishlist
 
                 </button>
+
+            </div>
+
+            <!-- Pincode Availability Check -->
+
+            <div class="pincode-check">
+
+                <h4>
+                    Check Delivery Availability
+                </h4>
+
+                <div class="pincode-input-row">
+
+                    <input
+                        type="text"
+                        id="pincode-input"
+                        maxlength="6"
+                        placeholder="Enter 6-digit pincode"
+                    >
+
+                    <button id="pincode-check-btn">
+                        Check
+                    </button>
+
+                </div>
+
+                <p id="pincode-result"></p>
 
             </div>
 
@@ -606,7 +635,7 @@
 
         <div
             class="pro-container"
-            id="recently-viewed-products"
+            id="recommended-products-container"
         ></div>
 
     </section>
@@ -750,12 +779,19 @@
         src="scripts/related-products.js"
     ></script>
 
+     <script
+        defer
+        src="scripts/pincode.js"
+    ></script>
+
     <!-- Main Bootstrap -->
     <script
         defer
         src="scripts/product.js"
     ></script>
     <script defer src="scripts/ui.js"></script>
+
+    <script defer src="scripts/recommendations.js"></script>
 
 </body>
 </html>

@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <!-- SEO -->
+
+    <meta
+        name="description"
+        content="Browse trending fashion collections, t-shirts, hoodies, jackets, and premium apparel at AnthropicBots E-Commerce."
+    >
+
+    <meta
+        name="keywords"
+        content="fashion, ecommerce, shop, clothing, hoodies, jackets, t-shirts"
+    >
+
+    <meta
+        name="author"
+        content="AnthropicBots E-Commerce"
+    >
+
+    <title>
+        Buy1Get1Free | AnthropicBots E-Commerce
+    </title>
+
+    <!-- Favicon -->
+
+    <link
+        rel="icon"
+        type="image/png"
+        href="assets/images/logo.png"
+    >
+
+    <!-- Styles -->
+
+    <link
+        rel="stylesheet"
+        href="styles/base.css"
+    >
+
+    <link
+        rel="stylesheet"
+        href="styles/layout.css"
+    >
+
+    <link
+        rel="stylesheet"
+        href="styles/components.css"
+    >
+
+    <link
+        rel="stylesheet"
+        href="styles/hero.css"
+    >
+
+    <link
+        rel="stylesheet"
+        href="styles/product-card.css"
+    >
+
+    <link
+        rel="stylesheet"
+        href="styles/style.css"
+    >
+
+    <link
+        rel="stylesheet"
+        href="styles/back-to-top.css"
+    >
+
+    <link
+        rel="stylesheet"
+        href="styles/shop.css"
+    >
+
+    <!-- Icons -->
+
+    <link
+        rel="stylesheet"
+        href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css"
+    >
+
+</head>
+
+<body>
+
+    <!-- Navbar -->
+
+    <div id="navbar"></div>
+
+    <!-- Shop Banner -->
+
+    <section id="shop-header">
+
+        <h2>
+
+            #Buy1Get1Free
+
+        </h2>
+
+        <p>
+
+            Crazy Deals are Waiting Just For You.
+
+        </p>
+
+    </section>
+    <section id = "how-it-works" class = "section-p1">
+        <h5>HOW IT WORKS</h5>
+        <div class = "steps-container">
+            <div class = "step-box">
+              <div class = "icon-wrapper">
+                <i class = "fas fa-shopping-bag"></i>
+            </div>
+            <div class = "step-details">
+                <h3>1. Add 2 eligible items</h3>
+                <p>Add any 2 products with BOGO tag to cart</p>
+            </div>
+          </div>
+        <div class="step-box">
+            <div class = "icon-wrapper">
+                <i class = "fas fa-tags"></i>
+            </div>
+            <div class = "step-details">
+                <h3>Lowest item is FREE</h3>
+                <p>The lowest-priced item will be FREE</p>
+            </div>
+        </div>
+        <div class="step-box">
+            <div class = "icon-wrapper">
+                <i class = "fas fa-receipt"></i>
+            </div>
+            <div class = "step-details">
+                <h3>Discount auto-applied</h3>
+                <p>Discount will be applied automatically at checkout</p>
+            </div>
+        </div>
+        </div>
+
+    </section>
+
+    <!-- Shop Controls -->
+
+    <section
+        id="shop-controls"
+        class="section-p1"
+    >
+
+        <!-- Search -->
+
+        <div class="search-box">
+
+            <input
+                type="text"
+                id="search-input"
+                placeholder="Search products..."
+            >
+
+            <i class="fas fa-search"></i>
+
+        </div>
+
+        <!-- Category Filters -->
+
+        <div class="filter-buttons">
+
+            <button
+                class="filter-btn active-filter"
+                data-category="all"
+            >
+
+                All
+
+            </button>
+
+            <button
+                class="filter-btn"
+                data-category="Men"
+            >
+
+                 Men
+
+            </button>
+
+            <button
+                class="filter-btn"
+                data-category="women"
+            >
+                Women
+                
+
+            </button>
+
+        </div>
+
+        <!-- Sort -->
+
+        <div class="sort-box">
+
+            <select id="sort-select">
+
+                <option value="default">
+
+                    Sort Products
+
+                </option>
+
+                <option value="low-high">
+
+                    Price Low → High
+
+                </option>
+
+                <option value="high-low">
+
+                    Price High → Low
+
+                </option>
+
+            </select>
+
+        </div>
+
+    </section>
+
+    <!-- Products -->
+
+    <section
+        id="product1"
+        class="section-p1"
+    >
+
+        <h2>
+
+            Featured Products
+
+        </h2>
+
+        <p>
+
+            Products with crazy deals
+
+        </p>
+
+        <!-- Dynamic Product Container -->
+
+        <div
+            class="pro-container"
+            id="product-container"
+        ></div>
+
+    </section>
+
+    <!-- Pagination -->
+
+    <section
+        id="pagination"
+        class="section-p1"
+    >
+
+        <a href="#">
+
+            1
+
+        </a>
+
+        <a href="#">
+
+            2
+
+        </a>
+
+        <a href="#">
+
+            <i class="fal fa-long-arrow-alt-right"></i>
+
+        </a>
+
+    </section>
+
+    <!-- Footer -->
+
+    <div id="footer"></div>
+
+    <!-- Core Scripts -->
+
+    <script
+        defer
+        src="scripts/config.js"
+    ></script>
+
+    <script
+        defer
+        src="scripts/toast.js"
+    ></script>
+
+    <script
+        defer
+        src="scripts/utils.js"
+    ></script>
+
+    <script
+        defer
+        src="scripts/auth.js"
+    ></script>
+
+    <script
+        defer
+        src="scripts/script.js"
+    ></script>
+
+    <script
+        defer
+        src="scripts/back-to-top.js"
+    ></script>
+
+    <script
+        defer
+        src="scripts/components.js"
+    ></script>
+
+    <!-- Shop Scripts -->
+
+    <script
+        defer
+        src="scripts/Buy1Get1.js"
+    ></script>
+
+    <script defer src="scripts/ui.js"></script>
+
+</body>
+
+</html>

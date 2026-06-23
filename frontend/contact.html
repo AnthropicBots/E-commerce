@@ -212,64 +212,90 @@
 
     </section>
 
-    <!-- Contact Form -->
-
     <section id="form-details">
+        <div class="feedback-container">
+            
+            <form id="contact-form" class="form-left">
+                <span>LEAVE A MESSAGE</span>
+                <h2>Got feedback? We're all ears.</h2>
+                <input type="text" id="name" placeholder="Your Name" required>
+                <input type="email" id="email" placeholder="E-mail" required>
+                <input type="text" id="subject" placeholder="Subject" required>
+                
+                <textarea id="message" cols="30" rows="6" placeholder="Your Message / What can we do better?" required></textarea>
+                
+                <button class="normal" type="submit">Submit Feedback</button>
+            </form>
 
-        <form id="contact-form">
+            <div class="ratings-right">
+                <span class="rating-title">YOUR RATING</span>
+                <h2 class="ratings-heading">Rate your vibe with us!</h2>
 
-            <span>
+              <div class="rating-metrics">
+    
+    <!-- Product Quality Row -->
+    <div class="metric-row">
+        <span class="metric-question">Product Quality</span>
+        <div class="metric-controls">
+            <i class="fal fa-box-check"></i>
+            <div class="stars" data-metric="quality">
+                <i class="far fa-star" data-value="1"></i>
+                <i class="far fa-star" data-value="2"></i>
+                <i class="far fa-star" data-value="3"></i>
+                <i class="far fa-star" data-value="4"></i>
+                <i class="far fa-star" data-value="5"></i>
+            </div>
+        </div>
+    </div>
 
-                LEAVE A MESSAGE
+    <!-- Delivery Speed Row -->
+    <div class="metric-row">
+        <span class="metric-question">Delivery Speed</span>
+        <div class="metric-controls">
+            <i class="fal fa-shipping-fast"></i>
+            <div class="stars" data-metric="delivery">
+                <i class="far fa-star" data-value="1"></i>
+                <i class="far fa-star" data-value="2"></i>
+                <i class="far fa-star" data-value="3"></i>
+                <i class="far fa-star" data-value="4"></i>
+                <i class="far fa-star" data-value="5"></i>
+            </div>
+        </div>
+    </div>
 
-            </span>
+    <!-- Customer Support Row -->
+    <div class="metric-row">
+        <span class="metric-question">Customer Support</span>
+        <div class="metric-controls">
+            <i class="fal fa-headset"></i>
+            <div class="stars" data-metric="support">
+                <i class="far fa-star" data-value="1"></i>
+                <i class="far fa-star" data-value="2"></i>
+                <i class="far fa-star" data-value="3"></i>
+                <i class="far fa-star" data-value="4"></i>
+                <i class="far fa-star" data-value="5"></i>
+            </div>
+        </div>
+    </div>
 
-            <h2>
+    <!-- Website Usability Row -->
+    <div class="metric-row">
+        <span class="metric-question">Website Usability</span>
+        <div class="metric-controls">
+            <i class="fal fa-desktop"></i>
+            <div class="stars" data-metric="usability">
+                <i class="far fa-star" data-value="1"></i>
+                <i class="far fa-star" data-value="2"></i>
+                <i class="far fa-star" data-value="3"></i>
+                <i class="far fa-star" data-value="4"></i>
+                <i class="far fa-star" data-value="5"></i>
+            </div>
+        </div>
+    </div>
 
-                We love to hear from you
+</div>
 
-            </h2>
-
-            <input
-                type="text"
-                id="name"
-                placeholder="Your Name"
-                required
-            >
-
-            <input
-                type="email"
-                id="email"
-                placeholder="E-mail"
-                required
-            >
-
-            <input
-                type="text"
-                id="subject"
-                placeholder="Subject"
-                required
-            >
-
-            <textarea
-                id="message"
-                cols="30"
-                rows="10"
-                placeholder="Your Message"
-                required
-            ></textarea>
-
-            <button
-                class="normal"
-                type="submit"
-            >
-
-                Submit
-
-            </button>
-
-        </form>
-
+        </div>
     </section>
 
     <!-- Newsletter -->
@@ -347,5 +373,90 @@
         src="scripts/contact.js"
     ></script>
 <script defer src="scripts/ui.js"></script>
+
+<script>
+    function forceInitStars() {
+        console.log("Neon Glow Interactive Rating Loaded!");
+        const starRows = document.querySelectorAll('.stars');
+
+        starRows.forEach(row => {
+            const stars = row.querySelectorAll('i');
+            let currentLockedRating = 0; 
+
+            // Common helper function to apply the beautiful golden neon light emission
+            function applyGlow(element) {
+                element.style.color = '#ffcc00';
+                // Layered shadows: tight crisp core glow + wide diffused ambient bloom
+                element.style.textShadow = '0 0 4px #ffcc00, 0 0 10px #ffbb00, 0 0 20px #ffaa00';
+                element.style.transform = 'scale(1.1)';
+            }
+
+            function removeGlow(element) {
+                element.style.color = '#e2e8f0';
+                element.style.textShadow = 'none';
+                element.style.transform = 'scale(1)';
+            }
+
+            stars.forEach(star => {
+                
+                // 1. Hover Effect (Turns into Glowing Solid Yellow)
+                star.addEventListener('mouseover', function() {
+                    const hoverVal = parseInt(this.getAttribute('data-value'));
+                    stars.forEach(s => {
+                        const starVal = parseInt(s.getAttribute('data-value'));
+                        if (starVal <= hoverVal) {
+                            s.className = 'fas fa-star'; 
+                            applyGlow(s);
+                        } else {
+                            s.className = 'far fa-star'; 
+                            removeGlow(s);
+                        }
+                    });
+                });
+
+                // 2. Mouse Leave (Restores locked state)
+                row.addEventListener('mouseleave', function() {
+                    stars.forEach(s => {
+                        const starVal = parseInt(s.getAttribute('data-value'));
+                        if (starVal <= currentLockedRating) {
+                            s.className = 'fas fa-star'; 
+                            applyGlow(s);
+                        } else {
+                            s.className = 'far fa-star'; 
+                            removeGlow(s);
+                        }
+                    });
+                });
+
+                // 3. Click / Smart-Decrement Rating
+                star.addEventListener('click', function() {
+                    const clickedVal = parseInt(this.getAttribute('data-value'));
+                    
+                    if (currentLockedRating === clickedVal) {
+                        currentLockedRating = clickedVal - 1; 
+                    } else {
+                        currentLockedRating = clickedVal; 
+                    }
+
+                    stars.forEach(s => {
+                        const starVal = parseInt(s.getAttribute('data-value'));
+                        if (starVal <= currentLockedRating) {
+                            s.classList.add('active');
+                            s.className = 'fas fa-star'; 
+                            applyGlow(s);
+                        } else {
+                            s.classList.remove('active');
+                            s.className = 'far fa-star';
+                            removeGlow(s);
+                        }
+                    });
+                });
+            });
+        });
+    }
+
+    forceInitStars();
+    window.onload = forceInitStars;
+</script>
 </body>
 </html>

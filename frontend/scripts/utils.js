@@ -79,9 +79,19 @@ const getJSON = (
                 key
             );
 
-        return value
-            ? JSON.parse(value)
-            : fallback;
+        // guard against missing keys and stale literal
+        // "undefined"/"null" strings written by older code
+        if (
+            !value
+            ||
+            value === "undefined"
+            ||
+            value === "null"
+        ) {
+            return fallback;
+        }
+
+        return JSON.parse(value);
 
     } catch (error) {
 
@@ -140,6 +150,10 @@ const removeStorage = (
 
 // auth helpers
 
+const getToken = () => {
+    return localStorage.getItem(CONFIG.STORAGE_KEYS.TOKEN);
+};
+
 const getUser = () => {
 
     return getJSON(
@@ -161,6 +175,42 @@ const clearAuthData = () => {
     removeStorage(
         CONFIG.STORAGE_KEYS.USER
     );
+
+    // cart and wishlist belong to the account, never the browser,
+    // so clear them on logout to avoid leaking into the next session
+    removeStorage(
+        CONFIG.STORAGE_KEYS.CART
+    );
+
+    removeStorage(
+        CONFIG.STORAGE_KEYS.WISHLIST
+    );
+};
+
+// redirect guests to sign in before account-bound actions (add to
+// cart / wishlist). Returns true only when a user is logged in.
+const requireLogin = (
+    message = "Please sign in to continue"
+) => {
+
+    if (getUser()) {
+        return true;
+    }
+
+    notify(
+        message,
+        "error"
+    );
+
+    setTimeout(
+        () => {
+            window.location.href =
+                "signin.html";
+        },
+        800
+    );
+
+    return false;
 };
 
 const requireAuth = () => {
@@ -630,6 +680,111 @@ const throttle = (
     };
 };
 
+// debounced backend sync for account-bound collections.
+// Each endpoint keeps its own timer so rapid edits collapse into a
+// single "replace whole collection" request. Only logged-in users sync.
+const queueCollectionSync = (() => {
+
+    const timers = {};
+
+    return (
+        endpoint,
+        items
+    ) => {
+
+        if (!getUser()) {
+            return;
+        }
+
+        clearTimeout(
+            timers[endpoint]
+        );
+
+        timers[endpoint] =
+            setTimeout(
+                () => {
+
+                    apiRequest(
+                        endpoint,
+                        {
+                            method: "POST",
+                            body: JSON.stringify({
+                                items: safeArray(items)
+                            })
+                        }
+                    ).catch((error) => {
+                        console.error(
+                            `Collection sync failed for ${endpoint}:`,
+                            error
+                        );
+                    });
+
+                },
+                600
+            );
+    };
+})();
+
+// load the logged-in account's cart and wishlist from the backend
+// into local storage. Called right after login so the next account
+// sees its own items, not whatever was cached in this browser.
+const loadUserCollections = async () => {
+
+    if (!getUser()) {
+        return;
+    }
+
+    try {
+
+        const [cartResponse, wishlistResponse] =
+            await Promise.all([
+                apiRequest("/cart"),
+                apiRequest("/wishlist")
+            ]);
+
+        if (
+            cartResponse
+            &&
+            cartResponse.success
+            &&
+            Array.isArray(cartResponse.cart)
+        ) {
+            // setJSON (not saveCart) to avoid echoing a sync request back
+            setJSON(
+                CONFIG.STORAGE_KEYS.CART,
+                cartResponse.cart
+            );
+        }
+
+        if (
+            wishlistResponse
+            &&
+            wishlistResponse.success
+            &&
+            Array.isArray(wishlistResponse.wishlist)
+        ) {
+            setJSON(
+                CONFIG.STORAGE_KEYS.WISHLIST,
+                wishlistResponse.wishlist
+            );
+        }
+
+        if (typeof window.updateCartCount === "function") {
+            window.updateCartCount();
+        }
+
+        if (typeof window.updateWishlistCount === "function") {
+            window.updateWishlistCount();
+        }
+
+    } catch (error) {
+        console.error(
+            "Failed to load user collections:",
+            error
+        );
+    }
+};
+
 // cart helpers
 const getCart = () => {
 
@@ -643,9 +798,20 @@ const saveCart = (
     cart
 ) => {
 
+    const safe = safeArray(cart);
+
     setJSON(
         CONFIG.STORAGE_KEYS.CART,
-        safeArray(cart)
+        safe
+    );
+
+    if (typeof window.updateCartCount === "function") {
+        window.updateCartCount();
+    }
+
+    queueCollectionSync(
+        "/cart/sync",
+        safe
     );
 };
 
@@ -661,11 +827,26 @@ const saveWishlist = (
     wishlist
 ) => {
 
+    const safe = safeArray(wishlist);
+
     setJSON(
         CONFIG.STORAGE_KEYS.WISHLIST,
-        safeArray(wishlist)
+        safe
     );
-}; // Fixed: Added missing closing bracket here
+
+    if (typeof window.updateWishlistCount === "function") {
+        window.updateWishlistCount();
+    }
+
+    queueCollectionSync(
+        "/wishlist/sync",
+        safe
+    );
+};
+
+const getToken = () => {
+    return getUser() ? "session_active" : null;
+};
 
 // app utils assignment
 window.AppUtils = {
@@ -677,6 +858,7 @@ window.AppUtils = {
     removeStorage,
 
     getUser,
+    getToken,
     clearAuthData,
     requireAuth,
     refreshAccessToken,
@@ -695,11 +877,16 @@ window.AppUtils = {
     getCart,
     saveCart,
     getWishlist,
-    saveWishlist
+    saveWishlist,
+    getToken,
+    requireLogin,
+    loadUserCollections
 };
 
 // backward compatibility assignments
 window.API_BASE = CONFIG.API_BASE;
+window.requireLogin = requireLogin;
+window.loadUserCollections = loadUserCollections;
 window.notify = notify;
 window.getJSON = getJSON;
 window.setJSON = setJSON;

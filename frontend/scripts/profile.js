@@ -2,20 +2,10 @@
 current user
 ============================= */
 
-const socialUser =
-    JSON.parse(
-        localStorage.getItem(
-            "socialUser"
-        )
-    );
-
-const normalUser =
+const currentUser =
     AppUtils.getJSON(
         "user"
     );
-
-const currentUser =
-    socialUser || normalUser;
 
 if (!currentUser) {
 

@@ -1,19 +1,19 @@
 /* =============================
 product section
 ============================= */
-#product1{
+#product1 {
     text-align: center;
 }
 
 /* product card */
-.pro{
-    width: 280px;
-    min-width: 250px;
+.pro {
+    width: 100%;
+    max-width: 20rem;
     padding: 12px;
     border: 1px solid var(--border-light);
     border-radius: 20px;
     cursor: pointer;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.06);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
     margin: 15px 0;
     transition: var(--transition-fast);
     position: relative;
@@ -27,13 +27,13 @@ product section
 
 #product1 .pro:hover,
 #new-arrivals .pro:hover,
-#recently-viewed .pro:hover{
+#recently-viewed .pro:hover {
     transform: translateY(-10px);
-    box-shadow: 0 18px 35px rgba(0,0,0,0.12);
+    box-shadow: 0 18px 35px rgba(0, 0, 0, 0.12);
 }
 
 /* product images */
-.product-image-wrapper{
+.product-image-wrapper {
     width: 100%;
     height: 260px;
     overflow: hidden;
@@ -42,7 +42,7 @@ product section
     flex-shrink: 0;
 }
 
-.pro img{
+.pro img {
     width: 100%;
     height: 260px;
     object-fit: cover;
@@ -54,34 +54,34 @@ product section
 
 #product1 .pro:hover img,
 #new-arrivals .pro:hover img,
-#recently-viewed .pro:hover img{
+#recently-viewed .pro:hover img {
     transform: scale(1.03) rotate(0.7deg);
 }
 
 /* product description */
-.pro .des{
+.pro .des {
     text-align: start;
     padding: 14px 0;
     flex-grow: 1;
 }
 
-.pro .des span{
+.pro .des span {
     color: #606063;
     font-size: 12px;
 }
 
-.pro .des h5{
+.pro .des h5 {
     padding-top: 7px;
     color: var(--text-dark);
     font-size: 14px;
 }
 
-.pro .des i{
+.pro .des i {
     font-size: 12px;
-    color: rgb(243,181,25);
+    color: rgb(243, 181, 25);
 }
 
-.pro .des h4{
+.pro .des h4 {
     padding-top: 7px;
     font-size: 15px;
     font-weight: 700;
@@ -91,7 +91,7 @@ product section
 /* cart button */
 #product1 .pro .cart,
 #new-arrivals .pro .cart,
-#recently-viewed .pro .cart{
+#recently-viewed .pro .cart {
     width: 42px;
     height: 42px;
     line-height: 42px;
@@ -108,36 +108,61 @@ product section
 
 #product1 .pro .cart:hover,
 #new-arrivals .pro .cart:hover,
-#recently-viewed .pro .cart:hover{
+#recently-viewed .pro .cart:hover {
     background: var(--primary-color);
     color: var(--white);
 }
 
 /* product action buttons */
 .product-actions{
-    display: flex;
-    gap: 10px;
-    margin-top: 15px;
-    width: 100%;
-    align-items: center;
+    display:grid;
+    grid-template-columns:repeat(2,1fr);
+    gap:10px;
+    margin-top:15px;
+    width:100%;
 }
 
-.product-actions button,
-.product-actions a{
-    flex: 1;
-    border: none;
-    padding: 12px;
-    border-radius: 8px;
-    cursor: pointer;
-    text-align: center;
-    text-decoration: none;
-    background: var(--primary-color);
-    color: white;
-    transition: 0.3s ease;
+.product-actions button{
+    height:44px;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+
+    border-radius:8px;
+    cursor:pointer;
+
+    font-size:14px;
+    font-weight:500;
+
+    transition:.3s ease;
+}
+
+.product-actions .primary-action{
+    border:none;
+    background:var(--primary-color);
+    color:#fff;
+}
+
+.product-actions .secondary-action{
+    border:1px solid rgba(8,129,120,.25);
+    background:#fff;
+    color:var(--primary-color);
+}
+
+.product-actions .primary-action:hover,
+.product-actions .secondary-action:hover{
+    transform:translateY(-2px);
+}
+
+.product-actions .secondary-action:hover{
+    background:var(--primary-color);
+    color:#fff;
 }
 
 /* product badge */
-.product-badge{
+.product-badge {
     position: absolute;
     top: 12px;
     left: 12px;
@@ -151,15 +176,15 @@ product section
 }
 
 /* recently viewed */
-#recently-viewed{
+#recently-viewed {
     text-align: center;
 }
 
 /* product hover overlay */
-.product-overlay{
+.product-overlay {
     position: absolute;
     inset: 0;
-    background: rgba(0,0,0,0.4);
+    background: rgba(0, 0, 0, 0.4);
     opacity: 0;
     visibility: hidden;
     transition: var(--transition-fast);
@@ -168,50 +193,80 @@ product section
     justify-content: center;
 }
 
-.pro:hover .product-overlay{
+.pro:hover .product-overlay {
     opacity: 1;
     visibility: visible;
 }
 
 /* responsive layout */
-@media(max-width:477px){
-
-    .products-grid{
+@media (max-width: 477px) {
+    .products-grid {
         justify-content: center;
     }
 
     .products-grid .pro{
-        width: 100%;
-        max-width: 320px;
+        width:100%;
+        max-width:320px;
     }
 
     .product-actions{
-        flex-direction: column;
+        grid-template-columns:1fr 1fr;
+    }
+
+    .product-actions .primary-action,
+    .product-actions .icon-action {
+        width: 100%;
+        height: 44px;
     }
 }
 
-.product-actions button:hover,
-.product-actions a:hover{
+@media (min-width: 768px) and (max-width: 1199px){
+
+    .products-grid{
+        justify-content:center;
+    }
+
+    .products-grid .pro{
+        flex: 1 1 calc(50% - 20px);
+        max-width: 340px;
+    }
+}
+
+@media (min-width: 1200px){
+
+    .products-grid .pro{
+        flex: 1 1 280px;
+        max-width: 300px;
+    }
+
+    .product-actions .wishlist-btn{
+        width: 100%;
+    }
+}
+
+.product-actions .primary-action:hover {
     opacity: 0.9;
     transform: translateY(-2px);
 }
 
 /* products grid */
-.products-grid{
+.products-grid {
     width: 100%;
     display: flex;
     flex-wrap: wrap;
-    gap: 20px;
-    justify-content: flex-start;
+    gap: 1.25rem;
+    justify-content: center;
     align-items: stretch;
 }
 
 .products-grid .pro{
-    flex: 0 0 280px;
+    flex: 1 1 280px;
+    max-width: 320px;
 }
+
 body.dark-theme .pro {
     background-color: #1e1e1e;
-    border: 1px solid #333 ;
+    border: 1px solid #333;
 }
 
 body.dark-theme .pro img {
@@ -222,8 +277,9 @@ body.dark-theme .pro .des h5,
 body.dark-theme .pro .des h4,
 body.dark-theme .pro .des span,
 body.dark-theme .pro .des p {
-    color: #e0e0e0 ;
+    color: #e0e0e0;
 }
+
 /* Missing dark mode fixes */
 body.dark-theme .product-image-wrapper {
     background: #2a2a2a;
@@ -251,3 +307,40 @@ body.dark-theme .pro .des span {
 body.dark-theme .pro .des i {
     color: rgb(243, 181, 25);
 }
+
+/* Syling for men's and women's section  */
+.quantity-controller {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    background-color: #088178;
+    border-radius: 4px;
+    padding: 10px 15px;
+    min-width: 120px;
+    transition: all 0.3s ease;
+}
+
+.qty-text {
+    color: #ffffff !important;
+    font-weight: 600;
+    font-size: 14ox;
+    margin: 0 15px;
+    user-select: none;
+}
+
+.qty-btn {
+    background: transparent !important;
+    border: none !important;
+    color: #ffffff !important;
+    cursor: pointer;
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 5px;
+}
+
+.quantity-controller .hidden {
+    display: none !important;
+}
+

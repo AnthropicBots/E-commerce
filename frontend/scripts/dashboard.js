@@ -3,11 +3,11 @@ console.log(
 );
 
 // auth
-const user =
+const dashboardUser =
     requireAuth();
 
 // redirect fallback
-if (!user) {
+if (!dashboardUser) {
     window.location.href =
         "login.html";
 }
@@ -21,7 +21,7 @@ function initializeDashboard() {
             === "function"
         ) {
             loadDashboardUserData(
-                user
+                dashboardUser
             );
         }
 

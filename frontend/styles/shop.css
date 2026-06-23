@@ -277,3 +277,45 @@
         justify-content: center;
     }
 }
+.empty-state-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    text-align: center;
+    width: 100%;
+}
+
+.empty-state-icon {
+    font-size: 60px;
+    margin-bottom: 16px;
+}
+
+.empty-state-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.empty-state-message {
+    font-size: 15px;
+    color: #777;
+    margin-bottom: 24px;
+}
+
+.retry-btn {
+    background-color: #088178;
+    color: white;
+    border: none;
+    padding: 12px 28px;
+    border-radius: 25px;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background 0.3s ease;
+}
+
+.retry-btn:hover {
+    background-color: #065f5a;
+}

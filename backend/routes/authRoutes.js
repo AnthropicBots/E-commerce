@@ -6,7 +6,10 @@ const router =
 
 const {
     signup,
+    verifySignup,
     login,
+    forgotPassword,
+    resetPassword,
     refreshAccessToken
 } = require(
     "../controllers/authController"
@@ -27,6 +30,7 @@ const {
 } = require(
     "../utils/helpers"
 );
+const { signupLimiter, loginLimiter, forgotPasswordLimiter, refreshTokenLimiter } = require("../middleware/rateLimiter");
 
 // auth api status
 router.get(
@@ -50,6 +54,7 @@ router.get(
 // signup
 router.post(
     "/signup",
+    signupLimiter,
     (
         req,
         res,
@@ -118,9 +123,24 @@ router.post(
     signup
 );
 
+// verify signup
+router.post(
+    "/verify-signup",
+    signupLimiter,
+    (req, res, next) => {
+        const { email, otp } = req.body;
+        if (!sanitizeString(email) || !sanitizeString(otp)) {
+            return res.status(400).json({ success: false, message: "Email and OTP are required" });
+        }
+        next();
+    },
+    verifySignup
+);
+
 // login
 router.post(
     "/login",
+    loginLimiter,
     (
         req,
         res,
@@ -171,9 +191,38 @@ router.post(
     login
 );
 
+// forgot password
+router.post(
+    "/forgot-password",
+    forgotPasswordLimiter,
+    (req, res, next) => {
+        const { email } = req.body;
+        if (!sanitizeString(email)) {
+            return res.status(400).json({ success: false, message: "Email is required" });
+        }
+        next();
+    },
+    forgotPassword
+);
+
+// reset password
+router.post(
+    "/reset-password",
+    forgotPasswordLimiter,
+    (req, res, next) => {
+        const { userId, otp, newPassword } = req.body;
+        if (!sanitizeString(userId) || !sanitizeString(otp) || !sanitizeString(newPassword)) {
+            return res.status(400).json({ success: false, message: "User ID, OTP, and New Password are required" });
+        }
+        next();
+    },
+    resetPassword
+);
+
 // refresh access token
 router.post(
     "/refresh-token",
+    refreshTokenLimiter,
     (
         req,
         res,
