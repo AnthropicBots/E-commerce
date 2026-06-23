@@ -267,47 +267,6 @@ document.addEventListener(
             window.location.href =
                 `product.html?id=${id}`;
         }
-        const compareBtn =
-    event.target.closest(".compare-btn");
-
-if (compareBtn) {
-
-    event.preventDefault();
-
-    const id = compareBtn.dataset.id;
-
-    let compareProducts =
-    AppUtils.getJSON(
-        "compareProducts",
-        []
-    );
-    if (compareProducts.includes(id)) {
-    AppUtils.notify(
-        "Product already selected",
-        "info"
-    );
-    return;
-}
-    if (compareProducts.length >= 3) {
-    AppUtils.notify(
-        "You can compare up to 3 products only",
-        "warning"
-    );
-    return;
-}
-
-    compareProducts.push(id);
-
-    AppUtils.setJSON(
-    "compareProducts",
-    compareProducts
-);
-
-   AppUtils.notify(
-    "Added for comparison",
-    "success"
-);
-}
     }
 );
 

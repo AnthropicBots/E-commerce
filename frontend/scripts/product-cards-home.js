@@ -63,12 +63,14 @@ function createProductCard(
         ).join("");
 
 
-    const stock =
-    Number(product.stock || 0);
+   const stock = product.stock;
 
 let stockBadge = "";
 
-if (stock === 0) {
+if (stock === undefined || stock === null) {
+    stockBadge = "";
+}
+else if (Number(stock) === 0) {
     stockBadge =
         `
         <span class="stock-badge out">
@@ -76,7 +78,7 @@ if (stock === 0) {
         </span>
         `;
 }
-else if (stock <= 10) {
+else if (Number(stock) <= 10) {
     stockBadge =
         `
         <span class="stock-badge low">
@@ -92,18 +94,6 @@ else {
         </span>
         `;
 }
-    return `
-        <div class="pro fade-in">
-            ${
-                product.featured
-                    ? `
-                        <div class="badge-container">
-    
-            <span class="product-badge">
-                Featured
-            </span>
-           
-</div>
                     `
                     : ""
             }
