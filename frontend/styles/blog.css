@@ -228,7 +228,7 @@
 }
 
 .read-time {
-    color: var(--text-light);
+    color: var(--text-dark); /*making read-time visible in dark mode*/
     font-weight: 600;
     font-size: 12px;
     display: flex;
@@ -420,7 +420,7 @@
     gap: 15px;
     align-items: center;
     font-size: 13px;
-    color: var(--text-light);
+    color: var(--text-dark); /*making modal-meta visible in dark mode*/
     margin-bottom: 15px;
     font-weight: 600;
 }
@@ -463,9 +463,9 @@
     font-size: 15px;
 }
 
-.author-title {
+.author-title { 
     font-size: 13px;
-    color: var(--text-light);
+    color: var(--text-dark); /*making author-title visible in dark mode*/
     font-weight: 500;
 }
 

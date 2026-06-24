@@ -135,6 +135,7 @@
 #recently-viewed .pro{
     flex: 0 0 calc(25% - 20px);
     max-width: 320px;
+    cursor: pointer;
 }
 
 #product1 .pro img,
