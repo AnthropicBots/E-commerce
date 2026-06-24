@@ -283,6 +283,7 @@ app.use(
 
 app.use("/api/recommendations", recommendationRoutes);
 app.use("/api/pincode", pincodeRoutes);
+app.use("/api/cart", cartRoutes);
 // 404 handler
 app.use((req, res) => {
   return res.status(404).json({
