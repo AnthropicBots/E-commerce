@@ -43,7 +43,28 @@
             brand: 'Zara',
             stock: 8, 
             rating: 5 
+        },
+        { 
+            id: '104', 
+            name: 'Modern Denim Outerwear Jacket', 
+            price: 899.00, 
+            image: 'assets/images/MensJacket.webp', 
+            category: 'jacket', 
+            brand: 'Zara',
+            stock: 8, 
+            rating: 5 
+        },
+        { 
+            id: '105', 
+            name: 'Modern Denim Outerwear Jacket', 
+            price: 899.00, 
+            image: 'assets/images/MensJacket.webp', 
+            category: 'jacket', 
+            brand: 'Zara',
+            stock: 8, 
+            rating: 5 
         }
+
     ];
 
     // 3. DOM ELEMENTS
