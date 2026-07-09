@@ -678,31 +678,23 @@ function evaluatePasswordStrength(password) {
     if (/[^a-zA-Z0-9]/.test(password)) score++;
     else tips.push('Include at least one special character');
 
-    if (
-        user
-    ) {
-        authLink.innerHTML =
-            `<i class="fas fa-user"></i>`;
-            
-        authLink.href = "profile.html";
-        authLink.classList.add(
-            "profile-active"
-        );
-authLink.addEventListener("click", (event) => {
-    if (dropdown) {
-        event.preventDefault();
-        dropdown.classList.toggle("active");
-    }
-    // if no dropdown exists, href="profile.html" handles navigation
-});
-    }
     let level = 'Weak';
     let color = 'strength-weak';
     let percent = 25;
-    if (score === 4) { level = 'Strong'; color = 'strength-strong'; percent = 100; }
-    else if (score === 3) { level = 'Medium'; color = 'strength-medium'; percent = 60; }
-    else if (score === 2) { level = 'Weak'; color = 'strength-weak'; percent = 30; }
-    else { percent = 30; }
+
+    if (score === 4) {
+        level = 'Strong';
+        color = 'strength-strong';
+        percent = 100;
+    } else if (score === 3) {
+        level = 'Medium';
+        color = 'strength-medium';
+        percent = 60;
+    } else if (score === 2) {
+        level = 'Weak';
+        color = 'strength-weak';
+        percent = 30;
+    }
 
     return { level, color, percent, tips };
 }

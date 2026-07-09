@@ -13,128 +13,100 @@ const { apiLimiter, adminLimiter, mcpLimiter } = require('./config/rateLimiters'
 const dotenv = require("dotenv");
 const helmet = require("helmet");
 const corsMiddleware = require("./middleware/corsMiddleware");
-// Add with other route imports
+
+// Import all route modules
 const aiFeedRoutes = require('./routes/aiFeedRoutes');
-// Import agent routes
 const agentRoutes = require('./routes/agentRoutes');
-// Import legal routes
 const legalRoutes = require('./routes/legalRoutes');
-// Add with other route imports
 const aiLegalRoutes = require('./routes/aiLegalRoutes');
-
-// Add AI Legal routes
-app.use('/api/ai-legal', aiLegalRoutes);
-// Add routes
-app.use('/api/legal', legalRoutes);
-// Add routes
-app.use('/api/agents', agentRoutes);
-// Add AI feed routes
-app.use('/api/ai-feed', aiFeedRoutes);
-const routes = require("./routes/index");
-const authLimiter = require("./middleware/authLimiter");
-const mcpRoutes = require("./routes/mcpRoutes"); // ✅ MCP Routes added
-
-// Add with other route imports
 const performanceRoutes = require('./routes/performanceRoutes');
-
-// Import routes
 const approvalRoutes = require('./routes/approvalRoutes');
 const rollbackRoutes = require('./routes/rollbackRoutes');
-// Import security routes
 const securityRoutes = require('./routes/securityRoutes');
-
-// Add routes
-app.use('/api/security', securityRoutes);
-// Add routes
-app.use('/api/approvals', approvalRoutes);
-app.use('/api/rollback', rollbackRoutes);
-// Add with other route imports
-
 const aiFinancialRoutes = require('./routes/aiFinancialRoutes');
-
-// Add AI financial routes
-app.use('/api/ai/financial', aiFinancialRoutes);
-
-
-// Add performance routes
-app.use('/api/performance', performanceRoutes);
-// Add with other route imports
-
 const copywriterRoutes = require('./routes/copywriterRoutes');
+const fraudRoutes = require('./routes/fraudRoutes');
+const aiRoutes = require('./routes/aiRoutes');
+const routes = require("./routes/index");
+const authLimiter = require("./middleware/authLimiter");
+const mcpRoutes = require("./routes/mcpRoutes");
 
-// Add copywriter routes
-app.use('/api/copywriter', copywriterRoutes);
-// Add with other imports
-
+// Import middleware
 const { detectAgenticFraud } = require('./middleware/agenticFraudMiddleware');
-
-
 const { detectBot, addBotDetectionHeaders } = require('./middleware/botProtectionMiddleware');
-
-
-// Add after other middleware
-app.use(addBotDetectionHeaders);
-app.use(detectBot);
-
-
 const { verifyAICrawler } = require('./middleware/aiCrawlerMiddleware');
 
+// Create logs directory
+const logsDir = path.join(__dirname, 'logs');
+if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
+}
 
-// Add after other middleware
-app.use(verifyAICrawler);
+// Create log streams
+const errorLogStream = fs.createWriteStream(
+    path.join(logsDir, 'error.log'),
+    { flags: 'a' }
+);
 
+// Health response builder
+function buildHealthResponse(data) {
+    return {
+        success: true,
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        ...data
+    };
+}
 
+// Server startup logger
+function logServerStartup(options) {
+    console.log(`
+╔══════════════════════════════════════════════════════════════╗
+║                    SERVER STARTUP INFO                       ║
+╠══════════════════════════════════════════════════════════════╣
+║  Status:        ✅ Running                                   ║
+║  Port:          ${String(options.port).padEnd(45)}║
+║  Environment:   ${String(options.environment).padEnd(45)}║
+║  Health Check:  ${String(options.healthUrl).padEnd(45)}║
+╠══════════════════════════════════════════════════════════════╣
+║                    SECURITY FEATURES                         ║
+╠══════════════════════════════════════════════════════════════╣
+║  Rate Limiting:  ${String(options.rateLimiting ? '✅ Enabled' : '❌ Disabled').padEnd(44)}║
+║  Helmet:         ${String(options.helmet ? '✅ Enabled' : '❌ Disabled').padEnd(44)}║
+║  MCP Security:   ${String(options.mcpSecurity ? '✅ Enabled' : '❌ Disabled').padEnd(44)}║
+╚══════════════════════════════════════════════════════════════╝
+    `);
+}
 
-// Add after other middleware
-app.use(addBotDetectionHeaders);
-app.use(detectBot);
-// Add with other route imports
-const fraudRoutes = require('./routes/fraudRoutes');
-
-// Add fraud routes
-app.use('/api/fraud', fraudRoutes);
-
-
-
-// Add after auth middleware
-app.use(detectAgenticFraud);
-const aiRoutes = require('./routes/aiRoutes');
-
-// Add AI routes
-app.use('/api/ai', aiRoutes);
-
-// load environment
+// Load environment
 dotenv.config();
 const { validateEnv } = require('./config/envValidator');
 validateEnv();
 
-// database
+// Initialize database
 require("./config/db");
 
-// init app
+// Initialize Express app
 const app = express();
 const http = require("http");
 const server = http.createServer(app);
 const { initSocket } = require("./utils/socketManager");
 const { accessLogger, errorLogger, devLogger } = require('./config/morganConfig');
-// constants
+
+// Constants
 const PORT = Number(process.env.PORT) || 5000;
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5500";
 
-// create logs directory
-
-
-
-// trust proxy
+// Trust proxy
 app.set("trust proxy", 1);
 
-// security
+// Disable x-powered-by header
 app.disable("x-powered-by");
 
-// security headers
+// Security headers
 app.use(helmetMiddleware);
 
-// compression - gzip/brotli
+// Compression
 app.use(compression({
     level: 6,
     threshold: 1024,
@@ -146,21 +118,21 @@ app.use(compression({
     }
 }));
 
-// request timeout
+// Request timeout
 app.use(timeout("30s"));
 
-// extend timeout for specific routes
+// Extend timeout for specific routes
 app.use((req, res, next) => {
     if (req.path.startsWith("/api/admin") || 
         req.path === "/api/upload" || 
         req.path === "/api/export" ||
-        req.path.startsWith("/api/mcp")) { // ✅ MCP timeout extended
+        req.path.startsWith("/api/mcp")) {
         req.setTimeout(60000);
     }
     next();
 });
 
-// cors - allowed origins
+// CORS - allowed origins
 const allowedOrigins = [
     "http://localhost:5500",
     "http://127.0.0.1:5500",
@@ -177,22 +149,22 @@ const allowedOrigins = [
     "https://e-commerce-production-d546.up.railway.app"
 ];
 
-// initialize websocket server with CORS
+// Initialize websocket server with CORS
 initSocket(server, allowedOrigins);
 
-// cors
+// CORS middleware
 app.use(corsMiddleware);
 app.use(accessLogger);
 
-// log errors to error.log
+// Log errors to error.log
 app.use(errorLogger);
 
-// console logging in development
+// Console logging in development
 if (process.env.NODE_ENV !== "production") {
     app.use(devLogger);
 }
 
-// body parsers
+// Body parsers
 app.use(
     express.json({
         limit: "10mb",
@@ -208,7 +180,7 @@ app.use(
     }),
 );
 
-// ✅ Security headers for MCP endpoints
+// Security headers for MCP endpoints
 app.use('/api/mcp/*', (req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -217,7 +189,7 @@ app.use('/api/mcp/*', (req, res, next) => {
     next();
 });
 
-// request logger
+// Request logger
 if (process.env.NODE_ENV !== "production") {
     app.use((req, res, next) => {
         console.log(`${req.method} ${req.originalUrl} - ${req.ip}`);
@@ -225,25 +197,27 @@ if (process.env.NODE_ENV !== "production") {
     });
 }
 
-
-// apply rate limiting
+// Apply rate limiting
 app.use("/api", apiLimiter);
-
-// auth routes rate limiting
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/signup", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
 app.use("/api/auth/reset-password", authLimiter);
 app.use("/api/auth/refresh-token", authLimiter);
-
-// admin routes rate limiting
 app.use("/api/admin", adminLimiter);
-
-// ✅ MCP routes rate limiting
 app.use("/api/mcp", mcpLimiter);
 
-// health check
-// health check
+// Bot detection middleware (only once, not duplicated)
+app.use(addBotDetectionHeaders);
+app.use(detectBot);
+
+// AI Crawler verification middleware
+app.use(verifyAICrawler);
+
+// Agent fraud detection middleware
+app.use(detectAgenticFraud);
+
+// Health check endpoint
 app.get("/health", (req, res) => {
     const healthData = buildHealthResponse({
         environment: process.env.NODE_ENV || "development",
@@ -251,9 +225,9 @@ app.get("/health", (req, res) => {
         memoryUsage: process.memoryUsage(),
     });
     return res.status(200).json(healthData);
-});;
+});
 
-// root route
+// Root route
 app.get("/", (req, res) => {
     return res.status(200).json({
         success: true,
@@ -264,21 +238,31 @@ app.get("/", (req, res) => {
             api: "/api",
             auth: "/api/auth",
             admin: "/api/admin",
-            mcp: "/api/mcp", // ✅ MCP endpoint added
+            mcp: "/api/mcp"
         },
         security: {
             rateLimiting: "Enabled",
             helmet: "Enabled",
             cors: "Configured",
-            mcpSecurity: "Enabled",
+            mcpSecurity: "Enabled"
         }
     });
 });
 
-// api routes
+// API routes
 app.use("/api", routes);
-
-// ✅ MCP routes - must be after auth routes but before 404
+app.use("/api/ai", aiRoutes);
+app.use("/api/ai-feed", aiFeedRoutes);
+app.use("/api/ai/financial", aiFinancialRoutes);
+app.use("/api/ai-legal", aiLegalRoutes);
+app.use("/api/legal", legalRoutes);
+app.use("/api/agents", agentRoutes);
+app.use("/api/performance", performanceRoutes);
+app.use("/api/security", securityRoutes);
+app.use("/api/approvals", approvalRoutes);
+app.use("/api/rollback", rollbackRoutes);
+app.use("/api/copywriter", copywriterRoutes);
+app.use("/api/fraud", fraudRoutes);
 app.use("/api/mcp", mcpRoutes);
 
 // 404 handler
@@ -290,10 +274,10 @@ app.use((req, res) => {
     });
 });
 
-// Register the extracted global error handler
+// Global error handler
 app.use(globalErrorHandler(errorLogStream));
 
-// unhandled rejection
+// Process event handlers
 process.on("unhandledRejection", (reason) => {
     console.error("UNHANDLED REJECTION:", reason);
     errorLogStream.write(JSON.stringify({
@@ -307,7 +291,6 @@ process.on("unhandledRejection", (reason) => {
     }, 1000);
 });
 
-// uncaught exception
 process.on("uncaughtException", (error) => {
     console.error("UNCAUGHT EXCEPTION:", error);
     errorLogStream.write(JSON.stringify({
@@ -321,7 +304,7 @@ process.on("uncaughtException", (error) => {
     }, 1000);
 });
 
-// graceful shutdown
+// Graceful shutdown
 function shutdown() {
     console.log("\nShutting down server gracefully...");
     server.close(() => {
@@ -337,14 +320,13 @@ function shutdown() {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-// start server
-// start server
+// Start server
 server.listen(PORT, "0.0.0.0", () => {
     logServerStartup({
         port: PORT,
         environment: process.env.NODE_ENV || "development",
         frontendUrl: FRONTEND_URL,
-        logsDir: logDir,
+        logsDir: logsDir,
         healthUrl: `http://localhost:${PORT}/health`,
         mcpSecurity: true,
         rateLimiting: true,

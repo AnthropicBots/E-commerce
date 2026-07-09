@@ -86,26 +86,27 @@ const validatePromoCode = async (req, res) => {
         const cacheKey = `promo_${promoCode}`;
         const cached = promoCache.get(cacheKey);
         if (cached) {
+            // Only return cached success responses, not errors
+            if (cached.valid === false) {
+                return res.status(404).json({ success: false, message: cached.message });
+            }
             return res.status(200).json({ success: true, data: cached, cached: true });
         }
 
         const promo = await getPromoByCode(promoCode);
         if (!promo) {
-            const errorResponse = { valid: false, message: "Promo code not found" };
-            promoCache.set(cacheKey, errorResponse);
+            // Do NOT cache negative results - only cache successful validations
             return res.status(404).json({ success: false, message: "Promo code not found" });
         }
 
         if (!validateDiscount(promo.discount_value, promo.discount_type)) {
-            const errorResponse = { valid: false, message: "Invalid discount value" };
-            promoCache.set(cacheKey, errorResponse);
+            // Do NOT cache negative results
             return res.status(400).json({ success: false, message: "Invalid discount value" });
         }
 
         const validation = await validatePromo(promoCode, cartTotal);
         if (!validation.valid) {
-            const errorResponse = { valid: false, message: validation.message };
-            promoCache.set(cacheKey, errorResponse);
+            // Do NOT cache negative results
             return res.status(400).json({ success: false, message: validation.message });
         }
 

@@ -38,8 +38,13 @@ function setCache(userId, page, limit, data) {
 }
 
 function invalidateCache(userId) {
-    const key = getCacheKey(userId);
-    cache.delete(key);
+    // Delete all cache keys that match this user's prefix
+    const prefix = `wishlist:${userId}:`;
+    for (const key of cache.keys()) {
+        if (key.startsWith(prefix)) {
+            cache.delete(key);
+        }
+    }
     logger.debug(`Cache invalidated for user: ${userId}`);
 }
 
