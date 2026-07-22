@@ -99,11 +99,6 @@ outboxService.initialize().catch(err => {
     console.error('Failed to initialize outbox service:', err);
 });
 
-// Add outbox routes
-app.use('/api/outbox', outboxRoutes);
-
-
-
 // Add liability routes
 app.use('/api/liability', liabilityRoutes);
 // Add with other route imports
@@ -118,13 +113,6 @@ const { featureFlagService } = require('./services/featureFlagService');
 const correlationRoutes = require('./routes/correlationRoutes');
 const { correlationIdMiddleware, logCompletionMiddleware } = require('./middleware/correlationIdMiddleware');
 
-// Add correlation ID middleware BEFORE any other middleware
-app.use(correlationIdMiddleware);
-app.use(logCompletionMiddleware);
-
-// Add correlation routes
-app.use('/api/correlation', correlationRoutes);
-
 (async () => {
   await moduleMaturityService.initialize();
   app.use('/api/maturity', maturityRoutes);
@@ -135,32 +123,6 @@ app.use('/api/correlation', correlationRoutes);
   await jaggedFrontierService.initialize();
   app.use('/api/jagged-frontier', jaggedFrontierRoutes);
 })();
-
-
-// Initialize maturity service
-moduleMaturityService.initialize().catch(err => {
-    console.error('Failed to initialize maturity service:', err);
-});
-
-// Add maturity routes
-app.use('/api/maturity', maturityRoutes);
-
-// Initialize SLA service
-slaService.initialize().catch(err => {
-    console.error('Failed to initialize SLA service:', err);
-});
-
-// Add SLA routes
-app.use('/api/sla', slaRoutes);
-
-
-// Initialize service
-jaggedFrontierService.initialize().catch(err => {
-    console.error('Failed to initialize jagged frontier service:', err);
-});
-
-// Add routes
-app.use('/api/jagged-frontier', jaggedFrontierRoutes);
 
 // Add with other route imports
 // Add with other imports
@@ -326,7 +288,6 @@ app.use('/api/policies', policyRoutes);
 app.use('/api/outbox', outboxRoutes);
 app.use('/api/flags', flagRoutes);
 app.use('/api/correlation', correlationRoutes);
-app.use('/api/sla', slaRoutes);
 app.use('/api/provenance', provenanceRoutes);
 app.use('/api/recommendations', recommendationRoutes);
 app.use('/api/rules', ruleRoutes);
