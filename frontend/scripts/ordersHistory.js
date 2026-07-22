@@ -101,6 +101,13 @@ async function renderOrders() {
                     ? `<button class="btn btn-sm" style="color:red; border:1px solid red; padding: 4px 8px; border-radius:4px; background:transparent; cursor:pointer;" onclick="cancelHistoryOrder(${order.id})">Cancel Order</button>`
                     : "";
 
+                const isReturnable = (order.status || "").toLowerCase() === "delivered";
+                const returnBtnHtml = isReturnable
+                    ? `<button class="btn btn-sm" style="color:#111; border:1px solid #111; padding: 4px 8px; border-radius:4px; background:transparent; cursor:pointer;" onclick="openReturnModal('${order.id}')">Request Return</button>`
+                    : "";
+
+                const actionsHtml = [cancelBtnHtml, returnBtnHtml].filter(Boolean).join(" ");
+
                 div.innerHTML =
                     `
                         <h4>
@@ -118,7 +125,9 @@ async function renderOrders() {
                                     ${order.status || "Pending"}
                                 </span>
                             </span>
-                            ${cancelBtnHtml}
+                            <span style="display:flex; gap:8px;">
+                                ${actionsHtml}
+                            </span>
                         </p>
                         <div class="order-items-list">
                             ${(order.items || [])
