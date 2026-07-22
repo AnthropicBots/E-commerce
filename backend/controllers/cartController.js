@@ -71,6 +71,10 @@ const cartController = {
 
             await connection.beginTransaction();
 
+            // /cart/sync is replace-all: drop the user's current reservations
+            // up front so the ones created below match the synced quantities.
+            await inventoryReservationService.releaseUserLocks(userId, null, connection);
+
             let placeholders = [];
             let values = [];
 
@@ -92,9 +96,9 @@ const cartController = {
                 for (const [productId, qty] of quantities) {
                     if (!productMap.has(productId)) continue;
 
-                    const availableStock = productMap.get(productId);
+                    const reserved = await inventoryReservationService.reserveStock(userId, productId, qty, connection);
 
-                    if (qty > availableStock) {
+                    if (!reserved) {
                         await connection.rollback();
 
                         return res.status(400).json({
@@ -199,12 +203,18 @@ const cartController = {
 
             await connection.beginTransaction();
 
-            const [products] = await connection.query("SELECT id, stock FROM products WHERE id = ?", [productId]);
+            const [products] = await connection.query("SELECT id FROM products WHERE id = ?", [productId]);
             if (products.length === 0) {
                 await connection.rollback();
                 return res.status(404).json({ success: false, message: "Product not found" });
             }
-            if (quantity > products[0].stock) {
+
+            // Move the user's reservation for this product to the new quantity
+            // (release then re-reserve) so held stock tracks the cart.
+            await inventoryReservationService.releaseUserLocks(userId, productId, connection);
+
+            const reserved = await inventoryReservationService.reserveStock(userId, productId, quantity, connection);
+            if (!reserved) {
                 await connection.rollback();
                 return res.status(400).json({ success: false, message: "Requested quantity exceeds available stock" });
             }
