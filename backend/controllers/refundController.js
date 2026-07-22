@@ -12,6 +12,8 @@ const ELIGIBLE_ORDER_STATUS = "delivered";
 const RETURN_WINDOW_DAYS = 30;
 const MIN_REASON_LENGTH = 5;
 const MAX_REASON_LENGTH = 1000;
+const MAX_ADMIN_NOTE_LENGTH = 1000;
+const REFUND_STATUSES = ["pending", "approved", "rejected", "refunded"];
 
 // The window runs from delivery when we have it, otherwise from order
 // creation so orders delivered before delivered_at was tracked still resolve.
@@ -184,7 +186,239 @@ const listMyRequests = async (req, res) => {
     }
 };
 
+const listAll = async (req, res) => {
+    const status = req.query.status
+        ? sanitizeString(req.query.status).toLowerCase()
+        : null;
+
+    if (status && !REFUND_STATUSES.includes(status)) {
+        return res.status(400).json({
+            success: false,
+            message: `Status must be one of: ${REFUND_STATUSES.join(", ")}`
+        });
+    }
+
+    try {
+        const requests = await RefundRequest.list({ status });
+
+        return res.status(200).json({
+            success: true,
+            message: "Return requests fetched",
+            data: requests.map((request) => request.toJSON())
+        });
+    } catch (error) {
+        console.error("LIST REFUND REQUESTS ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch return requests"
+        });
+    }
+};
+
+const approveRequest = async (req, res) => {
+    const adminId = safeUUID(req.user?.id);
+    const requestId = safeInteger(req.params.id);
+    const adminNote = normalizeAdminNote(req.body.note);
+
+    if (requestId < 1) {
+        return res.status(400).json({
+            success: false,
+            message: "Invalid request ID"
+        });
+    }
+
+    if (adminNote && adminNote.length > MAX_ADMIN_NOTE_LENGTH) {
+        return res.status(400).json({
+            success: false,
+            message: `Admin note cannot exceed ${MAX_ADMIN_NOTE_LENGTH} characters`
+        });
+    }
+
+    let connection;
+
+    try {
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        const request = await RefundRequest.findById(requestId, {
+            connection,
+            forUpdate: true
+        });
+
+        if (!request) {
+            await connection.rollback();
+
+            return res.status(404).json({
+                success: false,
+                message: "Return request not found"
+            });
+        }
+
+        if (request.status !== "pending") {
+            await connection.rollback();
+
+            return res.status(400).json({
+                success: false,
+                message: "Only pending requests can be approved"
+            });
+        }
+
+        // The order item may reference a variant; restock both the base
+        // product and the specific variant so inventory stays consistent.
+        let variantId = null;
+
+        if (request.orderItemId) {
+            const [items] = await connection.query(
+                "SELECT variant_id FROM order_items WHERE id = ? LIMIT 1",
+                [request.orderItemId]
+            );
+
+            variantId = safeArray(items)[0]?.variant_id ?? null;
+        }
+
+        if (request.productId) {
+            await connection.query(
+                "UPDATE products SET stock = stock + ? WHERE id = ?",
+                [request.quantity, request.productId]
+            );
+        }
+
+        if (variantId) {
+            await connection.query(
+                "UPDATE product_variants SET stock = stock + ? WHERE id = ?",
+                [request.quantity, variantId]
+            );
+        }
+
+        await RefundRequest.updateStatus(
+            requestId,
+            { status: "approved", adminNote, reviewedBy: adminId },
+            connection
+        );
+
+        await connection.commit();
+
+        const updated = await RefundRequest.findById(requestId);
+
+        return res.status(200).json({
+            success: true,
+            message: "Return request approved and inventory restocked",
+            data: updated ? updated.toJSON() : null
+        });
+    } catch (error) {
+        if (connection) {
+            await connection.rollback();
+        }
+
+        console.error("APPROVE REFUND REQUEST ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to approve return request"
+        });
+    } finally {
+        if (connection) {
+            connection.release();
+        }
+    }
+};
+
+const rejectRequest = async (req, res) => {
+    const adminId = safeUUID(req.user?.id);
+    const requestId = safeInteger(req.params.id);
+    const adminNote = normalizeAdminNote(req.body.note);
+
+    if (requestId < 1) {
+        return res.status(400).json({
+            success: false,
+            message: "Invalid request ID"
+        });
+    }
+
+    if (adminNote && adminNote.length > MAX_ADMIN_NOTE_LENGTH) {
+        return res.status(400).json({
+            success: false,
+            message: `Admin note cannot exceed ${MAX_ADMIN_NOTE_LENGTH} characters`
+        });
+    }
+
+    let connection;
+
+    try {
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        const request = await RefundRequest.findById(requestId, {
+            connection,
+            forUpdate: true
+        });
+
+        if (!request) {
+            await connection.rollback();
+
+            return res.status(404).json({
+                success: false,
+                message: "Return request not found"
+            });
+        }
+
+        if (request.status !== "pending") {
+            await connection.rollback();
+
+            return res.status(400).json({
+                success: false,
+                message: "Only pending requests can be rejected"
+            });
+        }
+
+        await RefundRequest.updateStatus(
+            requestId,
+            { status: "rejected", adminNote, reviewedBy: adminId },
+            connection
+        );
+
+        await connection.commit();
+
+        const updated = await RefundRequest.findById(requestId);
+
+        return res.status(200).json({
+            success: true,
+            message: "Return request rejected",
+            data: updated ? updated.toJSON() : null
+        });
+    } catch (error) {
+        if (connection) {
+            await connection.rollback();
+        }
+
+        console.error("REJECT REFUND REQUEST ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to reject return request"
+        });
+    } finally {
+        if (connection) {
+            connection.release();
+        }
+    }
+};
+
+function normalizeAdminNote(value) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+
+    const note = sanitizeString(value);
+
+    return note.length ? note : null;
+}
+
 module.exports = {
     createRequest,
-    listMyRequests
+    listMyRequests,
+    listAll,
+    approveRequest,
+    rejectRequest
 };
