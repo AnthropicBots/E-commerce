@@ -1,0 +1,190 @@
+<!-- frontend/copywriter-demo.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Product Copywriter</title>
+    <style>
+        .copywriter-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        .input-group label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .btn-primary {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .btn-secondary {
+            background: #2196F3;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        .generated-content {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            display: none;
+        }
+        .generated-name {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .generated-description {
+            font-size: 16px;
+            color: #666;
+            line-height: 1.6;
+        }
+        .bullet-points {
+            list-style: none;
+            padding: 0;
+        }
+        .bullet-point {
+            padding: 5px 0;
+            color: #555;
+        }
+        .seo-tag {
+            display: inline-block;
+            background: #e0e0e0;
+            padding: 3px 10px;
+            margin: 3px;
+            border-radius: 15px;
+            font-size: 12px;
+        }
+        .version-card {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            background: white;
+        }
+        .loader {
+            display: none;
+            justify-content: center;
+            padding: 20px;
+        }
+        .loader-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="copywriter-container">
+        <h1>🤖 AI Product Copywriter</h1>
+        <p>Generate compelling product names and descriptions in seconds</p>
+
+        <div class="input-group">
+            <label>Product Keywords</label>
+            <input 
+                type="text" 
+                id="productKeywords" 
+                placeholder="e.g., wireless, premium, noise-cancelling, headphones"
+                value="wireless noise-cancelling premium"
+            />
+            <small>Enter 3-5 keywords separated by commas</small>
+        </div>
+
+        <div class="input-group">
+            <label>Category</label>
+            <select id="productCategory">
+                <option value="Electronics">Electronics</option>
+                <option value="Fashion">Fashion</option>
+                <option value="Home">Home & Living</option>
+                <option value="Beauty">Beauty</option>
+            </select>
+        </div>
+
+        <div class="input-group">
+            <label>Tone</label>
+            <select id="toneSelect">
+                <option value="Professional">Professional</option>
+                <option value="Warm & Friendly">Warm & Friendly</option>
+                <option value="Luxury & Premium">Luxury & Premium</option>
+                <option value="Minimalist">Minimalist</option>
+                <option value="Energetic">Energetic</option>
+            </select>
+        </div>
+
+        <div>
+            <button onclick="aiCopywriter.generateCopy()" class="btn-primary">
+                ✨ Generate AI Copy
+            </button>
+            <button onclick="aiCopywriter.generateMultipleVersions()" class="btn-secondary">
+                🔄 Generate 3 Versions
+            </button>
+            <button onclick="aiCopywriter.regenerateCopy()" class="btn-secondary">
+                🎲 Regenerate
+            </button>
+        </div>
+
+        <div id="copyLoader" class="loader">
+            <div class="loader-spinner"></div>
+        </div>
+
+        <div id="aiGeneratedContent" class="generated-content">
+            <h3>📝 Generated Copy</h3>
+            
+            <div class="preview-box">
+                <h4>Product Name</h4>
+                <p id="generatedName" class="generated-name"></p>
+            </div>
+            
+            <div class="preview-box">
+                <h4>Product Description</h4>
+                <p id="generatedDescription" class="generated-description"></p>
+            </div>
+
+            <div class="preview-box">
+                <h4>Bullet Points</h4>
+                <ul id="bulletPoints" class="bullet-points"></ul>
+            </div>
+
+            <div class="preview-box">
+                <h4>SEO Keywords</h4>
+                <div id="seoKeywords"></div>
+            </div>
+            
+            <div class="action-buttons">
+                <button onclick="aiCopywriter.useCopy()" class="btn-primary">
+                    ✅ Use This Copy
+                </button>
+            </div>
+        </div>
+
+        <div id="versionsContainer"></div>
+    </div>
+
+    <script src="scripts/ai-copywriter.js"></script>
+</body>
+</html>

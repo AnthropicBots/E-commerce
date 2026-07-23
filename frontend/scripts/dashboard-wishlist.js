@@ -1,203 +1,120 @@
 // dashboard wishlist elements
-const dashboardWishlistElements = {
-    wishlistContainer:
-        document.getElementById(
-            "wishlist-items"
-        ),
+const getDashboardElements = () => ({
+    wishlistContainer: document.getElementById("wishlist-items"),
+    wishlistCount: document.getElementById("wishlist-count"),
+    cartContainer: document.getElementById("saved-cart-items"),
+    cartCount: document.getElementById("cart-count-dashboard")
+});
 
-    wishlistCount:
-        document.getElementById(
-            "wishlist-count"
-        ),
+// paint wishlist from whatever is currently stored
+function paintDashboardWishlist() {
+    const elements = getDashboardElements();
+    const wishlist = AppUtils.getWishlist();
 
-    cartContainer:
-        document.getElementById(
-            "saved-cart-items"
-        ),
-
-    cartCount:
-        document.getElementById(
-            "cart-count-dashboard"
-        )
-};
-
-// render wishlist
-function renderDashboardWishlist() {
-    const wishlist =
-        AppUtils.getJSON(
-            "wishlist",
-            []
-        );
-
-    if (
-        dashboardWishlistElements.wishlistCount
-    ) {
-        dashboardWishlistElements.wishlistCount.innerText =
-            wishlist.length;
+    if (elements.wishlistCount) {
+        elements.wishlistCount.innerText = wishlist.length;
     }
 
-    if (
-        !wishlist.length
-    ) {
+    if (!elements.wishlistContainer) {
+        return;
+    }
+
+    if (!wishlist.length) {
         renderDashboardEmptyState(
-            dashboardWishlistElements.wishlistContainer,
+            elements.wishlistContainer,
             "No wishlist items found."
         );
-
         return;
     }
 
-    if (
-        !dashboardWishlistElements.wishlistContainer
-    ) {
+    elements.wishlistContainer.innerHTML = "";
+
+    wishlist.forEach((item) => {
+        if (!item) return;
+        const card = document.createElement("div");
+        card.className = "dashboard-item-card";
+        card.innerHTML = `
+            <img
+                src="${AppUtils.defaultImage(item.image || item.img)}"
+                alt="${item.name || "Product"}"
+            >
+            <div class="dashboard-item-info">
+                <h4>${item.name || "Product"}</h4>
+                <p>${item.brand || ""}</p>
+                <strong>${AppUtils.formatPrice(item.price || 0)}</strong>
+            </div>
+        `;
+        elements.wishlistContainer.appendChild(card);
+    });
+}
+
+// render wishlist (paint local first, then sync from backend)
+async function renderDashboardWishlist() {
+    // show stored items immediately so the panel never sits blank
+    paintDashboardWishlist();
+
+    const token = AppUtils.getToken();
+    if (!token) {
         return;
     }
-    dashboardWishlistElements.wishlistContainer.innerHTML =
-        "";
 
-    wishlist.forEach(
-        (item) => {
-            const card =
-                document.createElement(
-                    "div"
-                );
-
-            card.className =
-                "dashboard-item-card";
-
-            card.innerHTML = `
-                <img
-                    src="${
-                        AppUtils.defaultImage(
-                            item.image
-                        )
-                    }"
-                    alt="${
-                        item.name
-                    }"
-                >
-
-                <div class="dashboard-item-info">
-                    <h4>
-                        ${
-                            item.name
-                        }
-                    </h4>
-
-                    <p>
-                        ${
-                            item.brand || ""
-                        }
-                    </p>
-
-                    <strong>
-                        ${
-                            AppUtils.formatPrice(
-                                item.price || 0
-                            )
-                        }
-                    </strong>
-                </div>
-            `;
-
-            dashboardWishlistElements
-                .wishlistContainer
-                .appendChild(
-                    card
-                );
+    try {
+        const response = await AppUtils.apiRequest("/wishlist");
+        // only adopt the server copy when it actually has items, so an
+        // empty/unsynced server response never wipes the local wishlist.
+        // setJSON (not saveWishlist) avoids echoing a sync request back.
+        if (response && response.success && Array.isArray(response.wishlist) && response.wishlist.length) {
+            AppUtils.setJSON(AppUtils.CONFIG.STORAGE_KEYS.WISHLIST, response.wishlist);
+            paintDashboardWishlist();
         }
-    );
+    } catch (error) {
+        console.error("Failed to fetch wishlist in dashboard:", error);
+    }
 }
 
 // render cart
 function renderDashboardCart() {
-    const cart =
-        AppUtils.getCart();
+    const elements = getDashboardElements();
+    const cart = AppUtils.getCart();
 
-    if (
-        dashboardWishlistElements.cartCount
-    ) {
-        dashboardWishlistElements.cartCount.innerText =
-            cart.length;
+    if (elements.cartCount) {
+        elements.cartCount.innerText = cart.length;
     }
 
-    if (
-        !cart.length
-    ) {
+    if (!elements.cartContainer) {
+        return;
+    }
+
+    if (!cart.length) {
         renderDashboardEmptyState(
-            dashboardWishlistElements.cartContainer,
+            elements.cartContainer,
             "No saved cart items found."
         );
-
         return;
     }
 
-    if (
-        !dashboardWishlistElements.cartContainer
-    ) {
-        return;
-    }
-    dashboardWishlistElements.cartContainer.innerHTML =
-        "";
+    elements.cartContainer.innerHTML = "";
 
-    cart.forEach(
-        (item) => {
-            const card =
-                document.createElement(
-                    "div"
-                );
-
-            card.className =
-                "dashboard-item-card";
-
-            card.innerHTML = `
-                <img
-                    src="${
-                        AppUtils.defaultImage(
-                            item.image
-                        )
-                    }"
-                    alt="${
-                        item.name
-                    }"
-                >
-
-                <div class="dashboard-item-info">
-                    <h4>
-                        ${
-                            item.name
-                        }
-                    </h4>
-
-                    <p>
-                        Qty:
-                        ${
-                            item.qty || 1
-                        }
-                    </p>
-
-                    <strong>
-                        ${
-                            AppUtils.formatPrice(
-                                item.price || 0
-                            )
-                        }
-                    </strong>
-                </div>
-            `;
-
-            dashboardWishlistElements
-                .cartContainer
-                .appendChild(
-                    card
-                );
-        }
-    );
+    cart.forEach((item) => {
+        if (!item) return;
+        const card = document.createElement("div");
+        card.className = "dashboard-item-card";
+        card.innerHTML = `
+            <img
+                src="${AppUtils.defaultImage(item.image || item.img)}"
+                alt="${item.name || "Product"}"
+            >
+            <div class="dashboard-item-info">
+                <h4>${item.name || "Product"}</h4>
+                <p>Qty: ${item.qty || 1}</p>
+                <strong>${AppUtils.formatPrice(item.price || 0)}</strong>
+            </div>
+        `;
+        elements.cartContainer.appendChild(card);
+    });
 }
 
 // expose globally
-window.renderDashboardWishlist =
-    renderDashboardWishlist;
-
-window.renderDashboardCart =
-    renderDashboardCart;
+window.renderDashboardWishlist = renderDashboardWishlist;
+window.paintDashboardWishlist = paintDashboardWishlist;
+window.renderDashboardCart = renderDashboardCart;

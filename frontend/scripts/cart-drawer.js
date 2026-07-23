@@ -14,44 +14,55 @@ const cartDrawerTotal =
         "cart-drawer-total"
     );
 
-const openCartBtn =
-    document.getElementById(
-        "open-cart-drawer"
-    );
-
 const closeCartBtn =
     document.getElementById(
         "close-cart-drawer"
+    );
+
+const isCartPage =
+    /cart\.html$/i.test(
+        window.location.pathname
     );
 
 // cart state
 let drawerCart =
     AppUtils.getCart();
 
-// safe helpers
-function safePrice(
-    value
-) {
-    const parsed =
-        parseFloat(value);
-
-    return isNaN(parsed)
-        ? 0
-        : parsed;
-}
-
-function safeQty(
-    value
-) {
-    const parsed =
-        parseInt(value);
-
-    return isNaN(parsed)
-        ? 1
-        : Math.max(
-            1,
-            parsed
+function bindCartDrawerTriggers() {
+    const cartLinks =
+        document.querySelectorAll(
+            '.cart-link a[href*="cart.html"], #open-cart-drawer'
         );
+
+    cartLinks.forEach(
+        (link) => {
+            if (
+                link.dataset.drawerBound ===
+                "true"
+            ) {
+                return;
+            }
+
+            link.dataset.drawerBound =
+                "true";
+
+            link.addEventListener(
+                "click",
+                (event) => {
+                    if (
+                        !cartDrawer
+                        ||
+                        isCartPage
+                    ) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    openCartDrawer();
+                }
+            );
+        }
+    );
 }
 
 // open drawer
@@ -64,6 +75,11 @@ function openCartDrawer() {
 
     cartDrawer.classList.add(
         "active"
+    );
+
+    cartDrawer.setAttribute(
+        "aria-hidden",
+        "false"
     );
 
     document.body.style.overflow =
@@ -82,6 +98,11 @@ function closeCartDrawer() {
 
     cartDrawer.classList.remove(
         "active"
+    );
+
+    cartDrawer.setAttribute(
+        "aria-hidden",
+        "true"
     );
 
     document.body.style.overflow =
@@ -113,7 +134,7 @@ function renderCartDrawer() {
             `;
 
         cartDrawerTotal.innerHTML =
-            formatPrice(0);
+            AppUtils.formatPrice(0);
         return;
     }
 
@@ -121,25 +142,34 @@ function renderCartDrawer() {
         drawerCart.map(
             (item, index) => {
                 const qty =
-                    safeQty(
-                        item.qty
+                    Math.max(
+                        1,
+                        AppUtils.safeInteger(
+                            item.qty,
+                            1
+                        )
                     );
 
                 const price =
-                    safePrice(
-                        item.price
+                    AppUtils.safeNumber(
+                        item.price,
+                        0
                     );
 
                 return `
                     <div class="drawer-item">
                         <img
                             src="${
-                                defaultImage(
-                                    item.image
+                                AppUtils.escapeHTML(
+                                    AppUtils.defaultImage(
+                                        item.img || item.image
+                                    )
                                 )
                             }"
                             alt="${
-                                item.name || "Product"
+                                AppUtils.escapeHTML(
+                                    item.name || "Product"
+                                )
                             }"
                             loading="lazy"
                         >
@@ -147,30 +177,51 @@ function renderCartDrawer() {
                         <div class="drawer-item-info">
                             <h4>
                                 ${
-                                    item.name || "Product"
+                                    AppUtils.escapeHTML(
+                                        item.name || "Product"
+                                    )
                                 }
                             </h4>
 
                             <p>
                                 ${
-                                    formatPrice(
+                                    AppUtils.formatPrice(
                                         price
                                     )
                                 }
                             </p>
 
-                            <small>
-                                Qty:
-                                ${qty}
-                            </small>
+                            <div
+                                class="drawer-qty-controls"
+                                aria-label="Quantity controls"
+                            >
+                                <button
+                                    type="button"
+                                    class="drawer-decrease-qty"
+                                    data-index="${index}"
+                                    aria-label="Decrease quantity"
+                                    ${qty <= 1 ? "disabled" : ""}
+                                >
+                                    -
+                                </button>
+
+                                <span aria-live="polite">${qty}</span>
+
+                                <button
+                                    type="button"
+                                    class="drawer-increase-qty"
+                                    data-index="${index}"
+                                    aria-label="Increase quantity"
+                                >
+                                    +
+                                </button>
+                            </div>
                         </div>
 
                         <button
                             type="button"
                             class="remove-drawer-item"
-                            data-index="${
-                                index
-                            }"
+                            data-index="${index}"
                             aria-label="Remove item"
                         >
                             ✕
@@ -181,30 +232,56 @@ function renderCartDrawer() {
         ).join("");
 
     const total =
-        drawerCart.reduce(
-            (
-                sum,
-                item
-            ) => {
-                return (
-                    sum +
-                    (
-                        safePrice(
-                            item.price
-                        ) *
-                        safeQty(
-                            item.qty
-                        )
-                    )
-                );
-            },
-            0
-        );
+        AppUtils.calculateCartTotals(
+            drawerCart
+        ).subtotal;
 
     cartDrawerTotal.innerHTML =
-        formatPrice(
+        AppUtils.formatPrice(
             total
         );
+}
+
+function updateDrawerQty(
+    index,
+    delta
+) {
+    const parsedIndex =
+        parseInt(
+            index,
+            10
+        );
+
+    if (
+        isNaN(parsedIndex)
+        ||
+        !drawerCart[parsedIndex]
+    ) {
+        return;
+    }
+
+    drawerCart[parsedIndex].qty =
+        Math.max(
+            1,
+            AppUtils.safeInteger(
+                drawerCart[parsedIndex].qty,
+                1
+            ) + delta
+        );
+
+    drawerCart =
+        AppUtils.saveCart(
+            drawerCart
+        );
+
+    renderCartDrawer();
+
+    if (
+        typeof updateCartCount ===
+        "function"
+    ) {
+        updateCartCount();
+    }
 }
 
 // remove item
@@ -217,10 +294,16 @@ function removeDrawerItem(
         return;
     }
 
-    const parsedIndex = parseInt(index, 10);
+    const parsedIndex =
+        parseInt(
+            index,
+            10
+        );
 
     if (
-        isNaN(parsedIndex) || !drawerCart[parsedIndex]
+        isNaN(parsedIndex)
+        ||
+        !drawerCart[parsedIndex]
     ) {
         return;
     }
@@ -230,9 +313,10 @@ function removeDrawerItem(
         1
     );
 
-    AppUtils.saveCart(
-        drawerCart
-    );
+    drawerCart =
+        AppUtils.saveCart(
+            drawerCart
+        );
 
     renderCartDrawer();
 
@@ -246,21 +330,6 @@ function removeDrawerItem(
     AppUtils.notify(
         "Item removed from cart",
         "info"
-    );
-}
-
-// open cart
-if (
-    openCartBtn
-) {
-    openCartBtn.addEventListener(
-        "click",
-        (
-            event
-        ) => {
-            event.preventDefault();
-            openCartDrawer();
-        }
     );
 }
 
@@ -326,6 +395,38 @@ document.addEventListener(
                 ".remove-drawer-item"
             );
 
+        const increaseBtn =
+            event.target.closest(
+                ".drawer-increase-qty"
+            );
+
+        const decreaseBtn =
+            event.target.closest(
+                ".drawer-decrease-qty"
+            );
+
+        if (
+            increaseBtn
+        ) {
+            event.preventDefault();
+            updateDrawerQty(
+                increaseBtn.dataset.index,
+                1
+            );
+            return;
+        }
+
+        if (
+            decreaseBtn
+        ) {
+            event.preventDefault();
+            updateDrawerQty(
+                decreaseBtn.dataset.index,
+                -1
+            );
+            return;
+        }
+
         if (
             removeBtn
         ) {
@@ -337,9 +438,21 @@ document.addEventListener(
     }
 );
 
+document.addEventListener(
+    "componentsLoaded",
+    bindCartDrawerTriggers
+);
+
+bindCartDrawerTriggers();
+
 // expose globally
 window.openCartDrawer =
     openCartDrawer;
 
 window.renderCartDrawer =
     renderCartDrawer;
+
+window.addEventListener(
+    AppUtils.CART_UPDATED_EVENT,
+    renderCartDrawer
+);

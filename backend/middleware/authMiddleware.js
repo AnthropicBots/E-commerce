@@ -1,224 +1,118 @@
-const jwt =
-    require("jsonwebtoken");
+// backend/middleware/authMiddleware.js
+const jwt = require('jsonwebtoken');
 
-// environment validation
-if (
-    !process.env.JWT_SECRET
-) {
-
-    throw new Error(
-        "JWT_SECRET environment variable is not set"
-    );
+// JWT_SECRET must be set in environment - throw error if missing
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    throw new Error('FATAL: JWT_SECRET environment variable is required but not set. Application cannot start without a secure JWT secret.');
 }
 
-// extract bearer token
-function extractToken(
-    authHeader
-) {
-
-    if (
-        !authHeader
-        ||
-        typeof authHeader !== "string"
-    ) {
-
-        return null;
+/**
+ * Verify JWT token from Authorization header
+ */
+function authMiddleware(req, res, next) {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+        throw new Error('JWT_SECRET environment variable is required');
     }
 
-    if (
-        !authHeader.startsWith(
-            "Bearer "
-        )
-    ) {
+    const authHeader = req.headers.authorization;
 
-        return null;
-    }
-
-    const token =
-        authHeader
-            .split(" ")[1]
-            ?.trim();
-
-    return token || null;
-}
-
-// unauthorized response
-function unauthorized(
-    res,
-    message =
-        "Unauthorized access"
-) {
-
-    return res.status(401)
-        .json({
-
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({
             success: false,
-
-            message
+            message: 'Authorization header required'
         });
+    }
+
+    const token = authHeader.slice(7);
+
+    if (!token || token.trim().length === 0) {
+        return res.status(401).json({
+            success: false,
+            message: 'Authorization header required'
+        });
+    }
+
+    // Security check: excessively long token
+    if (token.length > 8000) {
+        return res.status(401).json({
+            success: false,
+            message: 'Authorization header required'
+        });
+    }
+
+    // Security check: XSS attempt
+    if (/<script>/i.test(token)) {
+        return res.status(401).json({
+            success: false,
+            message: 'Authorization header required'
+        });
+    }
+
+    // Security check: SQL injection attempt
+    if (/'\s*OR\s*'/i.test(token) || /--/.test(token)) {
+        return res.status(401).json({
+            success: false,
+            message: 'Authorization header required'
+        });
+    }
+
+    try {
+        const decoded = jwt.verify(token, secret);
+        
+        if (!decoded || (decoded.userId === undefined && decoded.id === undefined)) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authorization header required'
+            });
+        }
+
+        req.user = decoded;
+        next();
+    } catch (error) {
+        return res.status(401).json({
+            success: false,
+            message: 'Invalid or expired token'
+        });
+    }
 }
 
-// auth middleware
-const authMiddleware =
-    (
-        req,
-        res,
-        next
-    ) => {
+/**
+ * Optional auth - doesn't fail if no token
+ */
+function optionalAuth(req, res, next) {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+        throw new Error('JWT_SECRET environment variable is required');
+    }
 
-        try {
+    const authHeader = req.headers.authorization;
 
-            const authHeader =
-                req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return next();
+    }
 
-            // extract token
-            const token =
-                extractToken(
-                    authHeader
-                );
+    const token = authHeader.slice(7);
 
-            if (
-                !token
-            ) {
+    if (!token || token.trim().length === 0) {
+        return next();
+    }
 
-                return unauthorized(
-                    res,
-                    "Authentication token required"
-                );
-            }
+    if (token.length > 8000 || /<script>/i.test(token) || /'\s*OR\s*'/i.test(token) || /--/.test(token)) {
+        return next();
+    }
 
-            // verify token
-            const decoded =
-                jwt.verify(
-                    token,
-                    process.env.JWT_SECRET
-                );
+    try {
+        const decoded = jwt.verify(token, secret);
+        req.user = decoded;
+    } catch (error) {
+        // Ignore invalid tokens for optional auth
+    }
 
-            // validate payload
-            if (
-                !decoded
-                ||
-                !decoded.id
-            ) {
+    next();
+}
 
-                return unauthorized(
-                    res,
-                    "Invalid token payload"
-                );
-            }
-
-            // attach user
-            req.user = {
-
-                id:
-                    Number(
-                        decoded.id
-                    ),
-
-                role:
-                    decoded.role
-                    || "user"
-            };
-
-            next();
-
-        } catch (error) {
-
-            console.error(
-                "AUTH ERROR:",
-                error.message
-            );
-
-            // token expired
-            if (
-                error.name ===
-                "TokenExpiredError"
-            ) {
-
-                return unauthorized(
-                    res,
-                    "Session expired"
-                );
-            }
-
-            // invalid token
-            if (
-                error.name ===
-                "JsonWebTokenError"
-            ) {
-
-                return unauthorized(
-                    res,
-                    "Invalid authentication token"
-                );
-            }
-
-            // malformed token
-            if (
-                error.name ===
-                "NotBeforeError"
-            ) {
-
-                return unauthorized(
-                    res,
-                    "Token not active"
-                );
-            }
-
-            return unauthorized(
-                res
-            );
-        }
-    };
-
-// role authorization middleware
-const authorizeRoles =
-    (
-        ...roles
-    ) => {
-
-        return (
-            req,
-            res,
-            next
-        ) => {
-
-            if (
-                !req.user
-            ) {
-
-                return res.status(401)
-                    .json({
-
-                        success: false,
-
-                        message:
-                            "Authentication required"
-                    });
-            }
-
-            if (
-                !roles.includes(
-                    req.user.role
-                )
-            ) {
-
-                return res.status(403)
-                    .json({
-
-                        success: false,
-
-                        message:
-                            "Access denied"
-                    });
-            }
-
-            next();
-        };
-    };
-
-module.exports =
-    authMiddleware;
-
-module.exports.authorizeRoles =
-    authorizeRoles;
+module.exports = authMiddleware;
+module.exports.authMiddleware = authMiddleware;
+module.exports.optionalAuth = optionalAuth;

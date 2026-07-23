@@ -54,6 +54,37 @@
     flex: 1;
 }
 
+/* field wrapper: input + its inline error message stacked */
+.form-field{
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 20px;
+}
+
+.form-row .form-field{
+    margin-bottom: 0;
+}
+
+.field-error{
+    color: #e63946;
+    font-size: 12.5px;
+    margin-top: 6px;
+    min-height: 14px;
+    line-height: 1.2;
+}
+
+#checkout-form input.invalid,
+#checkout-form textarea.invalid{
+    border-color: #e63946;
+}
+
+#checkout-form input.invalid:focus,
+#checkout-form textarea.invalid:focus{
+    border-color: #e63946;
+    box-shadow: 0 0 0 4px rgba(230,57,70,0.12);
+}
+
 #checkout-form input,
 #checkout-form textarea{
     width: 100%;
@@ -78,21 +109,30 @@
     margin-bottom: 20px;
 }
 
+/* the field wrapper provides the spacing, so drop the textarea's own */
+.form-field textarea{
+    margin-bottom: 0;
+}
+
 .payment-options{
     margin: 20px 0;
 }
 
 .payment-options label{
+    position: relative !important;
+    padding-left: 40px !important;
     display: flex;
     align-items: center;
     gap: 10px;
     margin-bottom: 14px;
     font-weight: 600;
     padding: 14px;
+    padding-left: 42px;
     border: 1px solid #eee;
     border-radius: 8px;
     cursor: pointer;
     transition: 0.3s ease;
+    position: relative;
 }
 
 .payment-options label:hover{
@@ -100,26 +140,71 @@
     background: #f8fffe;
 }
 
+/* Hide native radio button */
+.payment-options label input[type="radio"]{
+    display: none;
+}
+
+/* Custom radio circle */
+.payment-options label::before{
+    content: '';
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    border: 2px solid #ddd;
+    border-radius: 50%;
+    background: #fff;
+    transition: 0.3s ease;
+}
+
+/* Selected state — filled dot with white ring */
+.payment-options label:has(input[type="radio"]:checked)::before{
+    background: #088178;
+    border-color: #088178;
+    box-shadow: inset 0 0 0 4px #fff;
+}
+
+/* Highlight selected label */
+.payment-options label:has(input[type="radio"]:checked){
+    border-color: #088178;
+    background: #f0fffe;
+    color: #088178;
+}
+
 #card-details{
     margin-bottom: 20px;
 }
 
-#checkout-form button{
+
+.submit-btn {
     width: 100%;
     background: #088178;
     color: #fff;
     border: none;
-    padding: 15px;
-    border-radius: 6px;
+    padding: 16px 20px;
+    border-radius: 8px;
     cursor: pointer;
     font-size: 16px;
-    transition: 0.3s ease;
+    font-weight: 700;
+    transition: all 0.3s ease;
+    margin-top: 25px;
+    box-shadow: 0 4px 14px rgba(8, 129, 120, 0.3);
+    box-sizing: border-box;
 }
 
-#checkout-form button:hover{
-    transform: translateY(-2px);
-    box-shadow: 0 10px 25px rgba(0,0,0,0.12);
+.submit-btn:hover {
+    background: #06655e;
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(8, 129, 120, 0.4);
 }
+
+.submit-btn:active {
+    transform: translateY(-1px);
+} 
+
 
 .checkout-item{
     display: flex;
@@ -133,11 +218,28 @@
     justify-content: space-between;
     margin-top: 20px;
     font-size: 16px;
+    color: black;
 }
 
 .summary-row.total{
     font-size: 22px;
     font-weight: 700;
+}
+
+.character-counter {
+    margin-top: 6px;
+    font-size: 0.85rem;
+    color: #666;
+    text-align: right;
+}
+
+.character-counter.limit-reached {
+    color: #d32f2f;
+    font-weight: 600;
+}
+
+textarea.limit-reached {
+    border: 2px solid #d32f2f;
 }
 
 @media (max-width: 1024px){
@@ -187,4 +289,35 @@
 .payment-options input[type="radio"]:checked + span::before {
     background: #088178;
     border-color: #088178;
+}
+
+
+body.dark-theme .checkout-form-container,
+body.dark-theme .checkout-summary {
+    background: #1e1e1e;
+    color: #fff;
+}
+
+body.dark-theme .checkout-form-container h2,
+body.dark-theme .checkout-summary h2,
+body.dark-theme .summary-row,
+body.dark-theme .checkout-item {
+    color: #fff;
+}
+
+body.dark-theme #checkout-form input,
+body.dark-theme #checkout-form textarea {
+    background: #2a2a2a;
+    color: #fff;
+    border: 1px solid #444;
+}
+
+body.dark-theme .checkout-item {
+    border-bottom: 1px solid #444;
+}
+
+body.dark-theme .payment-options label {
+    background: #2a2a2a;
+    color: #fff;
+    border-color: #444;
 }

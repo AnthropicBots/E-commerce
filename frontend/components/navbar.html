@@ -1,96 +1,713 @@
 <section id="header">
-    <!-- Logo -->
-    <a href="index.html">
-        <img src="assets/images/logo.png" class="logo" alt="AnthropicBots Logo" loading="lazy">
-    </a>
+  <!-- Logo -->
+  <a href="index.html">
+    <img src="assets/images/logo.png" class="logo" alt="AnthropicBots Logo" loading="lazy" />
+  </a>
 
-    <!-- Search Autocomplete Container -->
-    <div class="search-container" style="position: relative; margin-right: 16px;">
-        <input type="text" id="searchInput" placeholder="Search products..." autocomplete="off" class="search-input">
-        <div id="suggestionsDropdown" class="suggestions-dropdown" style="display: none;"></div>
-    </div>
+  <!-- Search Autocomplete Container -->
+  <div class="search-container" style="position: relative; margin-right: 16px">
+    <i class="fas fa-search search-icon" aria-hidden="true"></i>
+    <input type="text" id="searchInput" placeholder="Search products..." autocomplete="off" class="search-input" />
+    <div id="suggestionsDropdown" class="suggestions-dropdown" style="display: none"></div>
+  </div>
 
-    <!-- Desktop Navigation -->
-    <nav class="desktop-nav">
-        <ul id="navbar-links">
-            <li><a href="index.html">Home</a></li>
-            <li><a href="shop.html">Shop</a></li>
-            <li><a href="blog.html">Blog</a></li>
-            <li><a href="about.html">About</a></li>
-            <li><a href="contact.html">Contact</a></li>
-
-            <!-- Wishlist -->
-            <li class="wishlist-link">
-                <a href="wishlist.html" aria-label="Wishlist" style="display: flex; align-items: center; gap: 6px;">
-                    <i class="far fa-heart"></i>
-                </a>
-            </li>
-
-            <!-- Cart -->
-            <li class="cart-link">
-                <a href="cart.html" aria-label="Shopping Cart">
-                    <i class="far fa-shopping-bag"></i>
-                    <span id="cart-badge">0</span>
-                </a>
-            </li>
-
-            <!-- Profile -->
-            <li class="profile-wrapper">
-                <a href="signin.html" id="auth-link">
-                    Sign In <i class="fas fa-caret-down" style="font-size: 12px; margin-left: 3px;"></i>
-                </a>
-                <!-- Dropdown -->
-                <div id="profile-dropdown">
-                    <a href="profile.html"><i class="fas fa-user"></i> My Profile</a>
-                    <a href="dashboard.html#orders"><i class="fas fa-shopping-bag"></i> Orders</a>
-                    <a href="dashboard.html#wishlist"><i class="fas fa-heart"></i> Wishlist</a>
-                    <a href="dashboard.html#settings"><i class="fas fa-cog"></i> Settings</a>
-                    <a href="dashboard.html#cart"><i class="fas fa-shopping-cart"></i> Saved Cart</a>
-                    <button id="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</button>
-                </div>
-            </li>
-
-            <li class="theme-toggle-item">
-                <button id="theme-toggle" aria-label="Toggle theme">
-                    <span id="theme-icon">🌙</span>
-                </button>
-            </li>
-        </ul>
-    </nav>
-
-    <!-- Mobile Menu Button -->
-    <button id="mobile-menu-btn" aria-label="Toggle Navigation">
-        <span class="hamburger-line"></span>
-        <span class="hamburger-line"></span>
-        <span class="hamburger-line"></span>
-    </button>
-
-    <!-- Mobile Menu Overlay -->
-    <div id="mobile-menu-overlay">
-        <!-- Mobile Menu Header -->
-        <div class="mobile-menu-header">
-            <img src="assets/images/logo.png" class="mobile-logo" alt="Logo" loading="lazy">
-            <button id="mobile-close-btn" aria-label="Close Menu">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
+  <!-- Desktop Navigation -->
+  <nav class="desktop-nav">
+    <ul id="navbar-links" class="nav-links">
+      <li class="category-menu-item">  
+        <button
+          id="category-menu-toggle"
+          class="category-menu-toggle"
+          type="button"
+          aria-haspopup="true"
+          aria-expanded="false"
+          aria-controls="category-menu-dropdown"
+          aria-label="Toggle categories menu"
+        >
+          <i class="fas fa-bars" aria-hidden="true"></i>
+          Menu
+          <i class="fas fa-chevron-down dropdown-indicator" aria-hidden="true"></i>
+        </button>
+     
+        <div
+          id="category-menu-dropdown"
+          class="category-menu-dropdown"
+          aria-label="Product categories"
+          aria-hidden="true"
+        >
+          <div class="mega-menu-sidebar" role="tablist" aria-orientation="vertical" aria-label="Categories">
+            <button class="mega-menu-category is-active" type="button" role="tab" data-mega-category="fashion" aria-selected="true" aria-expanded="true" aria-controls="mega-panel-fashion" id="mega-tab-fashion">
+              <i class="fas fa-tshirt" aria-hidden="true"></i>
+              <span>Fashion</span>
             </button>
-        </div>
+            <button class="mega-menu-category" type="button" role="tab" data-mega-category="electronics" aria-selected="false" aria-expanded="false" aria-controls="mega-panel-electronics" id="mega-tab-electronics">
+              <i class="fas fa-laptop" aria-hidden="true"></i>
+              <span>Electronics</span>
+            </button>
+            <button class="mega-menu-category" type="button" role="tab" data-mega-category="grocery" aria-selected="false" aria-expanded="false" aria-controls="mega-panel-grocery" id="mega-tab-grocery">
+              <i class="fas fa-shopping-basket" aria-hidden="true"></i>
+              <span>Grocery</span>
+            </button>
+            <button class="mega-menu-category" type="button" role="tab" data-mega-category="toys" aria-selected="false" aria-expanded="false" aria-controls="mega-panel-toys" id="mega-tab-toys">
+              <i class="fas fa-puzzle-piece" aria-hidden="true"></i>
+              <span>Toys</span>
+            </button>
+            <button class="mega-menu-category" type="button" role="tab" data-mega-category="stationery" aria-selected="false" aria-expanded="false" aria-controls="mega-panel-stationery" id="mega-tab-stationery">
+              <i class="fas fa-pencil-alt" aria-hidden="true"></i>
+              <span>Stationery</span>
+            </button>
+            <button class="mega-menu-category" type="button" role="tab" data-mega-category="home-kitchen" aria-selected="false" aria-expanded="false" aria-controls="mega-panel-home-kitchen" id="mega-tab-home-kitchen">
+              <i class="fas fa-home" aria-hidden="true"></i>
+              <span>Home &amp; Kitchen</span>
+            </button>
+            <button class="mega-menu-category" type="button" role="tab" data-mega-category="beauty" aria-selected="false" aria-expanded="false" aria-controls="mega-panel-beauty" id="mega-tab-beauty">
+              <i class="fas fa-spa" aria-hidden="true"></i>
+              <span>Beauty</span>
+            </button>
+            <button class="mega-menu-category" type="button" role="tab" data-mega-category="sports" aria-selected="false" aria-expanded="false" aria-controls="mega-panel-sports" id="mega-tab-sports">
+              <i class="fas fa-running" aria-hidden="true"></i>
+              <span>Sports</span>
+            </button>
+            <button class="mega-menu-category" type="button" role="tab" data-mega-category="pet-supplies" aria-selected="false" aria-expanded="false" aria-controls="mega-panel-pet-supplies" id="mega-tab-pet-supplies">
+              <i class="fas fa-paw" aria-hidden="true"></i>
+              <span>Pet Supplies</span>
+            </button>
+            <button class="mega-menu-category" type="button" role="tab" data-mega-category="automotive" aria-selected="false" aria-expanded="false" aria-controls="mega-panel-automotive" id="mega-tab-automotive">
+              <i class="fas fa-car" aria-hidden="true"></i>
+              <span>Automotive</span>
+            </button>
+          </div>
 
-        <!-- Mobile Menu Links -->
-        <nav class="mobile-nav">
-            <ul class="mobile-nav-links">
-                <li><a href="index.html" class="mobile-link"><i class="fas fa-home"></i> Home</a></li>
-                <li><a href="shop.html" class="mobile-link"><i class="fas fa-store"></i> Shop</a></li>
-                <li><a href="blog.html" class="mobile-link"><i class="fas fa-blog"></i> Blog</a></li>
-                <li><a href="about.html" class="mobile-link"><i class="fas fa-info-circle"></i> About</a></li>
-                <li><a href="contact.html" class="mobile-link"><i class="fas fa-envelope"></i> Contact</a></li>
-                <li class="mobile-divider"></li>
-                <li><a href="wishlist.html" class="mobile-link"><i class="far fa-heart"></i> Wishlist</a></li>
-                <li><a href="cart.html" class="mobile-link"><i class="fas fa-shopping-bag"></i> Cart <span id="mobile-cart-badge" class="mobile-badge">0</span></a></li>
-                <li><a href="signin.html" class="mobile-link"><i class="fas fa-user"></i> Sign In</a></li>
-            </ul>
-        </nav>
+          <div class="mega-menu-content">
+            <section id="mega-panel-fashion" class="mega-menu-panel is-active" role="tabpanel" data-mega-panel="fashion" aria-labelledby="mega-tab-fashion">
+              <div class="mega-menu-panel-header">
+                <h3 id="mega-title-fashion">Fashion</h3>
+                <a href="shop.html?category=Fashion">Shop all Fashion</a>
+              </div>
+              <div class="mega-menu-grid">
+                <a class="category-menu-link" href="shop.html?category=Fashion&amp;subcategory=Men%27s%20Clothing">Men's
+                  Clothing</a>
+                <a class="category-menu-link"
+                  href="shop.html?category=Fashion&amp;subcategory=Women%27s%20Clothing">Women's Clothing</a>
+                <a class="category-menu-link" href="shop.html?category=Fashion&amp;subcategory=Kids%20Wear">Kids
+                  Wear</a>
+                <a class="category-menu-link" href="shop.html?category=Fashion&amp;subcategory=Footwear">Footwear</a>
+                <a class="category-menu-link" href="shop.html?category=Fashion&amp;subcategory=Watches">Watches</a>
+                <a class="category-menu-link" href="shop.html?category=Fashion&amp;subcategory=Bags">Bags</a>
+                <a class="category-menu-link"
+                  href="shop.html?category=Fashion&amp;subcategory=Accessories">Accessories</a>
+              </div>
+              <div class="mega-menu-products" data-fashion-products aria-label="Featured Fashion products">
+                <a class="mega-menu-product-card" href="shop.html?category=Fashion&amp;subcategory=Men%27s%20Clothing">
+                  <span class="mega-menu-product-badge">Featured</span>
+                  <img src="assets/images/mensShirt.jpg" alt="Tailored casual shirt" loading="lazy" />
+                  <span class="mega-menu-product-brand">cara men</span>
+                  <span class="mega-menu-product-name">tailored casual shirt</span>
+                  <span class="mega-menu-product-rating" aria-label="4 out of 5 stars">
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                  </span>
+                  <span class="mega-menu-product-price">₹1299.00</span>
+                </a>
+                <a class="mega-menu-product-card" href="shop.html?category=Fashion&amp;subcategory=Men%27s%20Clothing">
+                  <img src="assets/images/mensJeans.avif" alt="Slim fit denim jeans" loading="lazy" />
+                  <span class="mega-menu-product-brand">urban loom</span>
+                  <span class="mega-menu-product-name">slim fit denim jeans</span>
+                  <span class="mega-menu-product-rating" aria-label="5 out of 5 stars">
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                  </span>
+                  <span class="mega-menu-product-price">₹1899.00</span>
+                </a>
+              </div>
+            </section>
+
+            <section id="mega-panel-electronics" class="mega-menu-panel" role="tabpanel" data-mega-panel="electronics" aria-labelledby="mega-tab-electronics">
+              <div class="mega-menu-panel-header">
+                <h3 id="mega-title-electronics">Electronics</h3>
+                <a href="shop.html?category=Electronics">Shop all Electronics</a>
+              </div>
+              <div class="mega-menu-grid">
+                <a class="category-menu-link" href="shop.html?category=Electronics&amp;subcategory=Mobiles">Mobiles</a>
+                <a class="category-menu-link" href="shop.html?category=Electronics&amp;subcategory=Laptops">Laptops</a>
+                <a class="category-menu-link" href="shop.html?category=Electronics&amp;subcategory=Tablets">Tablets</a>
+                <a class="category-menu-link"
+                  href="shop.html?category=Electronics&amp;subcategory=Smart%20Watches">Smart Watches</a>
+                <a class="category-menu-link"
+                  href="shop.html?category=Electronics&amp;subcategory=Headphones">Headphones</a>
+                <a class="category-menu-link" href="shop.html?category=Electronics&amp;subcategory=Cameras">Cameras</a>
+                <a class="category-menu-link" href="shop.html?category=Electronics&amp;subcategory=Gaming">Gaming</a>
+              </div>
+              <div class="mega-menu-products" aria-label="Featured Electronics products">
+                <a class="mega-menu-product-card" href="shop.html?category=Electronics&amp;subcategory=Mobiles">
+                  <span class="mega-menu-product-badge">New</span>
+                  <img src="assets/images/mega-smartphone.svg" alt="Edge display smartphone" loading="lazy" />
+                  <span class="mega-menu-product-brand">nova tech</span>
+                  <span class="mega-menu-product-name">edge display smartphone</span>
+                  <span class="mega-menu-product-rating" aria-label="5 out of 5 stars">
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                  </span>
+                  <span class="mega-menu-product-price">₹24999.00</span>
+                </a>
+                <a class="mega-menu-product-card" href="shop.html?category=Electronics&amp;subcategory=Laptops">
+                  <img src="assets/images/mega-laptop.svg" alt="Silver ultrabook laptop" loading="lazy" />
+                  <span class="mega-menu-product-brand">bytebook</span>
+                  <span class="mega-menu-product-name">silver ultrabook laptop</span>
+                  <span class="mega-menu-product-rating" aria-label="4 out of 5 stars">
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                    <i class="fas fa-star" aria-hidden="true"></i>
+                  </span>
+                  <span class="mega-menu-product-price">₹54999.00</span>
+                </a>
+              </div>
+            </section>
+
+            <section id="mega-panel-grocery" class="mega-menu-panel" role="tabpanel" data-mega-panel="grocery" aria-labelledby="mega-tab-grocery">
+              <div class="mega-menu-panel-header">
+                <h3 id="mega-title-grocery">Grocery</h3>
+                <a href="shop.html?category=Grocery">Shop all Grocery</a>
+              </div>
+              <div class="mega-menu-grid grocery-mega-menu-grid">
+                <div class="grocery-subcategory-list" aria-label="Grocery subcategories">
+                  <a class="category-menu-link grocery-subcategory-link is-active"
+                    href="shop.html?category=Grocery&amp;subcategory=Fruits%20%26%20Vegetables"
+                    data-grocery-subcategory="Fruits &amp; Vegetables" aria-controls="grocery-product-preview">Fruits
+                    &amp; Vegetables</a>
+                  <a class="category-menu-link grocery-subcategory-link"
+                    href="shop.html?category=Grocery&amp;subcategory=Dairy" data-grocery-subcategory="Dairy"
+                    aria-controls="grocery-product-preview">Dairy</a>
+                  <a class="category-menu-link grocery-subcategory-link"
+                    href="shop.html?category=Grocery&amp;subcategory=Snacks" data-grocery-subcategory="Snacks"
+                    aria-controls="grocery-product-preview">Snacks</a>
+                  <a class="category-menu-link grocery-subcategory-link"
+                    href="shop.html?category=Grocery&amp;subcategory=Beverages" data-grocery-subcategory="Beverages"
+                    aria-controls="grocery-product-preview">Beverages</a>
+                  <a class="category-menu-link grocery-subcategory-link"
+                    href="shop.html?category=Grocery&amp;subcategory=Cooking%20Essentials"
+                    data-grocery-subcategory="Cooking Essentials" aria-controls="grocery-product-preview">Cooking
+                    Essentials</a>
+                  <a class="category-menu-link grocery-subcategory-link"
+                    href="shop.html?category=Grocery&amp;subcategory=Household%20Supplies"
+                    data-grocery-subcategory="Household Supplies" aria-controls="grocery-product-preview">Household
+                    Supplies</a>
+                </div>
+                <div id="grocery-product-preview" class="grocery-product-preview" aria-live="polite">
+                  <p class="grocery-menu-empty">Loading products...</p>
+                </div>
+              </div>
+            </section>
+
+            <section id="mega-panel-toys" class="mega-menu-panel" role="tabpanel" data-mega-panel="toys" aria-labelledby="mega-tab-toys">
+              <div class="mega-menu-panel-header">
+                <h3 id="mega-title-toys">Toys</h3>
+                <a href="shop.html?category=Toys">Shop all Toys</a>
+              </div>
+              <div class="mega-menu-grid grocery-mega-menu-grid toy-mega-menu-grid">
+                <div class="grocery-subcategory-list toy-subcategory-list" aria-label="Toys subcategories">
+                  <a class="toy-category-card toy-subcategory-link is-active" href="shop.html?category=Toys&amp;subcategory=Educational%20Toys" data-toy-subcategory="Educational Toys" aria-controls="toy-product-preview">
+                    <div class="toy-card-img-wrapper">
+                      <img src="assets/images/educational_toys_preview.png" alt="Educational Toys" loading="lazy" />
+                    </div>
+                    <span>Educational Toys</span>
+                  </a>
+                  <a class="toy-category-card toy-subcategory-link" href="shop.html?category=Toys&amp;subcategory=Building%20Blocks" data-toy-subcategory="Building Blocks" aria-controls="toy-product-preview">
+                    <div class="toy-card-img-wrapper">
+                      <img src="assets/images/building_blocks_preview.png" alt="Building Blocks" loading="lazy" />
+                    </div>
+                    <span>Building Blocks</span>
+                  </a>
+                  <a class="toy-category-card toy-subcategory-link" href="shop.html?category=Toys&amp;subcategory=Dolls" data-toy-subcategory="Dolls" aria-controls="toy-product-preview">
+                    <div class="toy-card-img-wrapper">
+                      <img src="assets/images/dolls_preview.png" alt="Dolls" loading="lazy" />
+                    </div>
+                    <span>Dolls</span>
+                  </a>
+                  <a class="toy-category-card toy-subcategory-link" href="shop.html?category=Toys&amp;subcategory=RC%20Toys" data-toy-subcategory="RC Toys" aria-controls="toy-product-preview">
+                    <div class="toy-card-img-wrapper">
+                      <img src="assets/images/rc_toys_preview.png" alt="RC Toys" loading="lazy" />
+                    </div>
+                    <span>RC Toys</span>
+                  </a>
+                  <a class="toy-category-card toy-subcategory-link" href="shop.html?category=Toys&amp;subcategory=Outdoor%20Toys" data-toy-subcategory="Outdoor Toys" aria-controls="toy-product-preview">
+                    <div class="toy-card-img-wrapper">
+                      <img src="assets/images/outdoor_toys_preview.png" alt="Outdoor Toys" loading="lazy" />
+                    </div>
+                    <span>Outdoor Toys</span>
+                  </a>
+                </div>
+                <div id="toy-product-preview" class="grocery-product-preview toy-product-preview" aria-live="polite">
+                  <p class="grocery-menu-empty toy-menu-empty">Loading products...</p>
+                </div>
+              </div>
+            </section>
+
+            <section id="mega-panel-stationery" class="mega-menu-panel" role="tabpanel" data-mega-panel="stationery" aria-labelledby="mega-tab-stationery">
+              <div class="mega-menu-panel-header">
+                <h3 id="mega-title-stationery">Stationery</h3>
+                <a href="shop.html?category=Stationery">Shop all Stationery</a>
+              </div>
+              <div class="mega-menu-grid grocery-mega-menu-grid stationery-mega-menu-grid">
+                <div class="grocery-subcategory-list stationery-subcategory-list" aria-label="Stationery subcategories">
+                  <a class="stationery-category-card stationery-subcategory-link is-active" href="shop.html?category=Stationery&amp;subcategory=Notebooks%20%26%20Planners" data-stationery-subcategory="Notebooks &amp; Planners" aria-controls="stationery-product-preview">
+                    <div class="stationery-card-img-wrapper">
+                      <img src="assets/images/notebooks_planners_preview.png" alt="Notebooks &amp; Planners" loading="lazy" />
+                    </div>
+                    <span>Notebooks &amp; Planners</span>
+                  </a>
+                  <a class="stationery-category-card stationery-subcategory-link" href="shop.html?category=Stationery&amp;subcategory=Pens%20%26%20Writing" data-stationery-subcategory="Pens &amp; Writing" aria-controls="stationery-product-preview">
+                    <div class="stationery-card-img-wrapper">
+                      <img src="assets/images/pens_writing_preview.png" alt="Pens &amp; Writing" loading="lazy" />
+                    </div>
+                    <span>Pens &amp; Writing</span>
+                  </a>
+                  <a class="stationery-category-card stationery-subcategory-link" href="shop.html?category=Stationery&amp;subcategory=Office%20Supplies" data-stationery-subcategory="Office Supplies" aria-controls="stationery-product-preview">
+                    <div class="stationery-card-img-wrapper">
+                      <img src="assets/images/office_supplies_preview.png" alt="Office Supplies" loading="lazy" />
+                    </div>
+                    <span>Office Supplies</span>
+                  </a>
+                  <a class="stationery-category-card stationery-subcategory-link" href="shop.html?category=Stationery&amp;subcategory=Art%20Supplies" data-stationery-subcategory="Art Supplies" aria-controls="stationery-product-preview">
+                    <div class="stationery-card-img-wrapper">
+                      <img src="assets/images/art_supplies_preview.png" alt="Art Supplies" loading="lazy" />
+                    </div>
+                    <span>Art Supplies</span>
+                  </a>
+                </div>
+                <div id="stationery-product-preview" class="grocery-product-preview stationery-product-preview" aria-live="polite">
+                  <p class="grocery-menu-empty stationery-menu-empty">Loading products...</p>
+                </div>
+              </div>
+            </section>
+
+            <section id="mega-panel-home-kitchen" class="mega-menu-panel" role="tabpanel" data-mega-panel="home-kitchen" aria-labelledby="mega-tab-home-kitchen">
+              <div class="mega-menu-panel-header">
+                <h3 id="mega-title-home-kitchen">Home &amp; Kitchen</h3>
+                <a href="shop.html?category=Home%20%26%20Kitchen">Shop all Home &amp; Kitchen</a>
+              </div>
+              <div class="mega-menu-grid">
+                <a class="category-menu-link"
+                  href="shop.html?category=Home%20%26%20Kitchen&amp;subcategory=Furniture">Furniture</a>
+                <a class="category-menu-link"
+                  href="shop.html?category=Home%20%26%20Kitchen&amp;subcategory=Cookware">Cookware</a>
+                <a class="category-menu-link"
+                  href="shop.html?category=Home%20%26%20Kitchen&amp;subcategory=Storage">Storage</a>
+                <a class="category-menu-link"
+                  href="shop.html?category=Home%20%26%20Kitchen&amp;subcategory=Home%20Decor">Home Decor</a>
+                <a class="category-menu-link"
+                  href="shop.html?category=Home%20%26%20Kitchen&amp;subcategory=Bedding">Bedding</a>
+                <a class="category-menu-link"
+                  href="shop.html?category=Home%20%26%20Kitchen&amp;subcategory=Kitchen%20Appliances">Kitchen
+                  Appliances</a>
+              </div>
+            </section>
+
+            <section id="mega-panel-beauty" class="mega-menu-panel" role="tabpanel" data-mega-panel="beauty" aria-labelledby="mega-tab-beauty">
+              <div class="mega-menu-panel-header">
+                <h3 id="mega-title-beauty">Beauty</h3>
+                <a href="shop.html?category=Beauty">Shop all Beauty</a>
+              </div>
+              <div class="mega-menu-grid beauty-mega-menu-grid">
+                <a class="beauty-category-card beauty-subcategory-link" href="shop.html?category=Beauty&amp;subcategory=Skincare">
+                  <div class="beauty-card-img-wrapper">
+                    <img src="assets/images/skincare_preview.png" alt="Skincare" loading="lazy" />
+                  </div>
+                  <span>Skincare</span>
+                </a>
+                <a class="beauty-category-card beauty-subcategory-link" href="shop.html?category=Beauty&amp;subcategory=Haircare">
+                  <div class="beauty-card-img-wrapper">
+                    <img src="assets/images/haircare_preview.png" alt="Haircare" loading="lazy" />
+                  </div>
+                  <span>Haircare</span>
+                </a>
+                <a class="beauty-category-card beauty-subcategory-link" href="shop.html?category=Beauty&amp;subcategory=Makeup">
+                  <div class="beauty-card-img-wrapper">
+                    <img src="assets/images/makeup_preview.png" alt="Makeup" loading="lazy" />
+                  </div>
+                  <span>Makeup</span>
+                </a>
+                <a class="beauty-category-card beauty-subcategory-link" href="shop.html?category=Beauty&amp;subcategory=Fragrances">
+                  <div class="beauty-card-img-wrapper">
+                    <img src="assets/images/fragrances_preview.png" alt="Fragrances" loading="lazy" />
+                  </div>
+                  <span>Fragrances</span>
+                </a>
+                <a class="beauty-category-card beauty-subcategory-link" href="shop.html?category=Beauty&amp;subcategory=Personal%20Care">
+                  <div class="beauty-card-img-wrapper">
+                    <img src="assets/images/personal_care_preview.png" alt="Personal Care" loading="lazy" />
+                  </div>
+                  <span>Personal Care</span>
+                </a>
+              </div>
+            </section>
+
+            <section id="mega-panel-sports" class="mega-menu-panel" role="tabpanel" data-mega-panel="sports" aria-labelledby="mega-tab-sports">
+              <div class="mega-menu-panel-header">
+                <h3 id="mega-title-sports">Sports</h3>
+                <a href="shop.html?category=Sports">Shop all Sports</a>
+              </div>
+              <div class="mega-menu-grid sports-mega-menu-grid">
+                <a class="sports-category-card sports-subcategory-link" href="shop.html?category=Sports&amp;subcategory=Cricket">
+                  <div class="sports-card-img-wrapper">
+                    <img src="assets/images/cricket_preview.png" alt="Cricket" loading="lazy" />
+                  </div>
+                  <span>Cricket</span>
+                </a>
+                <a class="sports-category-card sports-subcategory-link" href="shop.html?category=Sports&amp;subcategory=Football">
+                  <div class="sports-card-img-wrapper">
+                    <img src="assets/images/football_preview.png" alt="Football" loading="lazy" />
+                  </div>
+                  <span>Football</span>
+                </a>
+                <a class="sports-category-card sports-subcategory-link" href="shop.html?category=Sports&amp;subcategory=Gym%20Equipment">
+                  <div class="sports-card-img-wrapper">
+                    <img src="assets/images/gym_equipment_preview.png" alt="Gym Equipment" loading="lazy" />
+                  </div>
+                  <span>Gym Equipment</span>
+                </a>
+                <a class="sports-category-card sports-subcategory-link" href="shop.html?category=Sports&amp;subcategory=Cycling">
+                  <div class="sports-card-img-wrapper">
+                    <img src="assets/images/cycling_preview.png" alt="Cycling" loading="lazy" />
+                  </div>
+                  <span>Cycling</span>
+                </a>
+                <a class="sports-category-card sports-subcategory-link" href="shop.html?category=Sports&amp;subcategory=Outdoor%20Sports">
+                  <div class="sports-card-img-wrapper">
+                    <img src="assets/images/outdoor_sports_preview.png" alt="Outdoor Sports" loading="lazy" />
+                  </div>
+                  <span>Outdoor Sports</span>
+                </a>
+              </div>
+            </section>
+
+            <section id="mega-panel-pet-supplies" class="mega-menu-panel" role="tabpanel" data-mega-panel="pet-supplies" aria-labelledby="mega-tab-pet-supplies">
+              <div class="mega-menu-panel-header">
+                <h3 id="mega-title-pet-supplies">Pet Supplies</h3>
+                <a href="shop.html?category=Pet%20Supplies">Shop all Pet Supplies</a>
+              </div>
+              <div class="mega-menu-grid pet-mega-menu-grid">
+                <a class="pet-category-card pet-subcategory-link" href="shop.html?category=Pet%20Supplies&amp;subcategory=Dog%20Food">
+                  <div class="pet-card-img-wrapper">
+                    <img src="assets/images/dog_food_preview.png" alt="Dog Food" loading="lazy" />
+                  </div>
+                  <span>Dog Food</span>
+                </a>
+                <a class="pet-category-card pet-subcategory-link" href="shop.html?category=Pet%20Supplies&amp;subcategory=Cat%20Food">
+                  <div class="pet-card-img-wrapper">
+                    <img src="assets/images/cat_food_preview.png" alt="Cat Food" loading="lazy" />
+                  </div>
+                  <span>Cat Food</span>
+                </a>
+                <a class="pet-category-card pet-subcategory-link" href="shop.html?category=Pet%20Supplies&amp;subcategory=Pet%20Toys">
+                  <div class="pet-card-img-wrapper">
+                    <img src="assets/images/pet_toys_preview.png" alt="Pet Toys" loading="lazy" />
+                  </div>
+                  <span>Pet Toys</span>
+                </a>
+                <a class="pet-category-card pet-subcategory-link" href="shop.html?category=Pet%20Supplies&amp;subcategory=Grooming">
+                  <div class="pet-card-img-wrapper">
+                    <img src="assets/images/grooming_preview.png" alt="Grooming" loading="lazy" />
+                  </div>
+                  <span>Grooming</span>
+                </a>
+                <a class="pet-category-card pet-subcategory-link" href="shop.html?category=Pet%20Supplies&amp;subcategory=Accessories">
+                  <div class="pet-card-img-wrapper">
+                    <img src="assets/images/pet_accessories_preview.png" alt="Accessories" loading="lazy" />
+                  </div>
+                  <span>Accessories</span>
+                </a>
+              </div>
+            </section>
+
+            <section id="mega-panel-automotive" class="mega-menu-panel" role="tabpanel" data-mega-panel="automotive" aria-labelledby="mega-tab-automotive">
+              <div class="mega-menu-panel-header">
+                <h3 id="mega-title-automotive">Automotive</h3>
+                <a href="shop.html?category=Automotive">Shop all Automotive</a>
+              </div>
+              <div class="mega-menu-grid auto-mega-menu-grid">
+                <a class="auto-category-card auto-subcategory-link" href="shop.html?category=Automotive&amp;subcategory=Car%20Accessories">
+                  <div class="auto-card-img-wrapper">
+                    <img src="assets/images/auto_accessories_preview.png" alt="Car Accessories" loading="lazy" />
+                  </div>
+                  <span>Car Accessories</span>
+                </a>
+                <a class="auto-category-card auto-subcategory-link" href="shop.html?category=Automotive&amp;subcategory=Bike%20Accessories">
+                  <div class="auto-card-img-wrapper">
+                    <img src="assets/images/cycling_preview.png" alt="Bike Accessories" loading="lazy" />
+                  </div>
+                  <span>Bike Accessories</span>
+                </a>
+                <a class="auto-category-card auto-subcategory-link" href="shop.html?category=Automotive&amp;subcategory=Helmets">
+                  <div class="auto-card-img-wrapper">
+                    <img src="assets/images/cycling_preview.png" alt="Helmets" loading="lazy" />
+                  </div>
+                  <span>Helmets</span>
+                </a>
+                <a class="auto-category-card auto-subcategory-link" href="shop.html?category=Automotive&amp;subcategory=Engine%20Oil">
+                  <div class="auto-card-img-wrapper">
+                    <img src="assets/images/parts_preview.png" alt="Engine Oil" loading="lazy" />
+                  </div>
+                  <span>Engine Oil</span>
+                </a>
+                <a class="auto-category-card auto-subcategory-link" href="shop.html?category=Automotive&amp;subcategory=Cleaning%20Kits">
+                  <div class="auto-card-img-wrapper">
+                    <img src="assets/images/car_care_preview.png" alt="Cleaning Kits" loading="lazy" />
+                  </div>
+                  <span>Cleaning Kits</span>
+                </a>
+              </div>
+            </section>
+          </div>
+        </div>
+      </li>
+      <li><a href="index.html">Home</a></li>
+      <li><a href="shop.html">Shop</a></li>
+      <li><a href="blog.html">Blog</a></li>
+      <li><a href="about.html">About</a></li>
+      <li><a href="contact.html">Contact</a></li>
+      <li class="wishlist-link">
+        <a href="wishlist.html" aria-label="Wishlist">
+          <i class="far fa-heart"></i>
+        </a>
+      </li>
+
+      <li class="cart-link">
+        <a href="cart.html" aria-label="Shopping Cart">
+          <span class="cart-icon-wrapper">
+            <i class="far fa-shopping-bag"></i>
+            <span id="cart-badge" aria-label="Cart items count"></span>
+          </span>
+        </a>
+      </li>
+
+      <li class="profile-wrapper">
+        <a href="signin.html" id="auth-link">Sign In</a>
+      </li>
+      <li class="theme-toggle-item">
+        <button id="theme-toggle" class="theme-toggle-btn" title="Toggle theme" aria-label="Toggle dark/light mode">
+          <span class="theme-icon" id="theme-icon">🌙</span>
+        </button>
+      </li>
+    </ul>
+  </nav>
+
+  <!-- Mobile Menu Button -->
+  <button id="mobile-menu-btn" aria-label="Toggle Navigation">
+    <span class="hamburger-line"></span>
+    <span class="hamburger-line"></span>
+    <span class="hamburger-line"></span>
+  </button>
+
+  <!-- Mobile Menu Overlay -->
+  <div id="mobile-menu-overlay">
+    <!-- Mobile Menu Header -->
+    <div class="mobile-menu-header">
+      <a href="index.html">
+        <img src="assets/images/logo.png" class="mobile-logo" alt="Logo" loading="lazy" />
+      </a>
+      <button id="mobile-close-btn" aria-label="Close Menu">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
     </div>
+
+    <!-- Mobile Menu Links -->
+    <nav class="mobile-nav">
+      <ul class="mobile-nav-links">
+        <li>
+          <span class="mobile-menu-label">
+            <i class="fas fa-bars"></i> Categories
+          </span>
+        </li>
+        <li class="mobile-category-accordion">
+          <button class="mobile-category-toggle" type="button" aria-expanded="false"
+            aria-controls="mobile-category-fashion">
+            <span><i class="fas fa-tshirt" aria-hidden="true"></i> Fashion</span>
+            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+          </button>
+          <div id="mobile-category-fashion" class="mobile-subcategory-panel">
+            <a href="shop.html?category=Fashion&amp;subcategory=Men%27s%20Clothing">Men's Clothing</a>
+            <a href="shop.html?category=Fashion&amp;subcategory=Women%27s%20Clothing">Women's Clothing</a>
+            <a href="shop.html?category=Fashion&amp;subcategory=Kids%20Wear">Kids Wear</a>
+            <a href="shop.html?category=Fashion&amp;subcategory=Footwear">Footwear</a>
+            <a href="shop.html?category=Fashion&amp;subcategory=Watches">Watches</a>
+            <a href="shop.html?category=Fashion&amp;subcategory=Bags">Bags</a>
+            <a href="shop.html?category=Fashion&amp;subcategory=Accessories">Accessories</a>
+          </div>
+        </li>
+        <li class="mobile-category-accordion">
+          <button class="mobile-category-toggle" type="button" aria-expanded="false"
+            aria-controls="mobile-category-electronics">
+            <span><i class="fas fa-laptop" aria-hidden="true"></i> Electronics</span>
+            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+          </button>
+          <div id="mobile-category-electronics" class="mobile-subcategory-panel">
+            <a href="shop.html?category=Electronics&amp;subcategory=Mobiles">Mobiles</a>
+            <a href="shop.html?category=Electronics&amp;subcategory=Laptops">Laptops</a>
+            <a href="shop.html?category=Electronics&amp;subcategory=Tablets">Tablets</a>
+            <a href="shop.html?category=Electronics&amp;subcategory=Smart%20Watches">Smart Watches</a>
+            <a href="shop.html?category=Electronics&amp;subcategory=Headphones">Headphones</a>
+            <a href="shop.html?category=Electronics&amp;subcategory=Cameras">Cameras</a>
+            <a href="shop.html?category=Electronics&amp;subcategory=Gaming">Gaming</a>
+          </div>
+        </li>
+        <li class="mobile-category-accordion">
+          <button class="mobile-category-toggle" type="button" aria-expanded="false"
+            aria-controls="mobile-category-grocery">
+            <span><i class="fas fa-shopping-basket" aria-hidden="true"></i> Grocery</span>
+            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+          </button>
+          <div id="mobile-category-grocery" class="mobile-subcategory-panel">
+            <a href="shop.html?category=Grocery&amp;subcategory=Fruits%20%26%20Vegetables">Fruits &amp; Vegetables</a>
+            <a href="shop.html?category=Grocery&amp;subcategory=Dairy">Dairy</a>
+            <a href="shop.html?category=Grocery&amp;subcategory=Snacks">Snacks</a>
+            <a href="shop.html?category=Grocery&amp;subcategory=Beverages">Beverages</a>
+            <a href="shop.html?category=Grocery&amp;subcategory=Cooking%20Essentials">Cooking Essentials</a>
+            <a href="shop.html?category=Grocery&amp;subcategory=Household%20Supplies">Household Supplies</a>
+          </div>
+        </li>
+        <li class="mobile-category-accordion">
+          <button class="mobile-category-toggle" type="button" aria-expanded="false"
+            aria-controls="mobile-category-toys">
+            <span><i class="fas fa-puzzle-piece" aria-hidden="true"></i> Toys</span>
+            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+          </button>
+          <div id="mobile-category-toys" class="mobile-subcategory-panel">
+            <a href="shop.html?category=Toys&amp;subcategory=Educational%20Toys">Educational Toys</a>
+            <a href="shop.html?category=Toys&amp;subcategory=Building%20Blocks">Building Blocks</a>
+            <a href="shop.html?category=Toys&amp;subcategory=Dolls">Dolls</a>
+            <a href="shop.html?category=Toys&amp;subcategory=RC%20Toys">RC Toys</a>
+            <a href="shop.html?category=Toys&amp;subcategory=Outdoor%20Toys">Outdoor Toys</a>
+          </div>
+        </li>
+        <li class="mobile-category-accordion">
+          <button class="mobile-category-toggle" type="button" aria-expanded="false"
+            aria-controls="mobile-category-stationery">
+            <span><i class="fas fa-pencil-alt" aria-hidden="true"></i> Stationery</span>
+            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+          </button>
+          <div id="mobile-category-stationery" class="mobile-subcategory-panel">
+            <a href="shop.html?category=Stationery&amp;subcategory=Notebooks">Notebooks</a>
+            <a href="shop.html?category=Stationery&amp;subcategory=Pens">Pens</a>
+            <a href="shop.html?category=Stationery&amp;subcategory=Pencils">Pencils</a>
+            <a href="shop.html?category=Stationery&amp;subcategory=School%20Bags">School Bags</a>
+            <a href="shop.html?category=Stationery&amp;subcategory=Office%20Supplies">Office Supplies</a>
+            <a href="shop.html?category=Stationery&amp;subcategory=Art%20Supplies">Art Supplies</a>
+          </div>
+        </li>
+        <li class="mobile-category-accordion">
+          <button class="mobile-category-toggle" type="button" aria-expanded="false"
+            aria-controls="mobile-category-home-kitchen">
+            <span><i class="fas fa-home" aria-hidden="true"></i> Home &amp; Kitchen</span>
+            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+          </button>
+          <div id="mobile-category-home-kitchen" class="mobile-subcategory-panel">
+            <a href="shop.html?category=Home%20%26%20Kitchen&amp;subcategory=Furniture">Furniture</a>
+            <a href="shop.html?category=Home%20%26%20Kitchen&amp;subcategory=Cookware">Cookware</a>
+            <a href="shop.html?category=Home%20%26%20Kitchen&amp;subcategory=Storage">Storage</a>
+            <a href="shop.html?category=Home%20%26%20Kitchen&amp;subcategory=Home%20Decor">Home Decor</a>
+            <a href="shop.html?category=Home%20%26%20Kitchen&amp;subcategory=Bedding">Bedding</a>
+            <a href="shop.html?category=Home%20%26%20Kitchen&amp;subcategory=Kitchen%20Appliances">Kitchen
+              Appliances</a>
+          </div>
+        </li>
+        <li class="mobile-category-accordion">
+          <button class="mobile-category-toggle" type="button" aria-expanded="false"
+            aria-controls="mobile-category-beauty">
+            <span><i class="fas fa-spa" aria-hidden="true"></i> Beauty</span>
+            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+          </button>
+          <div id="mobile-category-beauty" class="mobile-subcategory-panel">
+            <a href="shop.html?category=Beauty&amp;subcategory=Skincare">Skincare</a>
+            <a href="shop.html?category=Beauty&amp;subcategory=Haircare">Haircare</a>
+            <a href="shop.html?category=Beauty&amp;subcategory=Makeup">Makeup</a>
+            <a href="shop.html?category=Beauty&amp;subcategory=Fragrances">Fragrances</a>
+            <a href="shop.html?category=Beauty&amp;subcategory=Personal%20Care">Personal Care</a>
+          </div>
+        </li>
+        <li class="mobile-category-accordion">
+          <button class="mobile-category-toggle" type="button" aria-expanded="false"
+            aria-controls="mobile-category-sports">
+            <span><i class="fas fa-running" aria-hidden="true"></i> Sports</span>
+            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+          </button>
+          <div id="mobile-category-sports" class="mobile-subcategory-panel">
+            <a href="shop.html?category=Sports&amp;subcategory=Cricket">Cricket</a>
+            <a href="shop.html?category=Sports&amp;subcategory=Football">Football</a>
+            <a href="shop.html?category=Sports&amp;subcategory=Gym%20Equipment">Gym Equipment</a>
+            <a href="shop.html?category=Sports&amp;subcategory=Cycling">Cycling</a>
+            <a href="shop.html?category=Sports&amp;subcategory=Outdoor%20Sports">Outdoor Sports</a>
+          </div>
+        </li>
+        <li class="mobile-category-accordion">
+          <button class="mobile-category-toggle" type="button" aria-expanded="false"
+            aria-controls="mobile-category-pet-supplies">
+            <span><i class="fas fa-paw" aria-hidden="true"></i> Pet Supplies</span>
+            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+          </button>
+          <div id="mobile-category-pet-supplies" class="mobile-subcategory-panel">
+            <a href="shop.html?category=Pet%20Supplies&amp;subcategory=Dog%20Food">Dog Food</a>
+            <a href="shop.html?category=Pet%20Supplies&amp;subcategory=Cat%20Food">Cat Food</a>
+            <a href="shop.html?category=Pet%20Supplies&amp;subcategory=Pet%20Toys">Pet Toys</a>
+            <a href="shop.html?category=Pet%20Supplies&amp;subcategory=Grooming">Grooming</a>
+            <a href="shop.html?category=Pet%20Supplies&amp;subcategory=Accessories">Accessories</a>
+          </div>
+        </li>
+        <li class="mobile-category-accordion">
+          <button class="mobile-category-toggle" type="button" aria-expanded="false"
+            aria-controls="mobile-category-automotive">
+            <span><i class="fas fa-car" aria-hidden="true"></i> Automotive</span>
+            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+          </button>
+          <div id="mobile-category-automotive" class="mobile-subcategory-panel">
+            <a href="shop.html?category=Automotive&amp;subcategory=Car%20Accessories">Car Accessories</a>
+            <a href="shop.html?category=Automotive&amp;subcategory=Bike%20Accessories">Bike Accessories</a>
+            <a href="shop.html?category=Automotive&amp;subcategory=Helmets">Helmets</a>
+            <a href="shop.html?category=Automotive&amp;subcategory=Engine%20Oil">Engine Oil</a>
+            <a href="shop.html?category=Automotive&amp;subcategory=Cleaning%20Kits">Cleaning Kits</a>
+          </div>
+        </li>
+        <li class="mobile-divider"></li>
+        <li>
+          <a href="index.html" class="mobile-link"><i class="fas fa-home"></i> Home</a>
+        </li>
+        <li>
+          <a href="shop.html" class="mobile-link"><i class="fas fa-store"></i> Shop</a>
+        </li>
+        <li>
+          <a href="blog.html" class="mobile-link"><i class="fas fa-blog"></i> Blog</a>
+        </li>
+        <li>
+          <a href="about.html" class="mobile-link"><i class="fas fa-info-circle"></i> About</a>
+        </li>
+        <li>
+          <a href="contact.html" class="mobile-link"><i class="fas fa-envelope"></i> Contact</a>
+        </li>
+        <li class="mobile-divider"></li>
+        <li>
+          <a href="wishlist.html" class="mobile-link"><i class="far fa-heart"></i> Wishlist</a>
+        </li>
+        <li>
+          <a href="cart.html" class="mobile-link"><i class="fas fa-shopping-bag"></i> Cart
+            <span id="mobile-cart-badge" class="mobile-badge">0</span></a>
+        </li>
+        <li>
+          <a href="signin.html" class="mobile-link"><i class="fas fa-user"></i> Sign In</a>
+        </li>
+      </ul>
+    </nav>
+  </div>
 </section>

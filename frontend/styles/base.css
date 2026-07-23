@@ -39,7 +39,7 @@ body.dark-theme {
     color: #ffffff;
 }
 /* reset */
-*{
+*{   
     margin: 0;
     padding: 0;
     box-sizing: border-box;
@@ -60,7 +60,7 @@ h1{
 h2{
     font-size: 46px;
     line-height: 54px;
-    color: var(--text-dark);
+    color: var(--text-light);
 }
 
 /* added missing heading style */
@@ -89,11 +89,11 @@ p{
 
 /* layout helpers */
 .section-p1{
-    padding: 40px 80px;
+    padding: 60px 80px;
 }
 
 .section-m1{
-    margin: 40px 0;
+    margin: 60px 0;
 }
 
 /* buttons */
@@ -157,6 +157,7 @@ body{
 img{
     max-width: 100%;
     display: block;
+    -webkit-user-select: none;
     user-select: none;
 }
 
@@ -189,7 +190,7 @@ img{
 /* responsive utilities */
 @media(max-width:1024px){
     .section-p1{
-        padding: 30px 20px;
+        padding: 50px 40px;
     }
 
     h1{
@@ -209,7 +210,7 @@ img{
 }
 body.dark-theme {
     --text-dark: #f8f6f6;
-    --text-light: #d1d1d1;
+    --text-light: #2c2b2b; 
     --bg-light: #1a1a1a;
     --white: #121212;
 
@@ -238,8 +239,13 @@ body.dark-theme label,
 body.dark-theme .form-group,
 body.dark-theme p,
 body.dark-theme a {
-    color: #ffffff;
+    color: var(--text-dark); /*description index page visiblein dark mode*/
 }
+--------
+body.dark-theme h2 {
+    color: var(--text-dark);
+}
+-------
 body.dark-theme footer {
     background-color: #1a1a1a;
     color: #ffffff;
@@ -267,6 +273,15 @@ body.dark-theme .navbar a {
   color: #e0e0e0;
 }
 
+/* navbar count badges: keep the number readable in dark mode
+   (the nav-link color rule above must not bleed into the badge) */
+body.dark-theme #cart-badge,
+body.dark-theme #wishlist-badge,
+body.dark-theme #cart-count {
+  background-color: var(--primary-color) !important;
+  color: #ffffff !important;
+}
+
 /* Buttons in dark mode */
 body.dark-theme .btn,
 body.dark-theme button:not(#theme-toggle) {
@@ -288,7 +303,7 @@ body.dark-theme .order-content {
     border: 1px solid #333 !important;
 }
 body.dark-theme h3 {
-    color: #ffffff !important;
+    color: var(--text-dark) !important; /*making h3 visible in dark mode*/
 }
 body.dark-theme .toast-container,
 body.dark-theme .toast,
@@ -344,4 +359,8 @@ body.dark-theme #profile-dropdown {
     background-color: #1e1e1e !important;
     border: 1px solid #333 !important;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6) !important;
+}
+/*Recommended For You title being visible in dark mode*/
+body.dark-theme #recommended h2 { 
+    color: #ffffff !important;
 }

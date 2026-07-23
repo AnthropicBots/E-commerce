@@ -40,37 +40,46 @@ function addToCart(
         return;
     }
 
-    const existing =
-        cart.find(
-            (item) =>
-                String(item.id)
-                === String(product.id)
-        );
-
-    if (
-        existing
-    ) {
-        existing.qty =
-            Math.max(
-                1,
-                Number(
-                    existing.qty || 1
-                ) + 1
-            );
-
-    } else {
-        cart.push({
+    cart =
+        AppUtils.addCartItem({
             ...product,
             qty: 1
         });
-    }
 
     saveHomeCart();
+
+    if (
+        typeof renderCartDrawer ===
+        "function"
+    ) {
+        renderCartDrawer();
+    }
+
+    if (
+        typeof openCartDrawer ===
+        "function"
+    ) {
+        openCartDrawer();
+    }
 
     AppUtils.notify(
         `${product.name} added to cart`,
         "success"
     );
+
+    // Provide visual feedback if event target is available via global event
+    if (window.event && window.event.target) {
+        const btn = window.event.target.closest('.add-cart-btn');
+        if (btn) {
+            btn.classList.add('added-feedback');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-check"></i> Added';
+            setTimeout(() => {
+                btn.classList.remove('added-feedback');
+                btn.innerHTML = originalText;
+            }, 2000);
+        }
+    }
 }
 
 // add to wishlist
@@ -125,7 +134,7 @@ async function toggleWishlist(
         );
 
         AppUtils.notify(
-            "Added to wishlist",
+            "Added to wishlist ❤️",
             "success"
         );
         
@@ -150,9 +159,12 @@ async function toggleWishlist(
             if (exists) {
                 icon.classList.remove("fas");
                 icon.classList.add("far");
+                btn.classList.remove("wishlisted-feedback");
             } else {
                 icon.classList.remove("far");
                 icon.classList.add("fas");
+                btn.classList.add("wishlisted-feedback");
+                setTimeout(() => btn.classList.remove("wishlisted-feedback"), 800);
             }
         }
     });
@@ -251,7 +263,7 @@ document.addEventListener(
 
         // product page
         if (
-            viewBtn
+            viewBtn && !event.target.closest('.quick-view-btn')
         ) {
             event.preventDefault();
 
@@ -267,6 +279,21 @@ document.addEventListener(
             window.location.href =
                 `product.html?id=${id}`;
         }
+        
+        // Quick view
+        const quickViewBtn = event.target.closest(".quick-view-btn");
+        if (quickViewBtn) {
+            event.preventDefault();
+            event.stopPropagation();
+            
+            const id = quickViewBtn.dataset.id;
+            if (id) {
+                // In a real app, this would open a modal.
+                // For now, we can redirect or show a toast if modal isn't implemented.
+                window.location.href = `product.html?id=${id}`;
+            }
+        }
+        
         const compareBtn =
     event.target.closest(".compare-btn");
 

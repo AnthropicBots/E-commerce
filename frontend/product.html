@@ -12,7 +12,7 @@
 
     <!-- SEO -->
 
-    <link rel="canonical" href="https://www.bhuvansh.xyz/product.html">
+    <link rel="canonical" href="https://e-commerce-git-main-bhuvanshs-projects.vercel.app/product.html">
     <meta
         name="description"
         content="Explore premium fashion products with detailed descriptions, ratings, reviews, variants, and secure shopping experience."
@@ -326,68 +326,58 @@
 
             <!-- Size Chart -->
 
-            <div class="size-chart-box">
+            <!-- Size Guide Link -->
+            <div class="size-guide-link-wrapper">
+                <button
+                    type="button"
+                    id="size-guide-btn"
+                    class="size-guide-btn"
+                    aria-haspopup="dialog"
+                    aria-controls="size-guide-modal"
+                >
+                    📏 Size Guide
+                </button>
+            </div>
 
-                <h4>
-
-                    Size Chart
-
-                </h4>
-
-                <table class="size-chart-table">
-
-                    <tr>
-
-                        <th>Size</th>
-
-                        <th>Chest</th>
-
-                        <th>Length</th>
-
-                    </tr>
-
-                    <tr>
-
-                        <td>M</td>
-
-                        <td>38</td>
-
-                        <td>27</td>
-
-                    </tr>
-
-                    <tr>
-
-                        <td>L</td>
-
-                        <td>40</td>
-
-                        <td>28</td>
-
-                    </tr>
-
-                    <tr>
-
-                        <td>XL</td>
-
-                        <td>42</td>
-
-                        <td>29</td>
-
-                    </tr>
-
-                    <tr>
-
-                        <td>XXL</td>
-
-                        <td>44</td>
-
-                        <td>30</td>
-
-                    </tr>
-
-                </table>
-
+            <!-- Size Guide Modal -->
+            <div
+                id="size-guide-modal"
+                class="size-guide-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="size-guide-title"
+                aria-hidden="true"
+            >
+                <div class="size-guide-modal">
+                    <div class="size-guide-header">
+                        <h3 id="size-guide-title">📏 Size Guide</h3>
+                        <button type="button" class="size-guide-close" id="size-guide-close" aria-label="Close size guide">&times;</button>
+                    </div>
+                    <p class="size-guide-subtitle">All measurements are in centimeters (cm) and inches (in)</p>
+                    <div class="size-guide-table-wrapper">
+                        <table class="size-guide-table">
+                            <thead>
+                                <tr>
+                                    <th>Size</th>
+                                    <th>Chest (cm)</th>
+                                    <th>Chest (in)</th>
+                                    <th>Waist (cm)</th>
+                                    <th>Waist (in)</th>
+                                    <th>Length (cm)</th>
+                                    <th>Length (in)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td class="size-label">S</td><td>86–91</td><td>34–36</td><td>71–76</td><td>28–30</td><td>68</td><td>26.5</td></tr>
+                                <tr><td class="size-label">M</td><td>91–97</td><td>36–38</td><td>76–81</td><td>30–32</td><td>70</td><td>27.5</td></tr>
+                                <tr><td class="size-label">L</td><td>97–102</td><td>38–40</td><td>81–86</td><td>32–34</td><td>72</td><td>28.5</td></tr>
+                                <tr><td class="size-label">XL</td><td>107–112</td><td>42–44</td><td>91–97</td><td>36–38</td><td>74</td><td>29</td></tr>
+                                <tr><td class="size-label">XXL</td><td>117–122</td><td>46–48</td><td>102–107</td><td>40–42</td><td>76</td><td>30</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="size-guide-tip">💡 <strong>Tip:</strong> Measure yourself and compare to the chart above. When between sizes, size up for a relaxed fit.</p>
+                </div>
             </div>
 
             <!-- Color Variants -->
@@ -447,7 +437,7 @@
 
                 <span id="variant-stock">
 
-                    12
+                    0
 
                 </span>
 
@@ -488,7 +478,7 @@
 
             </div>
 
-            <!-- Buttons -->
+            <!-- Buttons with Share Integration -->
 
             <div class="product-buttons">
 
@@ -515,6 +505,81 @@
                     Wishlist
 
                 </button>
+                                <!-- Share Buttons (WhatsApp + Copy Link) -->
+
+                <button
+                    id="whatsapp-share-btn"
+                    type="button"
+                    aria-label="Share this product on WhatsApp"
+                    title="Share on WhatsApp"
+                >
+
+                    <i class="fab fa-whatsapp"></i>
+
+                    WhatsApp
+
+                </button>
+
+                <button
+                    id="copy-link-btn"
+                    type="button"
+                    aria-label="Copy product link to clipboard"
+                    title="Copy product link"
+                >
+
+                    <i class="fas fa-link"></i>
+
+                    Copy Link
+
+                </button>
+
+
+
+                <!-- 🔥 SHARE BUTTON - NEW -->
+                <button id="share-product-btn" class="share-product-btn" title="Share this product">
+                    <i class="fas fa-share-alt"></i>
+                    Share
+                </button>
+
+            </div>
+
+            <!-- 🔥 SHARE DROPDOWN - NEW -->
+            <div id="share-dropdown" class="share-dropdown" style="display: none;">
+                <button class="share-option" data-method="whatsapp" id="share-whatsapp">
+                    <i class="fab fa-whatsapp"></i> WhatsApp
+                </button>
+                <button class="share-option" data-method="clipboard" id="share-copy">
+                    <i class="fas fa-copy"></i> Copy Link
+                </button>
+                <button class="share-option" data-method="native" id="share-native">
+                    <i class="fas fa-share-alt"></i> More Options
+                </button>
+            </div>
+
+            <!-- Pincode Availability Check -->
+
+            <div class="pincode-check">
+
+                <h4>
+                    Check Delivery Availability
+                </h4>
+
+                <div class="pincode-input-row">
+
+                    <input
+                        type="text"
+                        id="pincode-input"
+                        maxlength="6"
+                        placeholder="Enter 6-digit pincode"
+                    >
+
+                    <button id="pincode-check-btn">
+                        Check
+                    </button>
+
+                </div>
+
+                <p id="pincode-result"></p>
 
             </div>
 
@@ -617,7 +682,7 @@
 
         <div
             class="pro-container"
-            id="recently-viewed-products"
+            id="recommended-products-container"
         ></div>
 
     </section>
@@ -635,49 +700,86 @@
 
         </h2>
 
+        <p
+            id="reviews-summary"
+            class="reviews-summary"
+            aria-live="polite"
+        >
+            Loading reviews...
+        </p>
+
         <form id="review-form">
 
+            <fieldset class="review-rating-field">
+                <legend>
+                    Your rating
+                </legend>
+
+                <div
+                    class="review-star-input"
+                    aria-label="Choose a rating from 1 to 5 stars"
+                >
+                    <button
+                        type="button"
+                        data-rating="1"
+                        aria-label="Rate 1 star"
+                    >
+                        <i class="far fa-star" aria-hidden="true"></i>
+                    </button>
+
+                    <button
+                        type="button"
+                        data-rating="2"
+                        aria-label="Rate 2 stars"
+                    >
+                        <i class="far fa-star" aria-hidden="true"></i>
+                    </button>
+
+                    <button
+                        type="button"
+                        data-rating="3"
+                        aria-label="Rate 3 stars"
+                    >
+                        <i class="far fa-star" aria-hidden="true"></i>
+                    </button>
+
+                    <button
+                        type="button"
+                        data-rating="4"
+                        aria-label="Rate 4 stars"
+                    >
+                        <i class="far fa-star" aria-hidden="true"></i>
+                    </button>
+
+                    <button
+                        type="button"
+                        data-rating="5"
+                        aria-label="Rate 5 stars"
+                    >
+                        <i class="far fa-star" aria-hidden="true"></i>
+                    </button>
+                </div>
+            </fieldset>
+
             <input
-                type="text"
-                id="review-name"
-                placeholder="Your Name"
-                required
-            >
-
-            <select
+                type="hidden"
                 id="review-rating"
+                value="0"
                 required
             >
 
-                <option value="">
-                    Select Rating
-                </option>
-
-                <option value="5">
-                    5 Stars
-                </option>
-
-                <option value="4">
-                    4 Stars
-                </option>
-
-                <option value="3">
-                    3 Stars
-                </option>
-
-                <option value="2">
-                    2 Stars
-                </option>
-
-                <option value="1">
-                    1 Star
-                </option>
-
-            </select>
+            <label
+                for="review-message"
+                class="review-label"
+            >
+                Your review
+            </label>
 
             <textarea
                 id="review-message"
                 placeholder="Write your review..."
+                minlength="3"
+                maxlength="1000"
                 required
             ></textarea>
 
@@ -703,6 +805,9 @@
 <button id="back-to-top-btn" class="back-to-top-btn" aria-label="Back to Top" style="display: none;">
     <i class="fas fa-arrow-up"></i>
 </button>
+
+    <!-- 🔥 SHARE TOAST - NEW -->
+    <div id="share-toast" class="share-toast" style="display: none;"></div>
 
     <!-- Core Scripts -->
     <script
@@ -758,12 +863,12 @@
 
     <script
         defer
-        src="scripts/product-reviews.js"
+        src="scripts/related-products.js"
     ></script>
 
-    <script
+     <script
         defer
-        src="scripts/related-products.js"
+        src="scripts/pincode.js"
     ></script>
 
     <!-- Main Bootstrap -->
@@ -771,7 +876,183 @@
         defer
         src="scripts/product.js"
     ></script>
+
+    <script
+    defer
+    src="scripts/product-reviews.js"
+    ></script>
+
     <script defer src="scripts/ui.js"></script>
+
+    <script defer src="scripts/recommendations.js"></script>
+
+    <!-- 🔥 SHARE SCRIPT - NEW -->
+    <script defer src="scripts/shareService.js"></script>
+
+    <script>
+    (function () {
+        var modal = document.getElementById('size-guide-modal');
+        var openBtn = document.getElementById('size-guide-btn');
+        var closeBtn = document.getElementById('size-guide-close');
+
+        function openModal() {
+            modal.classList.add('active');
+            modal.setAttribute('aria-hidden', 'false');
+            closeBtn.focus();
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            modal.classList.remove('active');
+            modal.setAttribute('aria-hidden', 'true');
+            openBtn.focus();
+            document.body.style.overflow = '';
+        }
+
+        openBtn.addEventListener('click', openModal);
+        closeBtn.addEventListener('click', closeModal);
+
+        modal.addEventListener('click', function (e) {
+            if (e.target === modal) closeModal();
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && modal.classList.contains('active')) {
+                closeModal();
+            }
+        });
+    })();
+
+    // ============================================
+    // 🔥 SHARE BUTTON FUNCTIONALITY
+    // ============================================
+    document.addEventListener('DOMContentLoaded', function() {
+        const shareBtn = document.getElementById('share-product-btn');
+        const shareDropdown = document.getElementById('share-dropdown');
+        const shareToast = document.getElementById('share-toast');
+
+        if (!shareBtn) return;
+
+        // Toggle dropdown
+        shareBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const isVisible = shareDropdown.style.display === 'block';
+            shareDropdown.style.display = isVisible ? 'none' : 'block';
+        });
+
+        // Close dropdown on outside click
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('#share-dropdown') && !e.target.closest('#share-product-btn')) {
+                shareDropdown.style.display = 'none';
+            }
+        });
+
+        // Share options
+        document.querySelectorAll('.share-option').forEach(function(option) {
+            option.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const method = this.dataset.method;
+                shareDropdown.style.display = 'none';
+                handleShare(method);
+            });
+        });
+
+        function handleShare(method) {
+            const product = getCurrentProduct();
+
+            if (!product) {
+                showShareToast('Product data not available', 'error');
+                return;
+            }
+
+            const productUrl = `${window.location.origin}/product.html?id=${product.id}`;
+            const productName = product.name || 'Product';
+            const productPrice = product.price ? `₹${parseFloat(product.price).toFixed(2)}` : '';
+            const shareText = `${productName} ${productPrice} - ${productUrl}`;
+
+            if (method === 'whatsapp') {
+                const encodedMessage = encodeURIComponent(shareText);
+                const whatsappUrl = `https://wa.me/?text=${encodedMessage}`;
+                window.open(whatsappUrl, '_blank');
+                showShareToast('✅ Opening WhatsApp...', 'success');
+            } else if (method === 'clipboard') {
+                copyToClipboard(productUrl);
+            } else if (method === 'native') {
+                if (navigator.share) {
+                    navigator.share({
+                        title: `Check out ${productName}`,
+                        text: `I found this amazing product: ${productName}`,
+                        url: productUrl
+                    }).then(() => {
+                        showShareToast('✅ Shared successfully!', 'success');
+                    }).catch(() => {
+                        // User cancelled
+                    });
+                } else {
+                    // Fallback: copy link
+                    copyToClipboard(productUrl);
+                }
+            }
+        }
+
+        function copyToClipboard(text) {
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showShareToast('✅ Link copied to clipboard!', 'success');
+                }).catch(() => {
+                    fallbackCopy(text);
+                });
+            } else {
+                fallbackCopy(text);
+            }
+        }
+
+        function fallbackCopy(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            showShareToast('✅ Link copied to clipboard!', 'success');
+        }
+
+        function showShareToast(message, type) {
+            if (!shareToast) return;
+            shareToast.textContent = message;
+            shareToast.className = `share-toast ${type}`;
+            shareToast.style.display = 'block';
+
+            clearTimeout(shareToast._timeout);
+            shareToast._timeout = setTimeout(function() {
+                shareToast.style.display = 'none';
+            }, 3000);
+        }
+
+        function getCurrentProduct() {
+            // Try to get product from global state
+            if (window.currentProduct) return window.currentProduct;
+
+            // Try to parse from DOM
+            const nameEl = document.getElementById('product-name');
+            const priceEl = document.getElementById('product-price');
+            const idEl = document.querySelector('[data-product-id]');
+
+            if (nameEl && priceEl) {
+                return {
+                    id: idEl ? idEl.dataset.productId : 'unknown',
+                    name: nameEl.textContent.trim(),
+                    price: parseFloat(priceEl.textContent.replace(/[₹,]/g, '')) || 0
+                };
+            }
+
+            return null;
+        }
+
+        // Expose for debugging
+        window.handleShare = handleShare;
+    });
+    </script>
 
 </body>
 </html>

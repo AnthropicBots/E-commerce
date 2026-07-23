@@ -28,3 +28,19 @@ elements.aboutSections.forEach(
         );
     }
 );
+
+
+// ELEMENTS
+const elements = {
+    aboutSections:
+        document.querySelectorAll(
+            "#about-head, #about-app"
+        )
+};
+
+// ADD ABOUT SECTION CLASS
+elements.aboutSections.forEach(
+    (section) => {
+        section.classList.add('about-section');
+    }
+);

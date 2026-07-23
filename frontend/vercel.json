@@ -1,4 +1,14 @@
 {
+  
+  "routes": [
+    { "src": "/Buy1Get1.html", "dest": "/Buy1Get1.html" },
+    { "src": "/mens.html", "dest": "/mens.html" },
+    { "src": "/womens.html", "dest": "/womens.html" },
+    { "src": "/seasonal.html", "dest": "/seasonal.html" },
+    { "src": "/early_summer.html", "dest": "/early_summer.html" },
+    { "src": "/tshirt.html", "dest": "/tshirt.html" }
+  ],
+  
   "headers": [
     {
       "source": "/(.*)",

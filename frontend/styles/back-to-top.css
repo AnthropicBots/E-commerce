@@ -7,7 +7,7 @@
   position: fixed;
   bottom: 2rem;
   right: 2rem;
-  z-index: 9998; /* below quick-view modal (9999) */
+  z-index: 9998;
 
   display: flex;
   align-items: center;
@@ -18,21 +18,16 @@
   border-radius: 50%;
   border: none;
   cursor: pointer;
-  overflow: hidden; /* keeps ripple effect contained */
 
-  background-color: var(--primary-color);
-  color: var(--white);
-  box-shadow: var(--shadow-soft);
+  background-color: var(--primary-color, #088178);
+  color: #fff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
 
-  /* hidden by default */
   opacity: 0;
   visibility: hidden;
   transform: translateY(12px);
-  transition: opacity var(--transition-fast),
-              visibility var(--transition-fast),
-              transform var(--transition-fast),
-              background-color var(--transition-fast),
-              box-shadow var(--transition-fast);
+  transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.3s ease,
+    background-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 #back-to-top.visible {
@@ -42,44 +37,25 @@
 }
 
 #back-to-top:hover {
-  background-color: var(--primary-hover);
+  background-color: var(--primary-hover, #066e67);
   transform: translateY(-2px);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
 }
 
 #back-to-top:active {
   transform: translateY(1px);
 }
 
-/* matches :focus-visible rule in base.css */
-#back-to-top:focus-visible {
-  outline: 2px solid var(--primary-color);
-  outline-offset: 2px;
-}
-
 #back-to-top svg {
   width: 20px;
   height: 20px;
-  stroke: var(--white);
+  stroke: #fff;
   stroke-width: 2.5;
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
-  /* prevent svg from absorbing ripple click coords */
   pointer-events: none;
 }
 
-/* Dark theme — mirrors body.dark-theme button pattern from base.css */
-body.dark-theme #back-to-top {
-  background-color: var(--primary-color);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-}
-
-body.dark-theme #back-to-top:hover {
-  background-color: var(--primary-hover);
-}
-
-/* matches @media breakpoint used across style.css */
 @media (max-width: 1024px) {
   #back-to-top {
     bottom: 1.25rem;

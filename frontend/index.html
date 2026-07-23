@@ -6,9 +6,7 @@
         name="viewport"
         content="width=device-width, initial-scale=1.0"
     >
-
-    <!-- SEO -->
-    <link rel="canonical" href="https://www.bhuvansh.xyz/index.html">
+    <link rel="canonical" href="https://e-commerce-git-main-bhuvanshs-projects.vercel.app/index.html">
     <meta
         name="description"
         content="Cara Fashion Store - Modern fashion e-commerce website with trending collections, featured products, and secure shopping experience."
@@ -72,11 +70,17 @@
         href="styles/style.css"
     >
 
+    <link 
+        rel="stylesheet" 
+        href="styles/back-to-top.css"
+    >
+    
     <!-- Animations -->
     <link
         rel="stylesheet"
         href="styles/animations.css"
     >
+
   </head>
 
   <body>
@@ -84,7 +88,7 @@
     <div id="navbar"></div>
 
     <!-- Hero Section -->
-    <section id="hero" class="animate-on-scroll">
+    <section id="hero">
         <div id="hero-slider" aria-hidden="true">
             <img class="hero-slide" src="assets/images/hero4.png" alt="">
             <img class="hero-slide" src="assets/images/banner.png" alt="">
@@ -220,7 +224,7 @@
             </div>
 
             <div class="sort-box">
-                <select id="product-sort">
+                <select id="product-sort" aria-label="Sort Products">
                     <option value="default">
                         Sort Products
                     </option>
@@ -258,39 +262,73 @@
             Explore Our Shop</button></a>
     </section>
 
-    <!-- New Arrivals -->
-    <section
-        id="new-arrivals"
-        class="section-p1 animate-on-scroll"
-    >
-        <h2>
-            New Arrivals
-        </h2>
-        <p>
-            Summer Collection New Modern Design
-        </p>
-        <div
-            class="products-grid"
-            id="new-arrivals-container"
-        ></div>
-    </section>
+<!-- New Arrivals -->
 
-    <!-- Recently Viewed -->
-    <section
-        id="recently-viewed"
-        class="section-p1 animate-on-scroll"
-    >
-        <h2>
-            Recently Viewed
-        </h2>
+<section id="new-arrivals" class="section-p1 animate-on-scroll">
+
+  
+    <div class="section-header-card arrivals-card">
+       
+
+        <h2>New Arrivals</h2>
+
         <p>
-            Products you explored recently
+            Just landed — explore the newest additions.
         </p>
-        <div
-            class="products-grid"
-            id="recently-viewed-container"
-        ></div>
-    </section>
+    </div>
+
+    <div class="products-grid" id="new-arrivals-container"></div>
+   
+
+</section>
+
+<!-- Recently Viewed -->
+
+<section id="recently-viewed" class="section-p1 animate-on-scroll">
+
+    <div class="section-header-card recent-card">
+        
+
+        <h2>Recently Viewed</h2>
+
+        <p>
+            Your recently explored styles, all in one place.
+        </p>
+    </div>
+
+    <div class="carousel-wrapper">
+        <button class="carousel-btn prev" aria-label="Previous products"><i class="fas fa-chevron-left"></i></button>
+        <div class="product-carousel" id="recently-viewed-container"></div>
+        <button class="carousel-btn next" aria-label="Next products"><i class="fas fa-chevron-right"></i></button>
+    </div>
+   
+</section>
+
+<!-- Recommended For You -->
+
+<section id="recommended" class="section-p1 animate-on-scroll">
+
+    
+    <div class="section-header-card recommended-card">
+        
+
+        <h2>Recommended For You</h2>
+
+        <p>
+            Personalized selections chosen just for you.
+        </p>
+    </div>
+
+    <div class="carousel-wrapper">
+        <button class="carousel-btn prev" aria-label="Previous products"><i class="fas fa-chevron-left"></i></button>
+        <div class="product-carousel" id="recommended-products-container"></div>
+        <button class="carousel-btn next" aria-label="Next products"><i class="fas fa-chevron-right"></i></button>
+    </div>
+   
+
+</section>
+
+
 
     <!-- Small Banner -->
     <section
@@ -307,10 +345,8 @@
             <span>
                 The best classic dress is on sale at cara
             </span>
-            <button class="white">
-                <a href="about.html">
-                About Cara Store
-                </a>
+            <button class="banner-btn" onclick="window.location.href='Buy1Get1.html'">
+                View Products
             </button>
         </div>
 
@@ -324,24 +360,40 @@
             <span>
                 The best classic dress is on sale at cara
             </span>
-            <button class="white">
-                <a href="shop.html">
+            <button class="banner-btn" onclick="window.location.href='shop.html'">
                 Collection
-                </a>
             </button>
         </div>
     </section>
+    <!-- Men's & Women's Collection -->
+    <section id = "collection" class = "section-p1 animate-on-scroll">
+            <a href="mens.html" class="collection-link">
+    <div class="banner-box mens-collection-banner">
+        <h2>MEN'S COLLECTION</h2>
+        <span>Style. Comfort. Confidence.</span>
+        <span class="white">Shop Now</span>
+    </div>
+</a>
+            <a href="womens.html" class="collection-link">
+    <div class="banner-box womens-collection-banner">
+        <h4>NEW ARRIVALS</h4>
+        <h2>WOMEN'S COLLECTION</h2>
+        <span>Elegant. Feminine. Fearless</span>
+        <span class="white">Shop Now</span>
+    </div>
+</a>
 
+    </section>
     <!-- Banner 3 -->
     <section id="banner3" class="animate-on-scroll">
-        <div class="banner-box">
+        <!-- <div class="banner-box">
             <h2>
                 SEASONAL SALE
             </h2>
             <h3>
                 SUMMER Collection -50% OFF
             </h3>
-        </div>
+        </div> -->
 
         <a href="seasonal.html" class="banner-link">
             <div class="banner-box">
@@ -382,14 +434,20 @@
                 </span>
             </p>
         </div>
-        <form class="form">
-            <input
-                type="email"
-                placeholder="Your email address"
-            >
-            <button class="normal" type="submit">
-                Sign Up
-            </button>
+        <form class="form" id="newsletter-form" novalidate>
+            <div class="newsletter-input-group">
+                <input
+                    type="email"
+                    id="newsletter-email"
+                    placeholder="Your email address"
+                    required
+                >
+                <button class="normal" type="submit" id="newsletter-btn">
+                    <span class="btn-text">Sign Up</span>
+                    <span class="btn-loader"><i class="fas fa-circle-notch fa-spin"></i></span>
+                </button>
+            </div>
+            <div id="newsletter-feedback" class="newsletter-feedback-message"></div>
         </form>
     </section>
 
@@ -450,11 +508,6 @@
 
     <script
         defer
-        src="scripts/cart-drawer.js"
-    ></script>
-
-    <script
-        defer
         src="scripts/shop-controls.js"
     ></script>
 
@@ -470,8 +523,13 @@
         src="scripts/back-to-top.js"
     ></script>
 
+    <script
+        defer
+        src="scripts/recommendations.js"
+    ></script>
+    <script
+        type="module"
+        src="scripts/recentlyViewed.js"
+    ></script>
   </body>
-
-</body>
-
 </html>

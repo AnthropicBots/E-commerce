@@ -52,3 +52,31 @@ We follow a **responsible disclosure** policy:
 - OWASP Vulnerability Disclosure Cheat Sheet: https://owasp.org/www-community/Vulnerability_Disclosure_Cheat_Sheet
 - Adding a Security Policy to Your Repository: https://docs.github.com/en/code-security/getting-started/adding-a-security-policy-to-your-repository
 
+# 🔒 Security Update: Agent Impersonation Protection
+
+## Implemented Fix: Issue #384
+
+### Changes Made:
+
+1. **Cryptographic Signature Verification**
+   - Added HMAC-SHA256 signature verification for ClaudeBot requests
+   - Environment variable: `CLAUDE_WEBHOOK_SECRET`
+
+2. **Behavioral CAPTCHA**
+   - Rate limiting for sensitive endpoints
+   - Bot pattern detection
+   - Request fingerprinting
+
+3. **Zero-Trust Policy**
+   - No longer trusts User-Agent header alone
+   - Multi-factor verification for critical operations
+
+### Updated Middleware:
+- `backend/middleware/authMiddleware.js` - Enhanced verification
+- `backend/middleware/behavioralCaptcha.js` - New behavioral checks
+- `backend/utils/signatureVerification.js` - Signature utilities
+
+### Testing:
+```bash
+# Run tests
+npm test tests/signatureVerification.test.js
