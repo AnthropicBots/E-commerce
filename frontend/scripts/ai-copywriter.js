@@ -54,13 +54,8 @@ class AICopywriter {
         this.showLoading(true);
 
         try {
-            const token = localStorage.getItem('jwt');
-            const response = await fetch('/api/copywriter/generate', {
+            const data = await AppUtils.apiRequest('/copywriter/generate', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
                 body: JSON.stringify({
                     keywords: keywords.split(',').map(k => k.trim()),
                     category,
@@ -69,8 +64,6 @@ class AICopywriter {
                 })
             });
 
-            const data = await response.json();
-            
             if (data.success) {
                 this.currentCopy = data.data;
                 this.copyHistory.push(data.data);
@@ -115,13 +108,8 @@ class AICopywriter {
         this.showLoading(true);
 
         try {
-            const token = localStorage.getItem('jwt');
-            const response = await fetch('/api/copywriter/multiple', {
+            const data = await AppUtils.apiRequest('/copywriter/multiple', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
                 body: JSON.stringify({
                     keywords: keywords.split(',').map(k => k.trim()),
                     category,
@@ -129,8 +117,6 @@ class AICopywriter {
                 })
             });
 
-            const data = await response.json();
-            
             if (data.success) {
                 this.displayVersions(data.data.versions);
                 this.showToast('✅ Generated 3 versions!', 'success');
@@ -234,13 +220,8 @@ class AICopywriter {
      */
     async logCopyUsage() {
         try {
-            const token = localStorage.getItem('jwt');
-            await fetch('/api/copywriter/use', {
+            await AppUtils.apiRequest('/copywriter/use', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
                 body: JSON.stringify({
                     copyId: this.currentCopy.id || null,
                     productId: document.getElementById('productId')?.value || null

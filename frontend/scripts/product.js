@@ -544,15 +544,10 @@ function addProductToCart(
 
     async function recordShareInteraction(productId, method) {
         try {
-            const token = localStorage.getItem('jwt');
-            if (!token) return;
+            if (!AppUtils.isAuthenticated()) return;
 
-            await fetch('/api/interactions', {
+            await AppUtils.apiRequest('/interactions', {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
                 body: JSON.stringify({
                     productId: productId,
                     type: 'share',

@@ -60,15 +60,9 @@ async function fetchOrderStatus() {
             return;
         }
 
-        const response = await fetch(`/api/orders/${orderId}/status`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
+        const data = await AppUtils.apiRequest(`/orders/${orderId}/status`);
 
-        const data = await response.json();
-
-        if (!response.ok || !data.success) {
+        if (!data.success) {
             throw new Error(data.message || 'Failed to fetch order');
         }
 
