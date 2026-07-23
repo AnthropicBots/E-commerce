@@ -8,7 +8,7 @@
     >
 
     <!-- SEO -->
-    <link rel="canonical" href="https://www.bhuvansh.xyz/signup.html">
+    <link rel="canonical" href="https://e-commerce-git-main-bhuvanshs-projects.vercel.app/signup.html">
     <meta
         name="description"
         content="Create your AnthropicBots E-Commerce account and start shopping securely."
@@ -97,10 +97,11 @@
             </p>
 
             <!-- Signup Form -->
-            <form id="signup-form">
+            <form id="signup-form" data-auth-form="signup">
                 <input
                     type="text"
                     id="signup-name"
+                    name="name"
                     placeholder="Full Name"
                     autocomplete="name"
                     required
@@ -108,25 +109,61 @@
                 <input
                     type="email"
                     id="signup-email"
+                    name="email"
                     placeholder="Email Address"
                     autocomplete="email"
                     required
                 >
-                <input
-                    type="password"
-                    id="signup-password"
-                    placeholder="Password"
-                    autocomplete="new-password"
-                    required
-                >
+
+                <!-- Password input with toggle -->
+                <div class="password-field">
+                    <input
+                        type="password"
+                        id="signup-password"
+                        name="password"
+                        placeholder="Password"
+                        autocomplete="new-password"
+                        required
+                    >
+                    <button
+                        type="button"
+                        class="password-toggle"
+                        aria-label="Show password"
+                        aria-pressed="false"
+                    >
+                        <i class="fas fa-eye" aria-hidden="true"></i>
+                    </button>
+                    <span class="countdown-indicator" style="display:none;"></span>
+                </div>
 
                 <!-- Password Strength Meter -->
-                <div id="password-strength-container" style="margin-top: 8px;">
+                <div id="password-strength-container" style="margin-top: 8px; display: none;">
                     <div id="password-strength-bar" style="height: 6px; border-radius: 4px; background: #e0e0e0; overflow: hidden;">
                         <div id="password-strength-fill" style="height: 100%; width: 0%; border-radius: 4px; transition: width 0.3s ease;"></div>
                     </div>
-                    <div id="password-strength-text" style="font-size: 0.85rem; margin-top: 4px; font-weight: 500; color: #666;">Weak</div>
+                    <div id="password-strength-text" style="font-size: 0.85rem; margin-top: 4px; font-weight: 500; color: #666;"></div>
                     <div id="password-strength-tips" style="font-size: 0.8rem; color: #888; margin-top: 4px; min-height: 20px;"></div>
+                </div>
+
+                <!-- Confirm Password -->
+                <div class="password-field">
+                    <input
+                        type="password"
+                        id="signup-confirm-password"
+                        name="confirmPassword"
+                        placeholder="Confirm Password"
+                        autocomplete="new-password"
+                        required
+                    >
+                    <button
+                        type="button"
+                        class="password-toggle"
+                        aria-label="Show password"
+                        aria-pressed="false"
+                    >
+                        <i class="fas fa-eye" aria-hidden="true"></i>
+                    </button>
+                    <span class="countdown-indicator" style="display:none;"></span>
                 </div>
 
                 <button
@@ -138,6 +175,30 @@
                 </button>
             </form>
 
+            <!-- OTP Verification Form (Hidden by default) -->
+            <form id="otp-form" style="display: none;">
+                <p>We've sent a 6-digit OTP to your email. Please enter it to verify your account.</p>
+                <input
+                    type="text"
+                    id="otp-input"
+                    placeholder="Enter 6-digit OTP"
+                    maxlength="6"
+                    required
+                >
+                <button
+                    type="submit"
+                    class="auth-btn"
+                >
+                    Verify OTP
+                </button>
+                <div style="text-align: center; margin-top: 15px;">
+                    <p class="auth-switch" style="margin-top: 15px;">
+                        Didn't receive code? <a href="#" id="resend-signup-otp-link">Resend OTP</a>
+                        <span id="resend-signup-timer" style="display: none; color: #777;">(60s)</span>
+                    </p>
+                </div>
+            </form>
+
             <!-- Divider -->
             <div class="divider">
                 <span>
@@ -146,13 +207,6 @@
             </div>
 
             <!-- Social Buttons -->
-            <button
-                class="social-btn google-btn"
-                id="google-login"
-            >
-                <i class="fab fa-google"></i>
-                Continue with Google
-            </button>
             <button
                 class="social-btn github-btn"
                 id="github-login"
@@ -201,6 +255,12 @@
         defer
         src="scripts/components.js"
     ></script>
+
+    <!-- Firebase -->
+    <script src="scripts/runtime-config.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+    <script src="scripts/firebase.js"></script>
 
     <!-- Auth Script -->
     <script

@@ -193,6 +193,22 @@
 
             </div>
 
+            <div class="summary-row discount-row">
+
+                <span>
+
+                    Discount
+
+                </span>
+
+                <span id="discount">
+
+                    -₹0
+
+                </span>
+
+            </div>
+
             <div class="summary-row total">
 
                 <span>
@@ -208,6 +224,56 @@
                 </span>
 
             </div>
+
+            <form
+                id="coupon-form"
+                class="coupon-form"
+                novalidate
+            >
+
+                <label for="coupon-code">
+
+                    Coupon
+
+                </label>
+
+                <div class="coupon-controls">
+
+                    <input
+                        id="coupon-code"
+                        type="text"
+                        placeholder="SAVE10 or SAVE20"
+                        autocomplete="off"
+                    >
+
+                    <button
+                        type="submit"
+                        id="apply-coupon-btn"
+                    >
+                        Apply
+                    </button>
+
+                </div>
+
+                <p
+                    id="coupon-message"
+                    class="coupon-message"
+                    aria-live="polite"
+                ></p>
+
+            </form>
+
+            <button
+                id="empty-cart-btn"
+                class="empty-cart-btn"
+                type="button"
+            >
+                Empty Cart
+            </button>
+
+            <button id="continue-shopping-btn" onclick="window.location.href='shop.html'">
+                ← Continue Shopping
+            </button>
 
             <button id="checkout-btn">
 

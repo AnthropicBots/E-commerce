@@ -17,26 +17,46 @@ async function renderCompare() {
 
     try {
 
-        const response =
-            await apiRequest(
-                "/products"
+        const results =
+            await Promise.allSettled(
+                compareProducts.map(id =>
+                    apiRequest(`/products/${id}`)
+                )
             );
-
-        const products =
-            Array.isArray(
-                response.products
-            )
-                ? response.products
-                : [];
 
         const selected =
-            products.filter(
-                product =>
-                    compareProducts.includes(
-                        String(product.id)
-                    )
-            );
+            results
+                .filter(
+                    result =>
+                        result.status === "fulfilled"
+                        &&
+                        result.value
+                        &&
+                        result.value.product
+                )
+                .map(
+                    result => result.value.product
+                );
 
+        const failedCount =
+            compareProducts.length - selected.length;
+
+        if (
+            selected.length === 0
+        ) {
+            compareContainer.innerHTML =
+                "<h3>No products selected</h3>";
+            return;
+        }
+
+        if (
+            failedCount > 0
+        ) {
+            AppUtils.notify(
+                `${failedCount} product(s) in your comparison are no longer available`,
+                "warning"
+            );
+        }
         compareContainer.innerHTML =
             selected.map(
                 product => `
@@ -45,10 +65,10 @@ async function renderCompare() {
                         padding:15px;
                         margin:10px;
                     ">
-                        <h3>${product.name}</h3>
-                        <p><b>Price:</b> ₹${product.price}</p>
-                        <p><b>Rating:</b> ${product.rating}</p>
-                        <p><b>Category:</b> ${product.category}</p>
+                        <h3>${AppUtils.escapeHTML(product.name)}</h3>
+                        <p><b>Price:</b> ₹${AppUtils.escapeHTML(product.price)}</p>
+                        <p><b>Rating:</b> ${AppUtils.escapeHTML(product.rating)}</p>
+                        <p><b>Category:</b> ${AppUtils.escapeHTML(product.category)}</p>
                     </div>
                 `
             ).join("");

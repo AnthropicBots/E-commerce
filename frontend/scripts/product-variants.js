@@ -28,7 +28,33 @@ function setupVariants(
         !Array.isArray(
             product.variants
         )
+        ||
+        product.variants.length === 0
     ) {
+
+       
+        const variantStockEl =
+            document.getElementById(
+                "variant-stock"
+            );
+
+        if (
+            variantStockEl
+        ) {
+
+            variantStockEl.innerText =
+                Number(
+                    product.stock
+                ) || 0;
+
+            variantStockEl.style.color =
+                Number(
+                    product.stock
+                ) <= 3
+                    ? "red"
+                    : "#088178";
+        }
+
         return;
     }
 
@@ -36,7 +62,7 @@ function setupVariants(
         productVariants
     ).forEach(
         (key) => {
-            Deletee productVariants[
+            delete productVariants[
                 key
             ];
         }
@@ -100,22 +126,40 @@ function updateVariant() {
         return;
     }
 
+    const variantStockEl =
+        document.getElementById(
+            "variant-stock"
+        );
+
     if (
-        window.variantStock
+        variantStockEl
     ) {
-        window.variantStock.innerText =
+
+        variantStockEl.innerText =
             stock;
 
-        window.variantStock.style.color =
+        variantStockEl.style.color =
             stock <= 3
                 ? "red"
                 : "#088178";
+
+        // re-clamp the quantity selector to the new stock
+        if (typeof window.syncProductQtyControls === "function") {
+            window.syncProductQtyControls();
+        }
     }
 
+
+    const mainImageEl =
+        document.getElementById(
+            "main-product-image"
+        );
+
     if (
-        window.mainImage
+        mainImageEl
     ) {
-        window.mainImage.src =
+
+        mainImageEl.src =
             AppUtils.defaultImage(
                 currentVariant.image
             );

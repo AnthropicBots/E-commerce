@@ -96,9 +96,16 @@ https://e-commerce-git-main-bhuvanshs-projects.vercel.app
 ```text
 E-commerce/
 │
+├── .agents/skills/
+│   ├── accessibility-compliance/
+│   ├── css/
+│   ├── modern-javascript-patterns/
+│   ├── responsive-design/
+│   ├── semantic-html/
+│   └── wcag-audit-patterns/
+│
 ├── .github/
 │   ├── ISSUE_TEMPLATE/
-│   ├── workflows/
 │   └── hiero-bot.yml
 │
 ├── backend/
@@ -106,56 +113,112 @@ E-commerce/
 │   │   └── db.js
 │   │
 │   ├── controllers/
+│   │   ├── admin.controller.js
 │   │   ├── authController.js
+│   │   ├── cartController.js
+│   │   ├── chat.controller.js
 │   │   ├── orderController.js
-│   │   └── productController.js
+│   │   ├── pincodeController.js
+│   │   ├── productController.js
+│   │   ├── promo.controller.js
+│   │   ├── recommendationController.js
+│   │   └── wishlistController.js
 │   │
 │   ├── middleware/
+|   |   ├── validators/
 │   │   ├── adminMiddleware.js
-│   │   └── authMiddleware.js
+│   │   ├── authMiddleware.js
+│   │   ├── rateLimiter.js
+│   │   └── rbacMiddleware.js
 │   │
 │   ├── models/
 │   │   ├── Order.js
+│   │   ├── Pincode.js
 │   │   ├── Product.js
 │   │   └── User.js
 │   │
 │   ├── routes/
+│   │   ├── adminRoutes.js
 │   │   ├── authRoutes.js
+│   │   ├── cartRoutes.js
+│   │   ├── chatRoutes.js
+│   │   ├── index.js
 │   │   ├── orderRoutes.js
-│   │   └── productRoutes.js
+│   │   ├── pincodeRoutes.js
+│   │   ├── productRoutes.js
+│   │   ├── promoRoutes.js
+│   │   ├── recommendationRoutes.js
+│   │   └── wishlistRoutes.js
+│   │
+│   ├── scripts/
+│   │   └── seedProducts.js
 │   │
 │   ├── services/
-│   │   └── order.service.js
+│   │   ├── admin.service.js
+│   │   ├── chat.service.js
+│   │   ├── interactionService.js
+│   │   ├── order.service.js
+│   │   ├── promo.service.js
+│   │   └── recommendationService.js
+│   │
+│   ├── sql/
+│   │   ├── admin_dashboard_schema.sql
+│   │   ├── chat.schema.sql
+│   │   └── promo_schema.sql
 │   │
 │   ├── utils/
+│   │   ├── helpers.js
+│   │   └── socketManager.js
 │   │
 │   ├── .env.example
-│   ├── package.json
+│   ├── docker-compose.yml
 │   ├── package-lock.json
+│   ├── package.json
 │   ├── schema.sql
 │   └── server.js
 │
 ├── frontend/
 │   ├── assets/
+│   │   ├── data/
+│   │   ├── images/
+│   │   └── videos/
 │   │
 │   ├── components/
+│   │   ├── cart-drawer.html
 │   │   ├── footer.html
 │   │   └── navbar.html
 │   │
 │   ├── scripts/
+│   │   ├── Buy1Get1.js
 │   │   ├── about.js
 │   │   ├── admin.js
+│   │   ├── animations.js
 │   │   ├── auth.js
+│   │   ├── back-to-top.js
+│   │   ├── blog.js
 │   │   ├── cart-drawer.js
 │   │   ├── cart.js
+│   │   ├── chat-widget.js
 │   │   ├── checkout.js
+│   │   ├── compare.js
 │   │   ├── components.js
 │   │   ├── config.js
+│   │   ├── contact.js
+│   │   ├── dashboard-orders.js
+│   │   ├── dashboard-overview.js
+│   │   ├── dashboard-settings.js
+│   │   ├── dashboard-wishlist.js
 │   │   ├── dashboard.js
+│   │   ├── delivery.js
+│   │   ├── early_summer.js
+│   │   ├── help.js
 │   │   ├── hero.js
 │   │   ├── home-init.js
+│   │   ├── mens.js
 │   │   ├── order.js
 │   │   ├── ordersHistory.js
+│   │   ├── pincode.js
+│   │   ├── privacy.js
 │   │   ├── product-actions-home.js
 │   │   ├── product-actions.js
 │   │   ├── product-cards-home.js
@@ -165,59 +228,100 @@ E-commerce/
 │   │   ├── product.js
 │   │   ├── profile.js
 │   │   ├── recentlyViewed.js
+│   │   ├── recommendations.js
 │   │   ├── related-products.js
 │   │   ├── script.js
+│   │   ├── seasonal.js
 │   │   ├── shop-controls.js
 │   │   ├── shop.js
+│   │   ├── success.js
+│   │   ├── terms.js
 │   │   ├── toast.js
+│   │   ├── tshirt.js
 │   │   ├── ui.js
 │   │   ├── utils.js
-│   │   └── wishlist.js
+│   │   ├── wishlist.js
+│   │   └── womens.js
 │   │
 │   ├── styles/
+│   │   ├── about.css
 │   │   ├── admin.css
+│   │   ├── animations.css
 │   │   ├── auth.css
+│   │   ├── back-to-top.css
 │   │   ├── base.css
+│   │   ├── blog.css
 │   │   ├── cart.css
+│   │   ├── chat-widget.css
 │   │   ├── checkout.css
 │   │   ├── components.css
+│   │   ├── contact.css
 │   │   ├── dashboard.css
+│   │   ├── delivery.css
+│   │   ├── early_summer.css
+│   │   ├── help.css
 │   │   ├── hero.css
 │   │   ├── layout.css
+│   │   ├── order.css
+│   │   ├── privacy.css
 │   │   ├── product-card.css
 │   │   ├── product.css
+│   │   ├── profile.css
+│   │   ├── seasonal.css
 │   │   ├── shop.css
-│   │   └── style.css
+│   │   ├── style.css
+│   │   ├── success.css
+│   │   ├── terms.css
+│   │   ├── tshirt.css
+│   │   └── wishlist.css
 │   │
+│   ├── Buy1Get1.html
 │   ├── about.html
 │   ├── admin.html
 │   ├── blog.html
 │   ├── cart.html
 │   ├── checkout.html
+│   ├── compare.html
 │   ├── contact.html
 │   ├── dashboard.html
+│   ├── delivery.html
+│   ├── early_summer.html
 │   ├── help.html
 │   ├── index.html
+│   ├── mens.html
 │   ├── order.html
 │   ├── privacy.html
 │   ├── product.html
 │   ├── profile.html
+│   ├── robots.html
+│   ├── seasonal.html
 │   ├── shop.html
 │   ├── signin.html
 │   ├── signup.html
+│   ├── sitemap.xml
 │   ├── success.html
 │   ├── terms.html
-│   └── wishlist.html
+│   ├── tshirt.html
+│   ├── vercel.html
+│   ├── wishlist.html
+│   └── womens.html
 │
-├── public/
-│
-├── .env.example
+├── .env.example  
+├── .gitattributes        
 ├── .gitignore
+├── AGENTS.md             
+├── CHANGELOG.md          
+├── CODE_OF_CONDUCT.md    
 ├── CONTRIBUTING.md
-├── LICENSE
-├── package.json
+├── LICENSE        
+├── README.md
+├── SECURITY.md
+├── TODO.md
+├── ecommerce.sql 
 ├── package-lock.json
-└── README.md
+├── package.json   
+├── skills-lock.json               
+└── test.js                
 ```
 
 ---

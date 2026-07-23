@@ -1,6 +1,6 @@
 // ELEMENTS
 const elements = {
-    scrollBtn: document.getElementById('scroll-top'),
+    scrollBtn: document.getElementById('back-to-top'),
     backBtn: document.querySelector('.back-btn')
 };
 

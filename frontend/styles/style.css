@@ -1,6 +1,5 @@
-/* =============================
-product controls
-============================= */
+
+/* product controls */
 .product-controls{
     width: 100%;
     display: flex;
@@ -18,19 +17,36 @@ product controls
 
 .search-box input{
     width: 100%;
-    padding: 15px 50px 15px 18px;
+    padding: 15px 18px 15px 50px;
     border: 1px solid #ddd;
     border-radius: 10px;
     outline: none;
     font-size: 15px;
+    transition: all 0.3s ease;
+}
+
+.search-box input:hover {
+    border-color: #088178;
+}
+
+.search-box input:focus {
+    border-color: #088178;
+    box-shadow: 0 0 0 4px rgba(8, 129, 120, 0.1);
 }
 
 .search-box i{
     position: absolute;
-    right: 18px;
+    left: 18px;
     top: 50%;
     transform: translateY(-50%);
-    color: #777;
+    color: #088178;
+    transition: color 0.3s ease;
+    pointer-events: none;
+}
+
+.search-box input:hover + i,
+.search-box input:focus + i {
+    color: #065f57;
 }
 
 .sort-box select{
@@ -41,10 +57,66 @@ product controls
     cursor: pointer;
     background: var(--white);
 }
+.banner-btn {
+    margin-top: 20px;
+    border: 1px solid rgba(255, 255, 255, .3);
+    background: rgba(255, 255, 255, .08);
+    -webkit-backdrop-filter: blur(15px);
+    backdrop-filter: blur(15px);
+    border-radius: 14px;
+    overflow: hidden;
+    cursor: pointer;
+    position: relative;
+    transition: all .4s ease;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, .15);
+}
 
-/* =============================
-responsive layout
-============================= */
+.banner-btn, .banner-btn a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px 34px;
+    color: #fff;
+    text-decoration: none;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: .8px;
+    transition: .4s;
+}
+
+.banner-btn::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg,
+            rgba(255, 255, 255, .25),
+            rgba(255, 255, 255, .05));
+    opacity: 0;
+    transition: .4s;
+}
+
+.banner-btn:hover::before {
+    opacity: 1;
+}
+
+.banner-btn:hover {
+    transform: translateY(-5px);
+    border-color: #088178;
+    box-shadow: 0 15px 35px rgba(8, 129, 120, .3);
+}
+
+.banner-btn:active {
+    transform: scale(.97);
+}
+.banner-btn:focus,
+.banner-btn:focus-visible {
+    outline: 3px solid #7fffd4;
+    outline-offset: 4px;
+    box-shadow:
+        0 0 0 5px rgba(8, 129, 120, .25);
+}
+/* responsive layout */
 @media(max-width:1024px){
     .product-controls{
         flex-wrap: wrap;
@@ -52,7 +124,6 @@ responsive layout
 }
 
 @media(max-width:799px){
-
     .product-controls{
         flex-direction: column;
         align-items: stretch;
@@ -67,16 +138,12 @@ responsive layout
     }
 }
 
-/* =============================
-homepage product grid fix
-============================= */
-
 #product1 .pro-container,
 #new-arrivals .pro-container,
 #recently-viewed .pro-container{
     display: flex;
     flex-wrap: wrap;
-    gap: 20px;
+    gap: 24px;
     align-items: flex-start;
     justify-content: flex-start;
 }
@@ -84,15 +151,16 @@ homepage product grid fix
 #product1 .pro,
 #new-arrivals .pro,
 #recently-viewed .pro{
-    flex: 0 0 calc(25% - 20px);
-    max-width: 320px;
+    flex: 0 0 calc(33.333% - 20px);
+    max-width: calc(33.333% - 20px);
+    cursor: pointer;
 }
 
 #product1 .pro img,
 #new-arrivals .pro img,
 #recently-viewed .pro img{
     width: 100%;
-    height: 260px;
+    height: 320px;
     object-fit: cover;
     object-position: center;
 }
@@ -107,7 +175,6 @@ homepage product grid fix
 }
 
 @media(max-width:799px){
-
     #product1 .pro,
     #new-arrivals .pro,
     #recently-viewed .pro{
@@ -116,7 +183,6 @@ homepage product grid fix
 }
 
 @media(max-width:477px){
-
     #product1 .pro,
     #new-arrivals .pro,
     #recently-viewed .pro{
@@ -125,11 +191,138 @@ homepage product grid fix
     }
 }
 
-/* =============================
-Password Strength Meter (Issue #166)
-============================= */
-#password-strength-container {
-    margin-top: 8px;
+@media(max-width:768px) {
+
+    .banner-btn, .banner-btn a {
+        padding: 14px 24px;
+        font-size: 14px;
+    }
+
+}
+
+@media(max-width:480px) {
+
+    .banner-btn, .banner-btn a {
+        padding: 12px 20px;
+        font-size: 13px;
+    }
+
+}
+/* =========================
+   SECTION HEADER CARDS
+========================= */
+
+.section-header-card {
+    width: 85%;
+    max-width: 1200px;
+    margin: 40px auto;
+    padding: 40px 60px;
+    border-radius: 24px;
+    text-align: center;
+    transition: all 0.3s ease;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+}
+
+.section-header-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 16px 40px rgba(0,0,0,0.12);
+}
+
+.section-header-card h2 {
+    font-size: 42px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: #2c3e50;
+}
+
+.section-header-card p {
+    font-size: 17px;
+    color: #666;
+    margin: 0;
+}
+
+body.dark-theme .section-header-card {
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+body.dark-theme .section-header-card h2 {
+    color: #f8fafc;
+}
+
+body.dark-theme .section-header-card p {
+    color: #e2e8f0;
+}
+
+/* New Arrivals */
+.arrivals-card {
+    background: linear-gradient(
+        135deg,
+        #fff2e8,
+        #ffe8d9
+    );
+    border-left: 8px solid #f4a261;
+}
+
+body.dark-theme .arrivals-card {
+    background: linear-gradient(135deg, #3a2316, #5f3720);
+    border-left-color: #ffb36b;
+}
+
+/* Recently Viewed */
+.recent-card {
+    background: linear-gradient(
+        135deg,
+        #edf8f6,
+        #dff3ef
+    );
+    border-left: 8px solid #6ab7a8;
+}
+
+body.dark-theme .recent-card {
+    background: linear-gradient(135deg, #12362d, #215845);
+    border-left-color: #7fd9c7;
+}
+
+/* Recommended */
+.recommended-card {
+    background: linear-gradient(
+        135deg,
+        #f3efff,
+        #ebe5ff
+    );
+    border-left: 8px solid #9b8cff;
+}
+
+body.dark-theme .recommended-card {
+    background: linear-gradient(135deg, #22163f, #3a2a69);
+    border-left-color: #c7b7ff;
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+    .section-header-card {
+        width: 95%;
+        padding: 25px;
+    }
+
+    .section-header-card h2 {
+        font-size: 30px;
+    }
+
+    .section-header-card p {
+        font-size: 15px;
+    }
+}
+
+/* Password toggle countdown indicator */
+.countdown-indicator {
+    font-size: 0.75rem;
+    color: #088178;
+    margin-left: 8px;
+    font-weight: 500;
+    vertical-align: middle;
+    transition: opacity 0.3s ease;
 }
 
 #password-strength-bar {
@@ -141,131 +334,20 @@ Password Strength Meter (Issue #166)
 
 #password-strength-fill {
     height: 100%;
-    width: 0%;
     border-radius: 4px;
-    transition: width 0.3s ease;
+    transition: width 0.4s ease, background-color 0.4s ease;
 }
 
-.strength-weak {
-    background: #ff4d4d;
+#password-strength-fill.strength-weak {
+    background-color: #e74c3c;
 }
 
-.strength-medium {
-    background: #ffa500;
+#password-strength-fill.strength-medium {
+    background-color: #f39c12;
 }
 
-.strength-strong {
-    background: #28a745;
-}
-
-#password-strength-text {
-    font-size: 0.85rem;
-    margin-top: 4px;
-    font-weight: 500;
-}
-
-#password-strength-tips {
-    font-size: 0.8rem;
-    color: #888;
-    margin-top: 4px;
-    min-height: 20px;
-}
-
-/* =============================
-Breadcrumb Navigation (Issue #344)
-============================= */
-.breadcrumb-nav {
-    padding: 12px 20px;
-    max-width: 1200px;
-    margin: 0 auto;
-    background: transparent;
-}
-
-.breadcrumb-list {
-    display: flex;
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    flex-wrap: wrap;
-    gap: 4px 0;
-}
-
-.breadcrumb-item {
-    display: inline-flex;
-    align-items: center;
-    font-size: 14px;
-    color: #666;
-}
-
-.breadcrumb-item a {
-    color: #666;
-    text-decoration: none;
-    transition: color 0.2s;
-}
-
-.breadcrumb-item a:hover {
-    color: #007bff;
-    text-decoration: underline;
-}
-
-.breadcrumb-item.active {
-    color: #333;
-    font-weight: 600;
-}
-
-.breadcrumb-separator {
-    color: #999;
-    margin: 0 6px;
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-    .breadcrumb-nav {
-        padding: 8px 12px;
-    }
-    .breadcrumb-item {
-        font-size: 12px;
-    }
-    .breadcrumb-separator {
-        margin: 0 4px;
-    }
-}
-
-/* =============================
-Back to Top Button (Issue #345)
-============================= */
-.back-to-top-btn {
-    position: fixed;
-    bottom: 30px;
-    right: 30px;
-    width: 50px;
-    height: 50px;
-    background: linear-gradient(135deg, #6C3BFF, #1B42CB);
-    color: white;
-    border: none;
-    border-radius: 50%;
-    cursor: pointer;
-    font-size: 22px;
-    box-shadow: 0 4px 15px rgba(27, 66, 203, 0.4);
-    transition: all 0.3s ease;
-    z-index: 1000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.back-to-top-btn:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 6px 25px rgba(27, 66, 203, 0.6);
-    background: linear-gradient(135deg, #1B42CB, #6C3BFF);
-}
-
-.back-to-top-btn:active {
-    transform: scale(0.9);
-}
-
-.back-to-top-btn.show {
-    display: flex !important;
+#password-strength-fill.strength-strong {
+    background-color: #27ae60;
 }
 
 @media (max-width: 768px) {

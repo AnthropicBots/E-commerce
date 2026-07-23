@@ -160,11 +160,8 @@ function addProductToCart() {
         return;
     }
 
-    const cart =
-        AppUtils.getCart();
-
     const existing =
-        cart.find(
+        AppUtils.getCart().find(
             (item) => {
                 return (
                     String(item.id)
@@ -182,32 +179,23 @@ function addProductToCart() {
             }
         );
 
+    const nextQty =
+        (
+            existing
+                ? existing.qty
+                : 0
+        ) + product.qty;
+
     if (
-        existing
+        !validateStock(
+            nextQty
+        )
     ) {
-        const updatedQty =
-            existing.qty +
-            product.qty;
-
-        if (
-            !validateStock(
-                updatedQty
-            )
-        ) {
-            return;
-        }
-
-        existing.qty =
-            updatedQty;
-
-    } else {
-        cart.push(
-            product
-        );
+        return;
     }
 
-    AppUtils.saveCart(
-        cart
+    AppUtils.addCartItem(
+        product
     );
 
     if (
@@ -223,6 +211,14 @@ function addProductToCart() {
     ) {
 
         renderCartDrawer();
+    }
+
+    if (
+        typeof openCartDrawer ===
+        "function"
+    ) {
+
+        openCartDrawer();
     }
 
     AppUtils.notify(
@@ -281,9 +277,9 @@ async function toggleProductWishlist() {
             );
 
         AppUtils.notify(
-            "Removed from wishlist",
-            "info"
-        );
+          "Added to wishlist ❤️",
+            "success"
+                        );
         
         if (token) {
             try {
@@ -315,7 +311,7 @@ async function toggleProductWishlist() {
         });
 
         AppUtils.notify(
-            "Added to wishlist",
+            "Added to wishlist ❤️",
             "success"
         );
         
@@ -349,6 +345,92 @@ async function toggleProductWishlist() {
     }
 }
 
+// =====================================
+// SHARE FEATURE (WhatsApp + Copy Link)
+// =====================================
+
+// build the share text used by WhatsApp / clipboard
+function buildProductShareText() {
+    const productName =
+        (currentProduct && currentProduct.name)
+            ? currentProduct.name
+            : (document.title || "Check out this product");
+
+    const productUrl = window.location.href;
+
+    return `Check out ${productName} on AnthropicBots E-Commerce: ${productUrl}`;
+}
+
+// share product on WhatsApp via https://wa.me/?text=
+function shareOnWhatsApp() {
+    const text = buildProductShareText();
+
+    const whatsappUrl =
+        `https://wa.me/?text=${encodeURIComponent(text)}`;
+
+    // open in a new tab so the user keeps the product page open
+    const win = window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+
+    if (!win) {
+        // pop-up was blocked — fall back to navigation in same tab
+        window.location.href = whatsappUrl;
+    }
+
+    if (typeof AppUtils !== "undefined" && AppUtils.notify) {
+        AppUtils.notify("Opening WhatsApp...", "info");
+    }
+}
+
+// copy current product URL to clipboard using navigator.clipboard
+async function copyProductLink() {
+    const url = window.location.href;
+
+    // prefer the modern async Clipboard API
+    if (
+        navigator.clipboard &&
+        typeof navigator.clipboard.writeText === "function"
+    ) {
+        try {
+            await navigator.clipboard.writeText(url);
+
+            if (typeof AppUtils !== "undefined" && AppUtils.notify) {
+                AppUtils.notify("Product link copied to clipboard!", "success");
+            }
+            return;
+        } catch (err) {
+            console.warn("Clipboard API failed, falling back to legacy copy:", err);
+            // fall through to legacy method
+        }
+    }
+
+    // legacy fallback for non-secure contexts / older browsers
+    try {
+        const textarea = document.createElement("textarea");
+        textarea.value = url;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "absolute";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+
+        textarea.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(textarea);
+
+        if (typeof AppUtils !== "undefined" && AppUtils.notify) {
+            if (ok) {
+                AppUtils.notify("Product link copied to clipboard!", "success");
+            } else {
+                AppUtils.notify("Could not copy link. Please copy manually.", "error");
+            }
+        }
+    } catch (err) {
+        console.error("Legacy copy failed:", err);
+        if (typeof AppUtils !== "undefined" && AppUtils.notify) {
+            AppUtils.notify("Could not copy link. Please copy manually.", "error");
+        }
+    }
+}
+
 // action bindings
 document.addEventListener(
     "DOMContentLoaded",
@@ -366,6 +448,16 @@ document.addEventListener(
         const wishlistBtn =
             document.getElementById(
                 "wishlist-btn"
+            );
+
+        const whatsappShareBtn =
+            document.getElementById(
+                "whatsapp-share-btn"
+            );
+
+        const copyLinkBtn =
+            document.getElementById(
+                "copy-link-btn"
             );
 
         if (
@@ -413,6 +505,26 @@ document.addEventListener(
                 }
             );
         }
+
+        if (whatsappShareBtn) {
+            whatsappShareBtn.addEventListener(
+                "click",
+                (event) => {
+                    event.preventDefault();
+                    shareOnWhatsApp();
+                }
+            );
+        }
+
+        if (copyLinkBtn) {
+            copyLinkBtn.addEventListener(
+                "click",
+                (event) => {
+                    event.preventDefault();
+                    copyProductLink();
+                }
+            );
+        }
     }
 );
 
@@ -428,3 +540,9 @@ window.buyNow =
 
 window.toggleProductWishlist =
     toggleProductWishlist;
+
+window.shareOnWhatsApp =
+    shareOnWhatsApp;
+
+window.copyProductLink =
+    copyProductLink;

@@ -13,20 +13,18 @@
     --delivery-table-text: #555555;
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --delivery-bg-page: #0f0f0f;
-        --delivery-bg-card: #1e1e1e;
-        --delivery-bg-card-alt: #2a2a2a;
-        --delivery-border: #3a3a3a;
-        --delivery-text: #f0f0f0;
-        --delivery-text-muted: #c0c0c0;
-        --delivery-notice-bg: #1a3530;
-        --delivery-notice-text: #a0d8d0;
-        --delivery-shadow: rgba(0, 0, 0, 0.4);
-        --delivery-table-even: #252525;
-        --delivery-table-text: #c0c0c0;
-    }
+body.dark-theme {
+    --delivery-bg-page: #0f0f0f;
+    --delivery-bg-card: #1e1e1e;
+    --delivery-bg-card-alt: #2a2a2a;
+    --delivery-border: #3a3a3a;
+    --delivery-text: #f0f0f0;
+    --delivery-text-muted: #c0c0c0;
+    --delivery-notice-bg: #1a3530;
+    --delivery-notice-text: #a0d8d0;
+    --delivery-shadow: rgba(0, 0, 0, 0.4);
+    --delivery-table-even: #252525;
+    --delivery-table-text: #c0c0c0;
 }
 
 /* ── HEADER ── */

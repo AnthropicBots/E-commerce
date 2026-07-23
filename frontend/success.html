@@ -11,7 +11,7 @@
     >
 
     <!-- SEO -->
-    <link rel="canonical" href="https://www.bhuvansh.xyz/success.html">
+    <link rel="canonical" href="https://e-commerce-git-main-bhuvanshs-projects.vercel.app/success.html">
     <meta
         name="description"
         content="Your order has been placed successfully at AnthropicBots E-Commerce."
@@ -125,55 +125,31 @@
 
             </p>
 
-            <!-- Order Info -->
+<!-- Order Info -->
+<div class="order-info">
+    <p>
+        <strong>Order ID:</strong>
+        <span id="order-id">ORD-0000</span>
+    </p>
+    <p>
+        <strong>Date:</strong>
+        <span id="order-date"></span>
+    </p>
+    <p>
+        <strong>Status:</strong>
+        <span class="success-status">Confirmed</span>
+    </p>
+    <p>
+        <strong>Total Amount:</strong>
+        <span id="order-total"></span>
+    </p>
+</div>
 
-            <div class="order-info">
-
-                <p>
-
-                    <strong>
-
-                        Order ID:
-
-                    </strong>
-
-                    <span id="order-id">
-
-                        ORD-0000
-
-                    </span>
-
-                </p>
-
-                <p>
-
-                    <strong>
-
-                        Date:
-
-                    </strong>
-
-                    <span id="order-date"></span>
-
-                </p>
-
-                <p>
-
-                    <strong>
-
-                        Status:
-
-                    </strong>
-
-                    <span class="success-status">
-
-                        Confirmed
-
-                    </span>
-
-                </p>
-
-            </div>
+<!-- Order Items -->
+<div id="order-items-container" style="margin-top:16px; text-align:left;">
+    <strong>Items Ordered:</strong>
+    <ul id="order-items-list" style="margin-top:8px; padding-left:16px;"></ul>
+</div>
 
             <!-- Buttons -->
 

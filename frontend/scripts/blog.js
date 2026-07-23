@@ -223,7 +223,9 @@ function openArticleModal(id) {
 
     const textDiv = document.createElement("div");
     textDiv.className = "modal-text";
-    textDiv.innerHTML = post.content; // Content contains safe rich HTML markup from the blog posts
+    textDiv.innerHTML = window.DOMPurify 
+        ? DOMPurify.sanitize(post.content) 
+        : window.AppUtils ? AppUtils.escapeHTML(post.content) : post.content.replace(/</g, "&lt;").replace(/>/g, "&gt;");
     blogModalBody.appendChild(textDiv);
 
     const shareDiv = document.createElement("div");

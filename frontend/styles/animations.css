@@ -1,518 +1,471 @@
-/* =============================
-ANIMATIONS CSS - Home Page
-============================= */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 
-/* =============================
-KEYFRAME DEFINITIONS
-============================= */
+  .animate-on-scroll,
+  .animate-on-scroll.in-view,
+  #hero.hero-animate-once.page-loaded * {
+    animation: none !important;
+    transition: none !important;
+  }
 
-/* Hero Section Animations */
+  .pro:hover,
+  .fe-box:hover,
+  button:hover,
+  #navbar-links li a:hover {
+    transform: none !important;
+  }
+}
+
 @keyframes fadeInDown {
-    from {
-        opacity: 0;
-        transform: translateY(-30px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+  from {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes fadeInUp {
-    from {
-        opacity: 0;
-        transform: translateY(30px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes slideInLeft {
-    from {
-        opacity: 0;
-        transform: translateX(-50px);
-    }
-    to {
-        opacity: 1;
-        transform: translateX(0);
-    }
+  from {
+    opacity: 0;
+    transform: translateX(-50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 @keyframes fadeIn {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
-@keyframes zoomInSlight {
-    from {
-        opacity: 0;
-        transform: scale(0.95);
-    }
-    to {
-        opacity: 1;
-        transform: scale(1);
-    }
-}
-
-/* Feature Cards Stagger Animation */
-@keyframes scaleInCenter {
-    from {
-        opacity: 0;
-        transform: scale(0.9);
-    }
-    to {
-        opacity: 1;
-        transform: scale(1);
-    }
-}
-
-/* Product Cards Stagger */
-@keyframes staggerFadeUp {
-    from {
-        opacity: 0;
-        transform: translateY(40px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* Pulse Animation for icons */
-@keyframes pulse {
-    0% {
-        transform: scale(1);
-    }
-    50% {
-        transform: scale(1.05);
-    }
-    100% {
-        transform: scale(1);
-    }
-}
-
-/* Shimmer Animation */
-@keyframes shimmer {
-    0% {
-        opacity: 0.6;
-    }
-    50% {
-        opacity: 1;
-    }
-    100% {
-        opacity: 0.6;
-    }
-}
-
-/* =============================
-HERO SECTION ANIMATIONS
-============================= */
-
-/* =============================
-HERO (once-only on initial load)
-============================= */
-
-/* Start hidden; JS adds #hero.hero-animate-once.page-loaded */
-#hero.hero-animate-once #hero h4,
-#hero.hero-animate-once #hero h2,
-#hero.hero-animate-once #hero h1,
-#hero.hero-animate-once #hero p,
-#hero.hero-animate-once #hero .hero-ctas {
+  from {
     opacity: 0;
-    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+  }
 }
 
-#hero.hero-animate-once.page-loaded #hero h4 {
-    animation: slideInLeft 0.8s ease-out 0.08s both;
+@keyframes scaleInCenter {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
-#hero.hero-animate-once.page-loaded #hero h2 {
-    animation: slideInLeft 0.8s ease-out 0.16s both;
+@keyframes staggerFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-#hero.hero-animate-once.page-loaded #hero h1 {
-    animation: slideInLeft 0.8s ease-out 0.24s both;
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
-#hero.hero-animate-once.page-loaded #hero p {
-    animation: fadeInUp 0.8s ease-out 0.32s both;
+.animate-on-scroll[data-anim-variant="fade-down"].in-view {
+  animation: fadeInDown 0.6s ease-out both;
 }
 
-#hero.hero-animate-once.page-loaded #hero .hero-ctas {
-    animation: fadeInUp 0.8s ease-out 0.4s both;
+.animate-on-scroll[data-anim-variant="fade"].in-view {
+  animation: fadeIn 0.6s ease-out both;
+}
+
+.animate-on-scroll[data-anim-variant="slide-left"].in-view {
+  animation: slideInLeft 0.6s ease-out both;
+}
+
+.animate-on-scroll[data-anim-variant="zoom"].in-view,
+.animate-on-scroll[data-anim-variant="scale"].in-view {
+  animation: scaleInCenter 0.6s ease-out both;
+}
+
+#hero.hero-animate-once h4,
+#hero.hero-animate-once h2,
+#hero.hero-animate-once h1,
+#hero.hero-animate-once p,
+#hero.hero-animate-once .hero-ctas {
+  opacity: 0;
+  transform: translateY(18px);
+}
+
+#hero.hero-animate-once.page-loaded h4 {
+  animation: slideInLeft 0.8s ease-out 0.08s both;
+}
+
+#hero.hero-animate-once.page-loaded h2 {
+  animation: slideInLeft 0.8s ease-out 0.16s both;
+}
+
+#hero.hero-animate-once.page-loaded h1 {
+  animation: slideInLeft 0.8s ease-out 0.24s both;
+}
+
+#hero.hero-animate-once.page-loaded p {
+  animation: fadeInUp 0.8s ease-out 0.32s both;
+}
+
+#hero.hero-animate-once.page-loaded .hero-ctas {
+  animation: fadeInUp 0.8s ease-out 0.4s both;
 }
 
 #hero button {
-    transition: transform 0.35s ease, box-shadow 0.35s ease, filter 0.35s ease;
-    will-change: transform, box-shadow, filter;
+  transition:
+    transform 0.35s ease,
+    box-shadow 0.35s ease,
+    filter 0.35s ease;
+  will-change: transform, box-shadow, filter;
 }
 
 #hero button:hover {
-    transform: translateY(-3px) scale(1.02);
-    box-shadow: 0 18px 40px rgba(8, 129, 120, 0.18);
-    filter: brightness(1.04);
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 18px 40px rgba(8, 129, 120, 0.18);
+  filter: brightness(1.04);
 }
 
- 
-/* =============================
-FEATURE CARDS ANIMATIONS
-============================= */
-
-#feature .fe-box {
-    animation: scaleInCenter 0.6s ease-out both;
-    opacity: 0;
+#feature .fe-box.animate-on-scroll.in-view {
+  animation: scaleInCenter 0.6s ease-out both;
 }
 
-/* Stagger animation for feature cards */
 #feature .fe-box:nth-child(1) {
-    animation-delay: 0.1s;
+  animation-delay: 0.1s;
 }
 
 #feature .fe-box:nth-child(2) {
-    animation-delay: 0.15s;
+  animation-delay: 0.15s;
 }
 
 #feature .fe-box:nth-child(3) {
-    animation-delay: 0.2s;
+  animation-delay: 0.2s;
 }
 
 #feature .fe-box:nth-child(4) {
-    animation-delay: 0.25s;
+  animation-delay: 0.25s;
 }
 
 #feature .fe-box:nth-child(5) {
-    animation-delay: 0.3s;
+  animation-delay: 0.3s;
 }
 
 #feature .fe-box:nth-child(6) {
-    animation-delay: 0.35s;
+  animation-delay: 0.35s;
 }
 
-/* Feature card hover effect enhancement */
 #feature .fe-box img {
-    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 #feature .fe-box:hover img {
-    animation: pulse 0.6s ease-in-out;
+  animation: pulse 0.6s ease-in-out;
 }
 
-/* Smooth hover for product action buttons */
 .product-actions button,
 .product-actions a {
-    will-change: transform, opacity;
+  will-change: transform, opacity;
 }
 
 .product-actions button:hover,
 .product-actions a:hover {
-    transform: translateY(-2px) scale(1.02);
-    opacity: 0.95;
+  transform: translateY(-2px) scale(1.02);
+  opacity: 0.95;
 }
 
-/* =============================
-PRODUCT CARDS ANIMATIONS
-============================= */
-
-/* Product cards fade-up on scroll */
-.pro.animate-on-scroll {
-    animation: staggerFadeUp 0.6s ease-out both;
-    opacity: 0;
+.pro.animate-on-scroll.in-view {
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+  animation: staggerFadeUp 0.6s ease-out both;
 }
 
-/* Stagger animation for products (in 8 per row) */
-#product1 .pro:nth-child(1) { animation-delay: 0.05s; }
-#product1 .pro:nth-child(2) { animation-delay: 0.1s; }
-#product1 .pro:nth-child(3) { animation-delay: 0.15s; }
-#product1 .pro:nth-child(4) { animation-delay: 0.2s; }
-#product1 .pro:nth-child(5) { animation-delay: 0.05s; }
-#product1 .pro:nth-child(6) { animation-delay: 0.1s; }
-#product1 .pro:nth-child(7) { animation-delay: 0.15s; }
-#product1 .pro:nth-child(8) { animation-delay: 0.2s; }
-
-#new-arrivals .pro:nth-child(1) { animation-delay: 0.05s; }
-#new-arrivals .pro:nth-child(2) { animation-delay: 0.1s; }
-#new-arrivals .pro:nth-child(3) { animation-delay: 0.15s; }
-#new-arrivals .pro:nth-child(4) { animation-delay: 0.2s; }
-#new-arrivals .pro:nth-child(5) { animation-delay: 0.05s; }
-#new-arrivals .pro:nth-child(6) { animation-delay: 0.1s; }
-#new-arrivals .pro:nth-child(7) { animation-delay: 0.15s; }
-#new-arrivals .pro:nth-child(8) { animation-delay: 0.2s; }
-
-#recently-viewed .pro:nth-child(1) { animation-delay: 0.05s; }
-#recently-viewed .pro:nth-child(2) { animation-delay: 0.1s; }
-#recently-viewed .pro:nth-child(3) { animation-delay: 0.15s; }
-#recently-viewed .pro:nth-child(4) { animation-delay: 0.2s; }
-#recently-viewed .pro:nth-child(5) { animation-delay: 0.05s; }
-#recently-viewed .pro:nth-child(6) { animation-delay: 0.1s; }
-#recently-viewed .pro:nth-child(7) { animation-delay: 0.15s; }
-#recently-viewed .pro:nth-child(8) { animation-delay: 0.2s; }
-
-/* Product image smooth zoom on hover */
-.pro img {
-    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+#product1 .pro:nth-child(8n + 1),
+#new-arrivals .pro:nth-child(8n + 1),
+#recently-viewed .pro:nth-child(8n + 1) {
+  animation-delay: 0.05s;
 }
 
-/* Premium product hover */
+#product1 .pro:nth-child(8n + 2),
+#new-arrivals .pro:nth-child(8n + 2),
+#recently-viewed .pro:nth-child(8n + 2) {
+  animation-delay: 0.1s;
+}
+
+#product1 .pro:nth-child(8n + 3),
+#new-arrivals .pro:nth-child(8n + 3),
+#recently-viewed .pro:nth-child(8n + 3) {
+  animation-delay: 0.15s;
+}
+
+#product1 .pro:nth-child(8n + 4),
+#new-arrivals .pro:nth-child(8n + 4),
+#recently-viewed .pro:nth-child(8n + 4) {
+  animation-delay: 0.2s;
+}
+
 .pro {
-    transition: transform 0.35s ease, box-shadow 0.35s ease;
-    will-change: transform;
+  transition:
+    transform 0.35s ease,
+    box-shadow 0.35s ease;
+  will-change: transform;
+}
+
+.pro img {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .pro:hover {
-    transform: translateY(-3px) scale(1.04);
-    box-shadow: 0 22px 60px rgba(0,0,0,0.18);
+  transform: translateY(-3px) scale(1.04);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.18);
 }
 
 .pro:hover img {
-    transform: scale(1.08);
+  transform: scale(1.08);
 }
 
-
-/* =============================
-NAVIGATION BAR ANIMATIONS
-============================= */
-
-/* Navbar links smooth transitions */
 #navbar-links li a,
 #navbar-links li button {
-    position: relative;
-    transition: color 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
+  position: relative;
+  transition:
+    color 0.3s ease,
+    transform 0.3s ease,
+    opacity 0.3s ease;
 }
 
-/* Underline animation on hover */
 #navbar-links li a::after,
 #navbar-links li button::after {
-    content: '';
-    position: absolute;
-    bottom: -3px;
-    left: 0;
-    width: 0;
-    height: 2px;
-    background-color: var(--primary-color, #088178);
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  content: "";
+  position: absolute;
+  bottom: -3px;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background-color: var(--primary-color, #088178);
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 #navbar-links li a:hover,
 #navbar-links li button:hover,
 #navbar-links li a.active,
 #navbar-links li button.active {
-    transform: translateY(-1px);
+  transform: translateY(-1px);
 }
 
 #navbar-links li a:hover::after,
 #navbar-links li button:hover::after,
 #navbar-links li a.active::after,
 #navbar-links li button.active::after {
-    width: 100%;
+  width: 100%;
 }
 
-/* Mobile menu slide animation */
 @media (max-width: 799px) {
-    #navbar-links {
-        animation: slideInLeft 0.3s ease-out;
-    }
+  #navbar-links {
+    animation: slideInLeft 0.3s ease-out;
+  }
 }
 
-/* =============================
-SECTION HEADING ANIMATIONS
-============================= */
-
-/* Section headings fade in */
-#product1 h2,
-#new-arrivals h2,
-#recently-viewed h2,
-#banner h2 {
-    animation: fadeInDown 0.6s ease-out;
+#product1.in-view h2,
+#new-arrivals.in-view h2,
+#recently-viewed.in-view h2,
+#banner.in-view h2 {
+  animation: fadeInDown 0.6s ease-out;
 }
 
-#product1 p,
-#new-arrivals p,
-#recently-viewed p,
-#banner h4 {
-    animation: fadeInUp 0.6s ease-out 0.1s both;
+#product1.in-view p,
+#new-arrivals.in-view p,
+#recently-viewed.in-view p,
+#banner.in-view h4 {
+  animation: fadeInUp 0.6s ease-out 0.1s both;
 }
 
-/* =============================
-BANNER ANIMATIONS
-============================= */
-
-#banner {
-    animation: fadeIn 0.8s ease-out;
+#banner.in-view {
+  animation: fadeIn 0.8s ease-out;
 }
 
-#sm-banner .banner-box {
-    animation: fadeInUp 0.6s ease-out both;
+#sm-banner .banner-box.in-view {
+  animation: fadeInUp 0.6s ease-out both;
 }
 
 #sm-banner .banner-box:nth-child(1) {
-    animation-delay: 0.1s;
+  animation-delay: 0.1s;
 }
 
 #sm-banner .banner-box:nth-child(2) {
-    animation-delay: 0.2s;
+  animation-delay: 0.2s;
 }
 
-#banner3 .banner-box {
-    animation: scaleInCenter 0.6s ease-out both;
+#banner3 .banner-box.in-view {
+  animation: scaleInCenter 0.6s ease-out both;
 }
 
 #banner3 .banner-box:nth-child(1) {
-    animation-delay: 0.1s;
+  animation-delay: 0.1s;
 }
-
 #banner3 .banner-box:nth-child(2) {
-    animation-delay: 0.2s;
+  animation-delay: 0.2s;
 }
-
 #banner3 .banner-box:nth-child(3) {
-    animation-delay: 0.3s;
+  animation-delay: 0.3s;
 }
 
-/* =============================
-NEWSLETTER SECTION ANIMATION
-============================= */
-
-#newsletter {
-    animation: fadeInUp 0.8s ease-out;
+#newsletter.in-view {
+  animation: fadeInUp 0.8s ease-out;
+}
+#newsletter.in-view .newstext {
+  animation: fadeInDown 0.6s ease-out;
+}
+#newsletter.in-view .form {
+  animation: fadeInUp 0.6s ease-out 0.2s both;
 }
 
-#newsletter .newstext {
-    animation: fadeInDown 0.6s ease-out;
-}
-
-#newsletter .form {
-    animation: fadeInUp 0.6s ease-out 0.2s both;
-}
-
-/* =============================
-SCROLL-TRIGGERED ANIMATIONS
-============================= */
-
-/* Classes added by JavaScript */
 .animate-on-scroll {
-    opacity: 0;
-    transform: translateY(40px);
-    transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+  opacity: 0;
+  transform: translateY(26px);
+  transition:
+    opacity 0.55s ease-out,
+    transform 0.55s ease-out;
+  will-change: opacity, transform;
 }
 
 .animate-on-scroll.in-view {
-    opacity: 1;
-    transform: translateY(0);
+  opacity: 1 !important;
+  transform: translateY(0) !important;
 }
 
-.animate-fade {
-    opacity: 0;
-    transition: opacity 0.6s ease-out;
+.animate-on-scroll.anim-fade {
+  transform: none;
+}
+.animate-on-scroll.anim-fade-up {
+  transform: translateY(24px);
+}
+.animate-on-scroll.anim-fade-down {
+  transform: translateY(-24px);
+}
+.animate-on-scroll.anim-slide-left {
+  transform: translateX(-24px);
+}
+.animate-on-scroll.anim-slide-right {
+  transform: translateX(24px);
+}
+.animate-on-scroll.anim-zoom {
+  transform: scale(0.95);
 }
 
-.animate-fade.in-view {
-    opacity: 1;
+.animate-on-scroll.anim-fade.in-view,
+.animate-on-scroll.anim-fade-up.in-view,
+.animate-on-scroll.anim-fade-down.in-view,
+.animate-on-scroll.anim-slide-left.in-view,
+.animate-on-scroll.anim-slide-right.in-view,
+.animate-on-scroll.anim-zoom.in-view {
+  opacity: 1;
+  transform: none;
 }
-
-/* =============================
-ACCESSIBILITY - REDUCED MOTION
-============================= */
-
-@media (prefers-reduced-motion: reduce) {
-    /* Disable all animations if user prefers reduced motion */
-    * {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
-    }
-
-    /* Keep essential transitions for interactions */
-    #navbar-links li a,
-    #navbar-links li button,
-    .pro,
-    #feature .fe-box {
-        transition: color 0.3s, background-color 0.3s !important;
-    }
-}
-
-/* =============================
-MOBILE OPTIMIZATIONS
-============================= */
 
 @media (max-width: 799px) {
-    #hero h1 {
-        animation-duration: 0.6s;
-    }
-
-    #hero p {
-        animation-duration: 0.6s;
-    }
-
-    #hero button {
-        animation-duration: 0.6s;
-    }
-
-    /* Reduce feature card animations on mobile */
-    #feature .fe-box {
-        animation-duration: 0.5s;
-    }
-
-    /* Reduce product card animation delay on mobile */
-    .pro {
-        animation-duration: 0.5s;
-    }
+  #feature .fe-box,
+  .pro {
+    animation-duration: 0.5s !important;
+  }
 }
 
 @media (max-width: 477px) {
-    #hero h4,
-    #hero h2,
-    #hero h1,
-    #hero p,
-    #hero button {
-        animation-duration: 0.5s;
-    }
-
-    #feature .fe-box {
-        animation-duration: 0.4s;
-    }
+  #feature .fe-box {
+    animation-duration: 0.4s !important;
+  }
 }
 
-/* =============================
-ACCESSIBILITY: Focus visibility
-============================= */
-
-/* Provide clear focus indication for keyboard users */
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 .pro:focus-within {
-    outline: 3px solid rgba(8,129,120,0.16);
-    outline-offset: 3px;
-    box-shadow: 0 6px 18px rgba(8,129,120,0.12);
+  outline: 3px solid rgba(8, 129, 120, 0.16);
+  outline-offset: 3px;
+  box-shadow: 0 6px 18px rgba(8, 129, 120, 0.12);
 }
 
-/* Ensure interactive elements remain readable during animations */
 a,
 button {
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 
-/* Reduce motion for users who prefer less animation */
 @media (prefers-reduced-motion: reduce) {
-    .animate-on-scroll,
-    .pro,
-    #feature .fe-box,
-    #hero h1,
-    #hero h2,
-    #hero p,
-    #hero button {
-        transition: none !important;
-        animation-duration: 1ms !important;
-        transform: none !important;
-        opacity: 1 !important;
-    }
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-on-scroll,
+  .pro,
+  #feature .fe-box,
+  #hero h1,
+  #hero h2,
+  #hero p,
+  #hero button {
+    transition: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+
+  #navbar-links li a,
+  #navbar-links li button,
+  .pro,
+  #feature .fe-box {
+    transition:
+      color 0.3s,
+      background-color 0.3s !important;
+  }
+}
+
+#hero {
+  opacity: 1 !important;
+  transform: none !important;
 }

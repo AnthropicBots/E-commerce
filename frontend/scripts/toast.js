@@ -150,6 +150,7 @@ function showToast(
         font-size:14px;
         line-height:1.5;
         word-break:break-word;
+         font-family: "Segoe UI Emoji", "Segoe UI Symbol", "Segoe UI", Arial, sans-serif;
     `;
 
     const closeButton =
