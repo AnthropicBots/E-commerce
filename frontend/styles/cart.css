@@ -204,3 +204,85 @@ body.dark-theme h3 {
 body.dark-theme p {
     color: #e0e0e0 !important;
 }
+
+/* ========================================
+   EMPTY CART - Continue Shopping (Issue #1206)
+   ======================================== */
+
+.empty-cart {
+    text-align: center;
+    padding: 60px 20px;
+    background: #f9f9f9;
+    border-radius: 16px;
+}
+
+.empty-cart-icon {
+    font-size: 64px;
+    color: #ccc;
+    margin-bottom: 20px;
+}
+
+.empty-cart h2 {
+    font-size: 28px;
+    color: #333;
+    margin-bottom: 12px;
+}
+
+.empty-cart p {
+    font-size: 16px;
+    color: #666;
+    margin-bottom: 8px;
+}
+
+.empty-cart-sub {
+    font-size: 14px;
+    color: #888;
+    margin-bottom: 24px;
+}
+
+.continue-shopping-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 32px;
+    background: #088178;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+}
+
+.continue-shopping-btn:hover {
+    background: #066b64;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(8, 129, 120, 0.3);
+}
+
+.continue-shopping-btn i {
+    font-size: 18px;
+}
+
+/* Dark Mode */
+body.dark-theme .empty-cart {
+    background: #1a1a2e;
+}
+
+body.dark-theme .empty-cart h2 {
+    color: #e0e0e0;
+}
+
+body.dark-theme .empty-cart p {
+    color: #aaa;
+}
+
+body.dark-theme .continue-shopping-btn {
+    background: #0a9b8f;
+}
+
+body.dark-theme .continue-shopping-btn:hover {
+    background: #088178;
+}

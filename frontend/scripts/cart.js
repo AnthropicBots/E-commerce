@@ -127,7 +127,9 @@ function safeQty(
         );
 }
 
-// EMPTY CART
+// ========================================
+// EMPTY CART - FIXED Continue Shopping (Issue #1206)
+// ========================================
 function renderEmptyCart() {
     if (
         !elements.cartContainer
@@ -138,22 +140,37 @@ function renderEmptyCart() {
     elements.cartContainer.innerHTML =
         `
             <div class="empty-cart">
+                <i class="fas fa-shopping-cart empty-cart-icon"></i>
                 <h2>
                     Your cart is empty
                 </h2>
 
                 <p>
-                    Add products to continue shopping.
+                    Looks like you haven't added any items to your cart yet.
                 </p>
 
-                <a
-                    href="shop.html"
+                <p class="empty-cart-sub">
+                    Start shopping to fill your cart with amazing products!
+                </p>
+
+                <button 
+                    id="continue-shopping-btn" 
                     class="continue-shopping-btn"
                 >
+                    <i class="fas fa-arrow-left"></i>
                     Continue Shopping
-                </a>
+                </button>
             </div>
         `;
+
+    // ✅ FIX: Add event listener to Continue Shopping button
+    const continueBtn = document.getElementById('continue-shopping-btn');
+    if (continueBtn) {
+        continueBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            window.location.href = 'shop.html';
+        });
+    }
 
     updateCartTotals(
         0
@@ -730,11 +747,43 @@ if (
     );
 }
 
+// ========================================
+// CONTINUE SHOPPING - FIX (Issue #1206)
+// ========================================
+
+function setupContinueShopping() {
+    const continueBtn = document.getElementById('continue-shopping-btn');
+    
+    if (!continueBtn) {
+        // Button might not exist yet (empty cart not rendered)
+        return;
+    }
+    
+    // Remove existing listeners to avoid duplicates
+    const newBtn = continueBtn.cloneNode(true);
+    continueBtn.parentNode.replaceChild(newBtn, continueBtn);
+    
+    newBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        window.location.href = 'shop.html';
+    });
+}
+
 // INIT
 document.addEventListener(
     "DOMContentLoaded",
     () => {
         renderCart();
+        // Setup continue shopping after render
+        setTimeout(setupContinueShopping, 100);
     }
 );
+
+// Also setup when cart is rendered (for dynamic updates)
+const originalRenderCart = renderCart;
+renderCart = function() {
+    originalRenderCart();
+    setTimeout(setupContinueShopping, 100);
+};
+
 })();
