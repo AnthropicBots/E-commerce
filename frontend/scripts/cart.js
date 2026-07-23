@@ -237,8 +237,8 @@ function updateButtonStates() {
 }
 
 // ==================== UPDATE CART TOTALS ====================
-function updateCartTotals() {
-    const totals = AppUtils.calculateCartTotals(cart, appliedCoupon);
+async function updateCartTotals() {
+    const totals = await AppUtils.calculateCartTotals(cart, appliedCoupon);
     
     AppUtils.setJSON("shippingCost", totals.shipping);
     AppUtils.setJSON("cartTotals", totals);
@@ -759,14 +759,17 @@ document.addEventListener("click", (event) => {
 
 // ==================== COUPON FORM ====================
 if (elements.couponForm) {
-    elements.couponForm.addEventListener("submit", (event) => {
+    elements.couponForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const code = elements.couponCode ? elements.couponCode.value : "";
-        const result = AppUtils.validateCoupon(code);
+        // Validate against the current subtotal so the server can enforce any
+        // minimum-cart-value rule on the promo.
+        const { subtotal } = await AppUtils.calculateCartTotals(cart);
+        const result = await AppUtils.validateCoupon(code, subtotal);
         if (!result.valid) {
             appliedCoupon = "";
             setCouponMessage(result.message, "error");
-            updateCartTotals();
+            await updateCartTotals();
             return;
         }
         if (appliedCoupon === result.code) {
@@ -779,7 +782,7 @@ if (elements.couponForm) {
         }
         setCouponMessage(result.message, "success");
         AppUtils.setJSON("appliedCoupon", appliedCoupon);
-        updateCartTotals();
+        await updateCartTotals();
     });
 }
 

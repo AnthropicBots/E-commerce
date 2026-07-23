@@ -110,7 +110,7 @@ function closeCartDrawer() {
 }
 
 // render cart drawer
-function renderCartDrawer() {
+async function renderCartDrawer() {
     if (
         !cartDrawerItems
         ||
@@ -231,14 +231,14 @@ function renderCartDrawer() {
             }
         ).join("");
 
-    const total =
-        AppUtils.calculateCartTotals(
+    const { subtotal } =
+        await AppUtils.calculateCartTotals(
             drawerCart
-        ).subtotal;
+        );
 
     cartDrawerTotal.innerHTML =
         AppUtils.formatPrice(
-            total
+            subtotal
         );
 }
 

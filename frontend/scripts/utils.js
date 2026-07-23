@@ -1145,130 +1145,119 @@ const getCartCount = (
     );
 };
 
-const validateCoupon = (
-    code
+// Coupon validation is server-authoritative: the browser no longer knows which
+// codes exist or what they're worth. It POSTs the code + current cart total to
+// /promo/validate and maps the response onto the legacy { valid, code, percent,
+// message } shape callers already understand. Any failure (network, timeout,
+// unknown code, rate limit) resolves to a safe invalid result rather than
+// throwing, so a broken promo endpoint never blocks checkout.
+const validateCoupon = async (
+    code,
+    cartTotal = 0
 ) => {
+    const normalizedCode = String(code || "").trim().toUpperCase();
 
-    const normalizedCode =
-        String(
-            code || ""
-        )
-            .trim()
-            .toUpperCase();
-
-    const coupons = {
-        SAVE10: 10,
-        SAVE20: 20
-    };
-
-    if (
-        !normalizedCode
-    ) {
-
+    if (!normalizedCode) {
         return {
             valid: false,
             code: "",
             percent: 0,
-            message:
-                "Enter a coupon code."
+            message: "Enter a coupon code."
         };
     }
 
-    if (
-        !coupons[normalizedCode]
-    ) {
+    const safeCartTotal = safeNumber(cartTotal, 0);
+
+    try {
+        const response = await apiRequest("/promo/validate", {
+            method: "POST",
+            body: JSON.stringify({
+                promoCode: normalizedCode,
+                cartTotal: safeCartTotal
+            })
+        });
+
+        const promo = response && response.success ? response.data : null;
+
+        if (!promo || !promo.valid) {
+            return {
+                valid: false,
+                code: normalizedCode,
+                percent: 0,
+                message:
+                    (response && response.message) || "Invalid coupon code."
+            };
+        }
+
+        // Express the server's discount as a percent of the submitted cart
+        // total so percentage- and fixed-amount promos both flow through the
+        // existing percent-based math. discountType/discountValue are stable
+        // promo attributes (unlike the response's cartTotal-derived `discount`,
+        // which the backend caches by code only), so this stays correct across
+        // cart edits.
+        const percent =
+            promo.discountType === "fixed"
+                ? (safeCartTotal > 0
+                    ? (safeNumber(promo.discountValue, 0) / safeCartTotal) * 100
+                    : 0)
+                : safeNumber(promo.discountValue, 0);
+
+        const resolvedCode = promo.promoCode || normalizedCode;
+
+        return {
+            valid: true,
+            code: resolvedCode,
+            percent,
+            message: `${resolvedCode} applied successfully.`
+        };
+    } catch (error) {
+        console.error("COUPON VALIDATION ERROR:", error);
 
         return {
             valid: false,
-            code:
-                normalizedCode,
+            code: normalizedCode,
             percent: 0,
-            message:
-                "Invalid coupon code."
+            message: "Could not validate coupon. Please try again."
         };
     }
-
-    return {
-        valid: true,
-        code:
-            normalizedCode,
-        percent:
-            coupons[normalizedCode],
-        message:
-            `${normalizedCode} applied successfully.`
-    };
 };
 
-const calculateCartTotals = (
+const calculateCartTotals = async (
     cart = getCart(),
     couponCode = ""
 ) => {
+    const subtotal = safeArray(cart).reduce(
+        (sum, item) =>
+            sum +
+            safeNumber(item.price, 0) *
+                Math.max(1, safeInteger(item.qty, 1)),
+        0
+    );
 
-    const subtotal =
-        safeArray(
-            cart
-        ).reduce(
-            (
-                sum,
-                item
-            ) =>
-                sum +
-                (
-                    safeNumber(
-                        item.price,
-                        0
-                    ) *
-                    Math.max(
-                        1,
-                        safeInteger(
-                            item.qty,
-                            1
-                        )
-                    )
-                ),
-            0
-        );
-
-    const coupon =
-        validateCoupon(
-            couponCode
-        );
+    // Skip the round-trip when there's nothing to validate; an empty code is
+    // never a coupon.
+    const coupon = couponCode
+        ? await validateCoupon(couponCode, subtotal)
+        : null;
 
     const discount =
-        coupon.valid
-            ? subtotal *
-                (
-                    coupon.percent / 100
-                )
-            : 0;
+        coupon && coupon.valid ? subtotal * (coupon.percent / 100) : 0;
 
-    const discountedSubtotal =
-        Math.max(
-            0,
-            subtotal - discount
-        );
+    const discountedSubtotal = Math.max(0, subtotal - discount);
 
-    const tax =
-        discountedSubtotal * 0.18;
+    const tax = discountedSubtotal * CONFIG.PRICING.TAX_RATE;
 
     const shipping =
-        discountedSubtotal > 0
-        &&
-        discountedSubtotal < 999
-            ? 49
+        discountedSubtotal > 0 &&
+        discountedSubtotal < CONFIG.PRICING.FREE_SHIPPING_THRESHOLD
+            ? CONFIG.PRICING.SHIPPING_FEE
             : 0;
 
-    const total =
-        discountedSubtotal +
-        tax +
-        shipping;
+    const total = discountedSubtotal + tax + shipping;
 
     return {
         subtotal,
-        coupon:
-            coupon.valid
-                ? coupon
-                : null,
+        coupon: coupon && coupon.valid ? coupon : null,
         discount,
         tax,
         shipping,

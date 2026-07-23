@@ -261,7 +261,7 @@ function safeQty(
 }
 
 // CALCULATE TOTALS
-function calculateTotals() {
+async function calculateTotals() {
 
     return AppUtils.calculateCartTotals(
         cart,
@@ -270,7 +270,7 @@ function calculateTotals() {
 }
 
 // RENDER CHECKOUT
-function renderCheckout() {
+async function renderCheckout() {
 
     if (
         !elements.checkoutItems
@@ -347,7 +347,7 @@ function renderCheckout() {
     );
 
     const totals =
-        calculateTotals();
+        await calculateTotals();
 
     if (
         elements.subtotal
@@ -513,7 +513,7 @@ function validateCheckoutForm() {
     return true;
 }
 // CREATE ORDER PAYLOAD
-function createOrderPayload() {
+async function createOrderPayload() {
 
     const selectedPayment =
         document.querySelector(
@@ -521,7 +521,7 @@ function createOrderPayload() {
         );
 
     const totals =
-        calculateTotals();
+        await calculateTotals();
 
     return {
 
@@ -628,7 +628,7 @@ if (
                     "Processing...";
             }
 
-            const order = createOrderPayload();
+            const order = await createOrderPayload();
             const selectedPaymentMethod = order.paymentMethod;
 
             try {
