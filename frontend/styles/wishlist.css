@@ -79,8 +79,18 @@
     background: #088178;
 }
 
+.add-cart-btn:hover {
+    background: #066b64;
+    transform: translateY(-2px);
+}
+
 .remove-btn{
     background: crimson;
+}
+
+.remove-btn:hover {
+    background: #a71d2a;
+    transform: translateY(-2px);
 }
 
 .empty-wishlist{
@@ -114,10 +124,38 @@
     border-radius: 6px;
 }
 
-@media (max-width: 1024px){
+.empty-wishlist a:hover{
+    background: #066b64;
+}
 
+@media (max-width: 1024px){
     .wishlist-buttons{
         flex-direction: column;
     }
+}
 
+/* ===== DARK MODE ===== */
+body.dark-theme .wishlist-card {
+    background: #1a1a2e;
+    border: 1px solid #333;
+}
+
+body.dark-theme .wishlist-content span {
+    color: #aaa;
+}
+
+body.dark-theme .wishlist-content h4 {
+    color: #e0e0e0;
+}
+
+body.dark-theme .empty-wishlist {
+    color: #e0e0e0;
+}
+
+body.dark-theme .empty-wishlist p {
+    color: #aaa;
+}
+
+body.dark-theme .empty-wishlist i {
+    color: #555;
 }
