@@ -25,6 +25,9 @@ const OTP_RATE_LIMIT_MAX = 3; // Max 3 OTP requests per window
 const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
+// Window in which the failed attempts must accumulate to trip the lockout.
+// Failures older than this roll off so isolated mistakes never reach the threshold.
+const LOGIN_ATTEMPT_WINDOW = 15 * 60 * 1000; // 15 minutes
 
 // ==================== VALIDATION PATTERNS ====================
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -121,25 +124,41 @@ function isOTPRateLimited(email) {
 function isLoginLocked(email) {
     const now = Date.now();
     const record = loginAttempts.get(email);
-    
+
     if (!record) return false;
-    if (now > record.lockoutUntil) {
-        loginAttempts.delete(email);
-        return false;
+
+    // Only an active lockout blocks login. Counting failures within the
+    // window is not itself a lock — that is what let a single mistyped
+    // password lock the account before.
+    if (record.lockoutUntil && now < record.lockoutUntil) {
+        return true;
     }
-    return true;
+
+    // No active lockout: drop the record once the lockout has expired or the
+    // rolling attempt window has elapsed, so the counter restarts cleanly.
+    if ((record.lockoutUntil && now >= record.lockoutUntil) || now > record.windowExpires) {
+        loginAttempts.delete(email);
+    }
+    return false;
 }
 
 function recordLoginFailure(email) {
     const now = Date.now();
     const record = loginAttempts.get(email);
-    
-    if (!record) {
-        loginAttempts.set(email, { attempts: 1, lockoutUntil: now + LOGIN_LOCKOUT_DURATION });
+
+    // Start a fresh window on the first failure or after the previous window
+    // rolled off without reaching the threshold.
+    if (!record || now > record.windowExpires) {
+        loginAttempts.set(email, {
+            attempts: 1,
+            windowExpires: now + LOGIN_ATTEMPT_WINDOW,
+            lockoutUntil: null
+        });
         return;
     }
-    
+
     record.attempts++;
+    // The lockout only starts once the threshold is reached within the window.
     if (record.attempts >= MAX_LOGIN_ATTEMPTS) {
         record.lockoutUntil = now + LOGIN_LOCKOUT_DURATION;
     }
@@ -147,6 +166,11 @@ function recordLoginFailure(email) {
 
 function resetLoginAttempts(email) {
     loginAttempts.delete(email);
+}
+
+// Test-only: drop all tracked attempts so cases start from a clean slate.
+function clearLoginAttempts() {
+    loginAttempts.clear();
 }
 
 // ==================== 1. SIGNUP (Send OTP) ====================
@@ -749,4 +773,16 @@ module.exports = {
     getSecurityAudit, 
     getFraudStatus,
     getMe
+};
+
+// Internal login-guard helpers exposed for unit testing only. Not part of the
+// HTTP surface; runtime behavior is unchanged.
+module.exports._loginGuard = {
+    isLoginLocked,
+    recordLoginFailure,
+    resetLoginAttempts,
+    clearLoginAttempts,
+    MAX_LOGIN_ATTEMPTS,
+    LOGIN_LOCKOUT_DURATION,
+    LOGIN_ATTEMPT_WINDOW
 };
