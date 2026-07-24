@@ -565,6 +565,40 @@ CREATE TABLE IF NOT EXISTS refunds (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
+-- CUSTOMER RETURNS / REFUND REQUESTS (RMA)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS refund_requests (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    order_id CHAR(36) NOT NULL,
+    order_item_id INT,
+    product_id CHAR(36),
+    reason TEXT NOT NULL,
+    quantity INT NOT NULL DEFAULT 1,
+    status ENUM('pending', 'approved', 'rejected', 'refunded') DEFAULT 'pending',
+    admin_note TEXT,
+    reviewed_by CHAR(36),
+    reviewed_at DATETIME,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_refund_requests_quantity CHECK (quantity > 0),
+
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (order_item_id) REFERENCES order_items(id) ON DELETE SET NULL,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
+    FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL,
+
+    INDEX idx_refund_requests_user (user_id),
+    INDEX idx_refund_requests_order (order_id),
+    INDEX idx_refund_requests_status (status),
+    INDEX idx_refund_requests_order_item (order_item_id),
+    INDEX idx_refund_requests_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
 -- SECURITY TABLES (New)
 -- ============================================
 
