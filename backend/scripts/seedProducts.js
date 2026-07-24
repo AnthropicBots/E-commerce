@@ -54,6 +54,60 @@ const sampleProducts = [
     category: 'Jackets',
     stock: 15,
     featured: 0
+  },
+  {
+    name: 'Classic Ruled Notebook',
+    description: 'Durable ruled notebook for everyday class notes.',
+    price: 4.99,
+    image: '',
+    category: 'Notebooks',
+    stock: 60,
+    featured: 1
+  },
+  {
+    name: 'Smooth Gel Pen Set',
+    description: 'Quick-dry gel pens for clean writing.',
+    price: 6.99,
+    image: '',
+    category: 'Pens',
+    stock: 45,
+    featured: 0
+  },
+  {
+    name: 'Graphite Pencil Pack',
+    description: 'HB pencils for writing, sketching, and exams.',
+    price: 3.49,
+    image: '',
+    category: 'Pencils',
+    stock: 80,
+    featured: 0
+  },
+  {
+    name: 'Ergonomic School Backpack',
+    description: 'Lightweight school bag with padded straps.',
+    price: 24.99,
+    image: '',
+    category: 'School Bags',
+    stock: 25,
+    featured: 0
+  },
+  {
+    name: 'Desk Office Supplies Kit',
+    description: 'Stapler, clips, sticky notes, and organizer essentials.',
+    price: 12.99,
+    image: '',
+    category: 'Office Supplies',
+    stock: 35,
+    featured: 0
+  },
+  {
+    name: 'Watercolor Art Supplies Set',
+    description: 'Paints, brushes, and sketch sheets for art projects.',
+    price: 18.99,
+    image: '',
+    category: 'Art Supplies',
+    stock: 28,
+    featured: 0
   }
 ];
 

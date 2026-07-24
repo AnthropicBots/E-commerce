@@ -1,6 +1,5 @@
 // current order
-let currentOrder =
-    null;
+let currentOrder = null;
 
 // get order id from url
 const orderId =
@@ -9,326 +8,163 @@ const orderId =
     ).get("id");
 
 // redirect if missing order id
-if (
-    !orderId
-) {
-
-    window.location.href =
-        "shop.html";
-}
-
-// escape html
-function escapeHTML(
-    value
-) {
-
-    return String(
-        value || ""
-    )
-
-        .replace(
-            /&/g,
-            "&amp;"
-        )
-
-        .replace(
-            /</g,
-            "&lt;"
-        )
-
-        .replace(
-            />/g,
-            "&gt;"
-        )
-
-        .replace(
-            /"/g,
-            "&quot;"
-        )
-
-        .replace(
-            /'/g,
-            "&#039;"
-        );
+if (!orderId) {
+    window.location.href = "shop.html";
 }
 
 // elements
 const elements = {
-
-    orderItemsContainer:
-        document.getElementById(
-            "order-items-container"
-        ),
-
-    orderId:
-        document.getElementById(
-            "order-id"
-        ),
-
-    orderDate:
-        document.getElementById(
-            "order-date"
-        ),
-
-    statusBadge:
-        document.getElementById(
-            "status-badge"
-        ),
-
-    processingStep:
-        document.getElementById(
-            "processing-step"
-        ),
-
-    shippedStep:
-        document.getElementById(
-            "shipped-step"
-        ),
-
-    deliveredStep:
-        document.getElementById(
-            "delivered-step"
-        )
+    loadingState: document.getElementById("loading-state"),
+    orderDetails: document.getElementById("order-details"),
+    errorState: document.getElementById("error-state"),
+    orderItemsContainer: document.getElementById("order-items-container"),
+    orderId: document.getElementById("order-id"),
+    orderDate: document.getElementById("order-date"),
+    statusBadge: document.getElementById("status-badge"),
+    estimatedDelivery: document.getElementById("estimated-delivery"),
+    trackingNumber: document.getElementById("tracking-number"),
+    processingStep: document.getElementById("processing-step"),
+    shippedStep: document.getElementById("shipped-step"),
+    deliveredStep: document.getElementById("delivered-step")
 };
 
-// fetch order details
-async function fetchOrder() {
+// escape html
+function escapeHTML(value) {
+    return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
 
+// Helper: format date
+function formatDate(dateString) {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+// fetch order status
+async function fetchOrderStatus() {
     try {
-
-        const response =
-            await AppUtils.apiRequest(
-                `/orders/${orderId}`
-            );
-
-        if (
-            !response.success
-            ||
-            !response.order
-        ) {
-
-            AppUtils.notify(
-                "Order not found",
-                "error"
-            );
-
-            setTimeout(
-                () => {
-
-                    window.location.href =
-                        "shop.html";
-
-                },
-                1000
-            );
-
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = 'signin.html';
             return;
         }
 
-        currentOrder =
-            response.order;
+        const response = await fetch(`/api/orders/${orderId}/status`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
 
-        renderOrderDetails();
+        const data = await response.json();
 
-        renderOrderItems();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || 'Failed to fetch order');
+        }
 
+        renderOrderDetails(data.data);
     } catch (error) {
-
-        console.error(
-            "ORDER FETCH ERROR:",
-            error
-        );
-
-        AppUtils.notify(
-            "Failed to load order",
-            "error"
-        );
+        console.error('Order tracking error:', error);
+        if (elements.loadingState) elements.loadingState.style.display = 'none';
+        if (elements.errorState) elements.errorState.style.display = 'block';
+        AppUtils.notify('Failed to load order details', 'error');
     }
 }
 
 // render order details
-function renderOrderDetails() {
+function renderOrderDetails(order) {
+    // Hide loading, show details
+    if (elements.loadingState) elements.loadingState.style.display = 'none';
+    if (elements.orderDetails) elements.orderDetails.style.display = 'block';
 
-    if (
-        !currentOrder
-    ) {
-        return;
+    // Order summary
+    if (elements.orderId) {
+        elements.orderId.textContent = 'Order #' + order.id;
+    }
+    if (elements.orderDate) {
+        elements.orderDate.textContent = formatDate(order.created_at);
     }
 
-    if (
-        elements.orderId
-    ) {
-
-        elements.orderId.innerText =
-            currentOrder.id || "N/A";
+    // Status badge
+    const status = order.status || 'pending';
+    if (elements.statusBadge) {
+        elements.statusBadge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+        elements.statusBadge.className = 'status-badge';
+        elements.statusBadge.classList.add(status.toLowerCase());
     }
 
-    if (
-        elements.orderDate
-    ) {
-
-        const formattedDate =
-            currentOrder.created_at
-                ? new Date(
-                    currentOrder.created_at
-                ).toLocaleDateString()
-                : "N/A";
-
-        elements.orderDate.innerText =
-            formattedDate;
+    // Shipping details
+    if (elements.estimatedDelivery) {
+        elements.estimatedDelivery.textContent = order.estimated_delivery || 'Not available';
+    }
+    if (elements.trackingNumber) {
+        elements.trackingNumber.textContent = order.tracking_number || 'Not available';
     }
 
-    // status
-    const status =
-        currentOrder.status ||
-        "pending";
-
-    if (
-        elements.statusBadge
-    ) {
-
-        elements.statusBadge.innerText =
-            status;
-
-        elements.statusBadge.className =
-            "status-badge";
-
-        elements.statusBadge.classList.add(
-            status.toLowerCase()
-        );
-    }
-
-    // timeline
-    if (
-        [
-            "processing",
-            "shipped",
-            "delivered"
-        ].includes(status.toLowerCase())
-    ) {
-
-        elements.processingStep?.classList.add(
-            "active-step"
-        );
-    }
-
-    if (
-        [
-            "shipped",
-            "delivered"
-        ].includes(status.toLowerCase())
-    ) {
-
-        elements.shippedStep?.classList.add(
-            "active-step"
-        );
-    }
-
-    if (
-        status.toLowerCase() === "delivered"
-    ) {
-
-        elements.deliveredStep?.classList.add(
-            "active-step"
-        );
-    }
-}
-// render items
-function renderOrderItems() {
-    if (
-        !elements.orderItemsContainer
-    ) {
-        return;
-    }
-    elements.orderItemsContainer.innerHTML =
-        "";
-
-    const items =
-        currentOrder.items || [];
-
-    if (
-        !Array.isArray(items)
-        ||
-        items.length === 0
-    ) {
-        elements.orderItemsContainer.innerHTML =
-            `
-                <p class="empty-order-items">
-                    No items found.
-                </p>
-            `;
-        return;
-    }
-
-    const fragment =
-        document.createDocumentFragment();
-
-    items.forEach(
-        (item) => {
-            const qty =
-                parseInt(
-                    item.qty,
-                    10
-                ) || 1;
-
-            const price =
-                parseFloat(
-                    item.price
-                ) || 0;
-
-            const total =
-                qty * price;
-
-            const div =
-                document.createElement(
-                    "div"
-                );
-
-            div.classList.add(
-                "order-item"
-            );
-
-            div.innerHTML =
-                `
+    // Order items
+    if (elements.orderItemsContainer) {
+        const items = order.items || [];
+        if (items.length === 0) {
+            elements.orderItemsContainer.innerHTML = '<p>No items found</p>';
+        } else {
+            const fragment = document.createDocumentFragment();
+            items.forEach(item => {
+                const div = document.createElement('div');
+                div.classList.add('order-item');
+                const price = parseFloat(item.price) || 0;
+                const qty = parseInt(item.quantity) || 1;
+                div.innerHTML = `
                     <div class="order-item-left">
-                        <img
-                            src="${escapeHTML(
-                                AppUtils.defaultImage(
-                                    item.img || item.image
-                                )
-                            )}"
-                            alt="${escapeHTML(item.name || "Product")}"
-                            loading="lazy"
-                        >
                         <div>
-                            <h4>
-                                ${escapeHTML(item.name || "Product")}
-                            </h4>
-                            <p>
-                                Quantity:
-                                ${qty}
-                            </p>
+                            <h4>${escapeHTML(item.product_name || 'Product')}</h4>
+                            <p>Quantity: ${qty}</p>
                         </div>
                     </div>
-                    <h4>
-                        ${AppUtils.formatPrice(total)}
-                    </h4>
+                    <h4>${AppUtils.formatPrice(price * qty)}</h4>
                 `;
-            fragment.appendChild(
-                div
-            );
+                fragment.appendChild(div);
+            });
+            elements.orderItemsContainer.innerHTML = '';
+            elements.orderItemsContainer.appendChild(fragment);
         }
-    );
-    elements.orderItemsContainer.appendChild(
-        fragment
-    );
+    }
+
+    // Timeline
+    const statuses = ['pending', 'processing', 'shipped', 'delivered'];
+    const currentStatus = status.toLowerCase();
+    const currentStatusIndex = statuses.indexOf(currentStatus);
+
+    // Update each step
+    const stepIds = ['pending-step', 'processing-step', 'shipped-step', 'delivered-step'];
+    stepIds.forEach((stepId, index) => {
+        const stepEl = document.getElementById(stepId);
+        if (!stepEl) return;
+        const isCompleted = index <= currentStatusIndex;
+        const isActive = index === currentStatusIndex;
+
+        stepEl.classList.remove('active-step');
+        if (isActive) {
+            stepEl.classList.add('active-step');
+        } else if (isCompleted) {
+            // Keep it completed (no class needed, but we can style completed differently)
+            stepEl.style.opacity = '0.7';
+        } else {
+            stepEl.style.opacity = '0.4';
+        }
+    });
 }
 
 // init
-document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-
-        fetchOrder();
-    }
-);
+document.addEventListener("DOMContentLoaded", () => {
+    fetchOrderStatus();
+});

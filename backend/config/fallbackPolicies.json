@@ -1,0 +1,90 @@
+{
+    "recommendations": {
+        "primary": "recommendation-service",
+        "secondary": "cache",
+        "fallback": "trending-products",
+        "defaultResponse": [],
+        "strategies": ["cache", "secondary_source"],
+        "timeout": 3000,
+        "retryAttempts": 2,
+        "cacheTTL": 300,
+        "degradationLevel": "degraded"
+    },
+    "search": {
+        "primary": "search-service",
+        "secondary": "database",
+        "fallback": "category-products",
+        "defaultResponse": [],
+        "strategies": ["cache", "default_response"],
+        "timeout": 2000,
+        "retryAttempts": 1,
+        "cacheTTL": 600,
+        "degradationLevel": "degraded"
+    },
+    "promotions": {
+        "primary": "promotion-service",
+        "secondary": "cache",
+        "fallback": "default-promotions",
+        "defaultResponse": [],
+        "strategies": ["cache"],
+        "timeout": 2000,
+        "retryAttempts": 1,
+        "cacheTTL": 600,
+        "degradationLevel": "fallback"
+    },
+    "analytics": {
+        "primary": "analytics-service",
+        "secondary": "queue",
+        "fallback": "local-log",
+        "defaultResponse": { "queued": true },
+        "strategies": ["queue", "retry"],
+        "timeout": 1000,
+        "retryAttempts": 3,
+        "cacheTTL": 0,
+        "degradationLevel": "minimal"
+    },
+    "notifications": {
+        "primary": "notification-service",
+        "secondary": "queue",
+        "fallback": "log-only",
+        "defaultResponse": { "queued": true },
+        "strategies": ["queue", "retry"],
+        "timeout": 3000,
+        "retryAttempts": 3,
+        "cacheTTL": 0,
+        "degradationLevel": "minimal"
+    },
+    "inventory": {
+        "primary": "inventory-service",
+        "secondary": "cache",
+        "fallback": "stock-default",
+        "defaultResponse": { "stock": 10 },
+        "strategies": ["cache", "default_response"],
+        "timeout": 1000,
+        "retryAttempts": 1,
+        "cacheTTL": 60,
+        "degradationLevel": "degraded"
+    },
+    "ai_services": {
+        "primary": "ai-service",
+        "secondary": "cache",
+        "fallback": "rule-based",
+        "defaultResponse": { "fallback": true },
+        "strategies": ["cache", "fallback"],
+        "timeout": 5000,
+        "retryAttempts": 1,
+        "cacheTTL": 600,
+        "degradationLevel": "fallback"
+    },
+    "payment": {
+        "primary": "payment-service",
+        "secondary": "secondary-payment",
+        "fallback": "payment-fallback",
+        "defaultResponse": { "error": "Payment service unavailable" },
+        "strategies": ["circuit_breaker", "retry"],
+        "timeout": 5000,
+        "retryAttempts": 2,
+        "cacheTTL": 0,
+        "degradationLevel": "offline"
+    }
+}

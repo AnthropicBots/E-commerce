@@ -3,6 +3,7 @@ const {
     safeArray,
     safeNumber,
     safeInteger,
+    safeUUID,
     sanitizeString,
 } = require("../utils/helpers");
 const logger = require("../utils/logger");
@@ -84,6 +85,70 @@ const validateOrderData = (orderData) => {
 };
 
 // Create order service with enhanced validations
+// Resolve the priced product variant for an order item, if any. A variant is
+// matched either by an explicit `variantId`/`variant_id` on the item, or —
+// since the current cart payload only carries color/size — by matching those
+// against the variant's `attributes` JSON. Only an unambiguous, active match
+// is honored. The lookup is deliberately defensive: deployments without a
+// `product_variants` table simply fall back to base product pricing.
+const resolveItemVariant = async (connection, productId, item) => {
+    const explicitVariantId = safeInteger(item.variantId ?? item.variant_id, 0);
+
+    try {
+        if (explicitVariantId > 0) {
+            const [rows] = await connection.query(
+                `SELECT id, price, stock FROM product_variants
+                 WHERE id = ? AND product_id = ? AND is_active = 1
+                 LIMIT 1 FOR UPDATE`,
+                [explicitVariantId, productId],
+            );
+            return safeArray(rows)[0] || null;
+        }
+
+        const color = sanitizeString(item.color);
+        const size = sanitizeString(item.size);
+
+        if (!color && !size) {
+            return null;
+        }
+
+        const conditions = [];
+        const params = [productId];
+
+        if (color) {
+            conditions.push(
+                "LOWER(JSON_UNQUOTE(JSON_EXTRACT(attributes, '$.color'))) = LOWER(?)",
+            );
+            params.push(color);
+        }
+
+        if (size) {
+            conditions.push(
+                "LOWER(JSON_UNQUOTE(JSON_EXTRACT(attributes, '$.size'))) = LOWER(?)",
+            );
+            params.push(size);
+        }
+
+        const [rows] = await connection.query(
+            `SELECT id, price, stock FROM product_variants
+             WHERE product_id = ? AND is_active = 1
+             AND ${conditions.join(" AND ")}
+             LIMIT 2 FOR UPDATE`,
+            params,
+        );
+
+        const matches = safeArray(rows);
+
+        // Ambiguous attribute matches are ignored so we never guess a price.
+        return matches.length === 1 ? matches[0] : null;
+    } catch (error) {
+        logger.warn(
+            `Variant lookup skipped for product ${productId}: ${error.message}`,
+        );
+        return null;
+    }
+};
+
 const createOrderService = async (connection, orderData) => {
     try {
         // Validate order data first
@@ -121,10 +186,10 @@ const createOrderService = async (connection, orderData) => {
 
         // validate each item
         for (const item of safeArray(items)) {
-            const productId = safeInteger(item.id);
+            const productId = safeUUID(item.id);
 
             // invalid product id
-            if (productId <= 0) {
+            if (!productId) {
                 throw new Error("Invalid product ID");
             }
 
@@ -151,8 +216,21 @@ const createOrderService = async (connection, orderData) => {
                 );
             }
 
-            // safe db price
-            const realPrice = safeNumber(product.price);
+            // Prefer the selected variant's price when it defines one; the base
+            // product price is only a fallback. This keeps order totals correct
+            // for variants that are priced differently from their parent.
+            let realPrice = safeNumber(product.price);
+
+            const variant = await resolveItemVariant(connection, productId, item);
+
+            if (variant && variant.price !== null && variant.price !== undefined) {
+                const variantPrice = safeNumber(variant.price);
+
+                if (variantPrice > 0) {
+                    realPrice = variantPrice;
+                }
+            }
+
             const itemTotal = realPrice * qty;
 
             // floating-safe total
@@ -160,7 +238,7 @@ const createOrderService = async (connection, orderData) => {
 
             // save validated item
             validatedItems.push({
-                id: safeInteger(product.id),
+                id: safeUUID(product.id),
                 name: sanitizeString(product.name),
                 image: sanitizeString(product.image),
                 price: realPrice,
@@ -174,6 +252,7 @@ const createOrderService = async (connection, orderData) => {
         let discountAmount = 0;
         let finalAmount = calculatedTotal;
         let appliedPromoCode = null;
+        let appliedPromoId = null;
 
         if (promo_code) {
             const promoValidation = await validatePromo(promo_code, calculatedTotal);
@@ -187,6 +266,7 @@ const createOrderService = async (connection, orderData) => {
             );
             finalAmount = Number((calculatedTotal - discountAmount).toFixed(2));
             appliedPromoCode = promoValidation.promo.code;
+            appliedPromoId = promoValidation.promo.id;
         }
 
         // create order
@@ -214,7 +294,7 @@ const createOrderService = async (connection, orderData) => {
         `;
 
         const [orderResult] = await connection.query(orderQuery, [
-            safeInteger(user_id),
+            safeUUID(user_id),
             customer_name,
             customer_email,
             customer_phone,
@@ -290,6 +370,33 @@ const createOrderService = async (connection, orderData) => {
                     item.id,
                     "purchase",
                 ]);
+            }
+        }
+
+        // Clear authenticated user's cart
+        if (user_id) {
+            await connection.query(
+                "DELETE FROM cart_items WHERE user_id = ?",
+                [user_id]
+            );
+            logger.info(`Cleared cart for user ${user_id}`);
+        }
+
+        // Track promo usage
+        if (appliedPromoId) {
+            // Increment global usage count
+            await connection.query(
+                "UPDATE promo_codes SET usage_count = usage_count + 1 WHERE id = ?",
+                [appliedPromoId]
+            );
+            
+            // Record individual usage (if authenticated)
+            if (user_id) {
+                await connection.query(
+                    "INSERT INTO promo_usage (promo_id, user_id, order_id, discount_amount, status) VALUES (?, ?, ?, ?, 'applied')",
+                    [appliedPromoId, safeUUID(user_id), orderId, discountAmount]
+                );
+                logger.info(`Recorded promo usage for user ${user_id} and promo ${appliedPromoId}`);
             }
         }
 

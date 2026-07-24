@@ -1,28 +1,68 @@
-// backend/services/chat.service.js
-
 const db = require("../config/db");
 const logger = require("../utils/logger");
-const { safeArray, safeNumber, sanitizeString } = require("../utils/helpers");
+const { safeArray, safeNumber, sanitizeString, safeUUID } = require("../utils/helpers");
+const NodeCache = require('node-cache');
 
-// ==================== CONVERSATION MANAGEMENT ====================
+const conversationCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
+const MESSAGE_LIMIT = parseInt(process.env.CHAT_MESSAGE_LIMIT) || 1000;
+
+function validateMessage(message) {
+    if (!message || typeof message !== 'string') {
+        throw new Error('Message is required and must be a string');
+    }
+    const trimmed = message.trim();
+    if (trimmed.length === 0) {
+        throw new Error('Message cannot be empty');
+    }
+    if (trimmed.length > MESSAGE_LIMIT) {
+        throw new Error(`Message exceeds maximum length of ${MESSAGE_LIMIT} characters`);
+    }
+    return trimmed;
+}
+
+function validateConversationId(id) {
+    if (!id || isNaN(parseInt(id))) {
+        throw new Error('Invalid conversation ID');
+    }
+    return parseInt(id);
+}
+
+function validateUserId(id) {
+    const validId = safeUUID(id);
+    if (!validId) {
+        throw new Error('Invalid user ID');
+    }
+    return validId;
+}
+
 const findOrCreateConversation = async (customerId) => {
     try {
-        // Check if open or pending conversation exists
+        const validCustomerId = validateUserId(customerId);
+
+        const cacheKey = `conv_${validCustomerId}`;
+        const cached = conversationCache.get(cacheKey);
+        if (cached) return cached;
+
         const [existing] = await db.query(
             `SELECT * FROM chat_conversations WHERE customer_id = ? AND status IN ('open', 'pending') LIMIT 1`,
-            [customerId]
+            [validCustomerId]
         );
 
-        if (existing.length > 0) return existing[0];
+        if (existing.length > 0) {
+            conversationCache.set(cacheKey, existing[0]);
+            return existing[0];
+        }
 
-        // Create new
         const [result] = await db.query(
             `INSERT INTO chat_conversations (customer_id, status, created_at, updated_at) VALUES (?, 'open', NOW(), NOW())`,
-            [customerId]
+            [validCustomerId]
         );
 
         const [newConv] = await db.query(`SELECT * FROM chat_conversations WHERE id = ?`, [result.insertId]);
-        logger.info(`New conversation created: ${result.insertId} for customer ${customerId}`);
+        
+        conversationCache.set(cacheKey, newConv[0]);
+        logger.info(`New conversation created: ${result.insertId} for customer ${validCustomerId}`);
+        
         return newConv[0];
     } catch (error) {
         logger.error(`FindOrCreate conversation error: ${error.message}`);
@@ -63,11 +103,9 @@ const getConversationList = async (filters, page = 1, limit = 20) => {
             params.push(`%${filters.search}%`, `%${filters.search}%`);
         }
 
-        // Get total count
         const [countResult] = await db.query(`SELECT COUNT(*) as total FROM (${query}) as t`, params);
         const total = countResult[0]?.total || 0;
 
-        // Apply sorting and pagination
         query += ` ORDER BY last_activity DESC LIMIT ? OFFSET ?`;
         params.push(limit, offset);
 
@@ -88,69 +126,98 @@ const getConversationList = async (filters, page = 1, limit = 20) => {
 
 const getConversationMessages = async (conversationId, limit = 50, offset = 0) => {
     try {
+        const validId = validateConversationId(conversationId);
+        const validLimit = Math.min(100, Math.max(1, safeNumber(limit, 50)));
+        const validOffset = Math.max(0, safeNumber(offset, 0));
+
+        const cacheKey = `msgs_${validId}_${validLimit}_${validOffset}`;
+        const cached = conversationCache.get(cacheKey);
+        if (cached) return cached;
+
         const [messages] = await db.query(
             `SELECT m.*, u.name as sender_name, u.role as sender_role
              FROM chat_messages m 
              JOIN users u ON m.sender_id = u.id 
-             WHERE m.conversation_id = ? 
+             WHERE m.conversation_id = ? AND m.is_deleted = 0
              ORDER BY m.created_at DESC
              LIMIT ? OFFSET ?`,
-            [conversationId, limit, offset]
+            [validId, validLimit, validOffset]
         );
 
-        // Get total count
         const [countResult] = await db.query(
-            `SELECT COUNT(*) as total FROM chat_messages WHERE conversation_id = ?`,
-            [conversationId]
+            `SELECT COUNT(*) as total FROM chat_messages WHERE conversation_id = ? AND is_deleted = 0`,
+            [validId]
         );
 
-        return {
+        const result = {
             messages: safeArray(messages).reverse(),
             total: countResult[0]?.total || 0,
-            limit,
-            offset
+            limit: validLimit,
+            offset: validOffset
         };
+
+        conversationCache.set(cacheKey, result);
+        return result;
     } catch (error) {
         logger.error(`Get conversation messages error: ${error.message}`);
         throw error;
     }
 };
 
-// ==================== MESSAGE MANAGEMENT ====================
 const saveMessage = async (conversationId, senderId, senderType, message) => {
+    const connection = await db.getConnection();
     try {
-        const [result] = await db.query(
+        const validConvId = validateConversationId(conversationId);
+        const validSenderId = validateUserId(senderId);
+        const sanitizedMessage = validateMessage(message);
+
+        await connection.beginTransaction();
+
+        const [result] = await connection.query(
             `INSERT INTO chat_messages (conversation_id, sender_id, sender_type, message, is_read, created_at)
              VALUES (?, ?, ?, ?, 0, NOW())`,
-            [conversationId, senderId, senderType, message]
+            [validConvId, validSenderId, senderType, sanitizedMessage]
         );
 
-        // Update conversation updated_at
-        await db.query(
-            `UPDATE chat_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-            [conversationId]
+        await connection.query(
+            `UPDATE chat_conversations SET updated_at = NOW() WHERE id = ?`,
+            [validConvId]
         );
 
-        const [newMsg] = await db.query(
+        await connection.commit();
+
+        const [newMsg] = await connection.query(
             `SELECT m.*, u.name as sender_name, u.role as sender_role 
              FROM chat_messages m 
              JOIN users u ON m.sender_id = u.id 
              WHERE m.id = ?`,
             [result.insertId]
         );
-        
-        logger.info(`Message saved: ${result.insertId} in conversation ${conversationId}`);
+
+        // Clear cache
+        const keys = conversationCache.keys();
+        keys.filter(k => k.startsWith(`msgs_${validConvId}`)).forEach(k => conversationCache.del(k));
+        conversationCache.del(`conv_${validSenderId}`);
+
+        logger.info(`Message saved: ${result.insertId} in conversation ${validConvId}`);
         return newMsg[0];
     } catch (error) {
+        await connection.rollback();
         logger.error(`Save message error: ${error.message}`);
         throw error;
+    } finally {
+        connection.release();
     }
 };
 
 const getMessage = async (messageId) => {
     try {
+        if (!messageId || isNaN(parseInt(messageId))) {
+            throw new Error('Invalid message ID');
+        }
+
         const [messages] = await db.query(
-            `SELECT * FROM chat_messages WHERE id = ?`,
+            `SELECT * FROM chat_messages WHERE id = ? AND is_deleted = 0`,
             [messageId]
         );
         return messages[0] || null;
@@ -162,9 +229,10 @@ const getMessage = async (messageId) => {
 
 const updateMessage = async (messageId, newMessage) => {
     try {
+        const sanitizedMessage = validateMessage(newMessage);
         await db.query(
-            `UPDATE chat_messages SET message = ?, is_edited = 1, updated_at = NOW() WHERE id = ?`,
-            [newMessage, messageId]
+            `UPDATE chat_messages SET message = ?, is_edited = 1, updated_at = NOW() WHERE id = ? AND is_deleted = 0`,
+            [sanitizedMessage, messageId]
         );
         logger.info(`Message ${messageId} updated`);
     } catch (error) {
@@ -208,6 +276,7 @@ const getUnreadCount = async (userId, conversationId = null) => {
             LEFT JOIN message_reads r ON m.id = r.message_id AND r.user_id = ?
             WHERE r.id IS NULL
             AND m.sender_id != ?
+            AND m.is_deleted = 0
         `;
 
         const params = [userId, userId];
@@ -225,27 +294,41 @@ const getUnreadCount = async (userId, conversationId = null) => {
     }
 };
 
-// ==================== CONVERSATION MANAGEMENT ====================
 const updateConversationStatus = async (conversationId, status) => {
     try {
+        const validId = validateConversationId(conversationId);
+        const validStatuses = ['open', 'pending', 'closed', 'archived'];
+        
+        if (!validStatuses.includes(status)) {
+            throw new Error(`Invalid status. Allowed: ${validStatuses.join(', ')}`);
+        }
+
         let query = `UPDATE chat_conversations SET status = ?`;
         const params = [status];
 
         if (status === "closed") {
-            query += `, closed_at = CURRENT_TIMESTAMP`;
+            query += `, closed_at = NOW()`;
+        } else if (status === "archived") {
+            query += `, archived_at = NOW()`;
         } else {
-            query += `, closed_at = NULL`;
+            query += `, closed_at = NULL, archived_at = NULL`;
         }
 
-        query += `, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
-        params.push(conversationId);
+        query += `, updated_at = NOW() WHERE id = ?`;
+        params.push(validId);
 
         const [result] = await db.query(query, params);
 
         if (result.affectedRows === 0) {
             throw new Error("Conversation not found");
         }
-        logger.info(`Conversation ${conversationId} status updated to ${status}`);
+
+        // Clear cache
+        conversationCache.del(`conv_${validId}`);
+        const keys = conversationCache.keys();
+        keys.filter(k => k.startsWith(`msgs_${validId}`)).forEach(k => conversationCache.del(k));
+
+        logger.info(`Conversation ${validId} status updated to ${status}`);
     } catch (error) {
         logger.error(`Update conversation status error: ${error.message}`);
         throw error;
@@ -254,17 +337,22 @@ const updateConversationStatus = async (conversationId, status) => {
 
 const assignConversation = async (conversationId, adminId) => {
     try {
+        const validConvId = validateConversationId(conversationId);
+        const validAdminId = validateUserId(adminId);
+
         const [result] = await db.query(
             `UPDATE chat_conversations
-             SET assigned_admin_id = ?, status = 'pending', updated_at = CURRENT_TIMESTAMP
+             SET assigned_admin_id = ?, status = 'pending', updated_at = NOW()
              WHERE id = ?`,
-            [adminId, conversationId]
+            [validAdminId, validConvId]
         );
 
         if (result.affectedRows === 0) {
             throw new Error("Conversation not found");
         }
-        logger.info(`Conversation ${conversationId} assigned to admin ${adminId}`);
+
+        conversationCache.del(`conv_${validConvId}`);
+        logger.info(`Conversation ${validConvId} assigned to admin ${validAdminId}`);
     } catch (error) {
         logger.error(`Assign conversation error: ${error.message}`);
         throw error;
@@ -273,7 +361,8 @@ const assignConversation = async (conversationId, adminId) => {
 
 const verifyConversationAccess = async (conversationId, userId, role) => {
     try {
-        const [conv] = await db.query(`SELECT * FROM chat_conversations WHERE id = ?`, [conversationId]);
+        const validConvId = validateConversationId(conversationId);
+        const [conv] = await db.query(`SELECT * FROM chat_conversations WHERE id = ?`, [validConvId]);
         if (!conv.length) return false;
 
         if (role === 'admin') return true;
@@ -284,7 +373,6 @@ const verifyConversationAccess = async (conversationId, userId, role) => {
     }
 };
 
-// ==================== DASHBOARD STATS ====================
 const getDashboardStats = async () => {
     try {
         const [totalConvs] = await db.query(`SELECT COUNT(*) as total FROM chat_conversations`);
@@ -306,6 +394,21 @@ const getDashboardStats = async () => {
     }
 };
 
+const clearCache = () => {
+    conversationCache.flushAll();
+    logger.info('Chat service cache cleared');
+    return { success: true };
+};
+
+const getCacheStats = () => {
+    return {
+        keys: conversationCache.keys(),
+        size: conversationCache.keys().length,
+        hits: conversationCache.getStats?.().hits || 0,
+        misses: conversationCache.getStats?.().misses || 0
+    };
+};
+
 module.exports = {
     findOrCreateConversation,
     getConversationList,
@@ -319,5 +422,7 @@ module.exports = {
     updateConversationStatus,
     assignConversation,
     verifyConversationAccess,
-    getDashboardStats
+    getDashboardStats,
+    clearCache,
+    getCacheStats
 };

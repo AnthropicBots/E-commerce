@@ -1,8 +1,12 @@
-// backend/routes/checkoutRoutes.js
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/authMiddleware');
 const { validateDiscountMiddleware } = require('../middleware/discountValidator');
+const {
+    calculateShipping,
+    calculateTax,
+    processOrder
+} = require('../services/checkoutService');
 
 // Apply discount validation to checkout
 router.post(
@@ -15,12 +19,10 @@ router.post(
             const { finalDiscount, appliedRules } = req.validatedDiscount;
             const orderTotal = req.validatedOrderTotal;
 
-            // Calculate final total
             const shippingCost = calculateShipping(shippingAddress);
             const tax = calculateTax(orderTotal);
             const finalTotal = orderTotal + shippingCost + tax - finalDiscount;
 
-            // Process order with validated discount
             const order = await processOrder({
                 userId: req.user.id,
                 items,

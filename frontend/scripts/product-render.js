@@ -125,22 +125,10 @@ function createProductCardHTML(
         <div class="product-image-wrapper">
 
             <img
-                src="${
-                    escapeHTML(
-                        AppUtils.defaultImage(
-                            product.image
-                        )
-                    )
-                }"
-
-                alt="${
-                    escapeHTML(
-                        product.name
-                    )
-                }"
-
-                loading="lazy"
-            >
+    src="${escapeHTML(product.image)}"
+    alt="${escapeHTML(product.name || 'Product image')}"
+    loading="lazy"
+>
         </div>
 
         <div class="des">

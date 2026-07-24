@@ -107,7 +107,6 @@ const createLimiter = ({
             logPrefix,
             keyGenerator
         ),
-        onLimitReached: onLimitReachedCallback,
         message: buildRateLimitResponse(message)
     });
 };

@@ -5,12 +5,54 @@ const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
 const wishlistController = require("../controllers/wishlistController");
-const { safeNumber, safeInteger } = require("../utils/helpers");
+const { safeNumber, safeInteger, safeUUID } = require("../utils/helpers");
+
+// ==================== SYNC VALIDATION MIDDLEWARE ====================
+const validateSyncPayload = (req, res, next) => {
+  const { productIds } = req.body;
+
+  // 1. Check if array exists and is not empty
+  if (!Array.isArray(productIds) || productIds.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Product IDs array is required and cannot be empty for synchronization.",
+    });
+  }
+
+  // 🔥 UPDATED: Use the centralized constant instead of hardcoding 200
+  if (productIds.length > MAX_WISHLIST_SYNC_LIMIT) {
+    return res.status(400).json({
+      success: false,
+      message: `Maximum ${MAX_WISHLIST_SYNC_LIMIT} products allowed in a single synchronization request.`,
+    });
+  }
+
+  // 2. Validate individual IDs
+  for (const id of productIds) {
+    if (!safeNumber(id) || id < 1) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid product ID: ${id}`,
+      });
+    }
+  }
+
+  next();
+};
+
+const {
+  MAX_WISHLIST_SYNC_LIMIT,
+  SUPPORTED_EXPORT_FORMATS,
+  SHARE_TOKEN_MAX_LENGTH,
+  SHARE_TOKEN_REGEX
+} = require("../config/constants");
+
+const { MAX_WISHLIST_SYNC_LIMIT, SUPPORTED_EXPORT_FORMATS } = require("../config/constants");
 
 // ==================== VALIDATION MIDDLEWARE ====================
 const validateProductId = (req, res, next) => {
-  const productId = safeNumber(req.params.productId || req.body.productId);
-  if (!productId || productId < 1) {
+  const productId = safeUUID(req.params.productId || req.body.productId);
+  if (!productId) {
     return res.status(400).json({
       success: false,
       message: "Valid product ID is required",
@@ -22,58 +64,102 @@ const validateProductId = (req, res, next) => {
 
 const validateBatchProducts = (req, res, next) => {
   const { productIds } = req.body;
+
+  // 1. Check if array exists and is not empty
   if (!Array.isArray(productIds) || productIds.length === 0) {
     return res.status(400).json({
       success: false,
       message: "Product IDs array is required",
     });
   }
+
+  // 2. Check maximum limit
   if (productIds.length > 50) {
     return res.status(400).json({
       success: false,
       message: "Maximum 50 products per batch operation",
     });
   }
+
+  // 3. Validate individual IDs and check for DUPLICATES
+  const seenIds = new Set(); // Duplicate check ke liye Set use kiya
   for (const id of productIds) {
-    if (!safeNumber(id) || id < 1) {
+    if (!safeUUID(id)) {
       return res.status(400).json({
         success: false,
         message: `Invalid product ID: ${id}`,
       });
     }
+
+    // 🔥 NEW: Agar ID pehle se Set mein hai, toh duplicate error return karo
+    if (seenIds.has(validId)) {
+      return res.status(400).json({
+        success: false,
+        message: `Duplicate product ID found: ${id}. Batch operations require unique IDs.`,
+      });
+    }
+    seenIds.add(validId);
   }
+
+  next();
+};
+// ==================== SHARE TOKEN VALIDATION MIDDLEWARE ====================
+const validateShareToken = (req, res, next) => {
+  const token = req.params.token;
+
+  // 1. Presence check
+  if (!token) {
+    return res.status(400).json({
+      success: false,
+      message: "Share token is required.",
+    });
+  }
+
+  // 2. Reject empty or whitespace-only tokens
+  if (token.trim() === '') {
+    return res.status(400).json({
+      success: false,
+      message: "Share token cannot be empty or contain only whitespace.",
+    });
+  }
+
+  // 3. Enforce a reasonable maximum token length
+  if (token.length > SHARE_TOKEN_MAX_LENGTH) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid share token. Maximum length allowed is ${SHARE_TOKEN_MAX_LENGTH} characters.`,
+    });
+  }
+
+const validateExportFormat = (req, res, next) => {
+  const format = req.query.format; 
+
+  if (!format) {
+    req.query.format = 'csv'; // Default to CSV
+    return next();
+  }
+
+  if (!SUPPORTED_EXPORT_FORMATS.includes(format)) {
+    return res.status(400).json({
+      success: false,
+      message: `Unsupported export format: "${format}". Allowed formats are: ${SUPPORTED_EXPORT_FORMATS.join(', ')}.`,
+    });
+  }
+
   next();
 };
 
 // ==================== PUBLIC ROUTES ====================
 // Get shared wishlist by token (No auth required)
-router.get("/share/:token", wishlistController.getSharedWishlist);
+router.get("/share/:token",validateShareToken, wishlistController.getSharedWishlist);
 
 // ==================== PROTECTED ROUTES (User Only) ====================
 
 // Get wishlist with pagination
 router.get("/", authMiddleware, wishlistController.getUserWishlist);
 
-// Get wishlist count
-router.get("/count", authMiddleware, wishlistController.getWishlistCount);
-
-// Get wishlist analytics
-router.get(
-  "/analytics",
-  authMiddleware,
-  wishlistController.getWishlistAnalytics,
-);
-
-// Export wishlist (CSV/JSON)
-router.get("/export", authMiddleware, wishlistController.exportWishlist);
-
-// Check if product in wishlist
-router.get(
-  "/check/:productId",
-  authMiddleware,
-  validateProductId,
-  wishlistController.checkWishlist,
-);
+// Check if product is in wishlist (Issue #777)
+router.get("/status/:productId", authMiddleware, wishlistController.checkWishlistStatus);
 
 // Add to wishlist
 router.post(
@@ -95,7 +181,7 @@ router.post(
 router.post("/share", authMiddleware, wishlistController.generateShareLink);
 
 // Sync wishlist (replace entire wishlist)
-router.post("/sync", authMiddleware, wishlistController.syncWishlist);
+router.post("/sync", authMiddleware,validateSyncPayload , wishlistController.syncWishlist);
 
 // Remove from wishlist (using body)
 router.post(
@@ -135,49 +221,7 @@ router.get(
   "/admin/:userId",
   authMiddleware,
   authorizeRoles("admin"),
-  async (req, res) => {
-    try {
-      const userId = safeInteger(req.params.userId);
-      if (!userId || userId < 1) {
-        return res.status(400).json({
-          success: false,
-          message: "Valid user ID is required",
-        });
-      }
-
-      const [rows] = await require("../config/db").query(
-        `
-                SELECT 
-                    p.id, 
-                    p.name, 
-                    p.price, 
-                    p.image, 
-                    p.brand, 
-                    p.stock,
-                    w.created_at as added_at,
-                    u.name as user_name,
-                    u.email as user_email
-                FROM wishlist_items w
-                JOIN products p ON w.product_id = p.id
-                JOIN users u ON w.user_id = u.id
-                WHERE w.user_id = ?
-                ORDER BY w.created_at DESC
-            `,
-        [userId],
-      );
-
-      return res.status(200).json({
-        success: true,
-        data: rows,
-      });
-    } catch (error) {
-      console.error("ADMIN GET WISHLIST ERROR:", error);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to fetch user wishlist",
-      });
-    }
-  },
+  wishlistController.getAdminUserWishlist
 );
 
 // Get wishlist stats (Admin only)
@@ -185,57 +229,7 @@ router.get(
   "/admin/stats/all",
   authMiddleware,
   authorizeRoles("admin"),
-  async (req, res) => {
-    try {
-      const db = require("../config/db");
-
-      // Get total wishlist items across all users
-      const [totalItems] = await db.query(
-        "SELECT COUNT(*) as total FROM wishlist_items",
-      );
-
-      // Get unique users with wishlist
-      const [uniqueUsers] = await db.query(
-        "SELECT COUNT(DISTINCT user_id) as users FROM wishlist_items",
-      );
-
-      // Get most wishlisted products
-      const [topProducts] = await db.query(`
-                SELECT p.id, p.name, COUNT(*) as wishlist_count
-                FROM wishlist_items w
-                JOIN products p ON w.product_id = p.id
-                GROUP BY p.id
-                ORDER BY wishlist_count DESC
-                LIMIT 10
-            `);
-
-      // Get recent activity
-      const [recentActivity] = await db.query(`
-                SELECT w.*, p.name as product_name, u.name as user_name
-                FROM wishlist_items w
-                JOIN products p ON w.product_id = p.id
-                JOIN users u ON w.user_id = u.id
-                ORDER BY w.created_at DESC
-                LIMIT 20
-            `);
-
-      return res.status(200).json({
-        success: true,
-        data: {
-          totalItems: totalItems[0]?.total || 0,
-          uniqueUsers: uniqueUsers[0]?.users || 0,
-          topProducts: topProducts,
-          recentActivity: recentActivity,
-        },
-      });
-    } catch (error) {
-      console.error("WISHLIST STATS ERROR:", error);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to fetch wishlist stats",
-      });
-    }
-  },
+  wishlistController.getWishlistStats
 );
 
 // ==================== ROUTE FALLBACK ====================
