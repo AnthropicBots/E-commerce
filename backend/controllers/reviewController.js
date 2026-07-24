@@ -178,6 +178,28 @@ const createProductReview = async (req, res) => {
             });
         }
 
+        const [purchases] = await connection.query(
+            `
+                SELECT o.id
+                FROM orders o
+                JOIN order_items oi ON oi.order_id = o.id
+                WHERE o.user_id = ?
+                    AND oi.product_id = ?
+                    AND o.status = 'delivered'
+                LIMIT 1
+            `,
+            [userId, productId]
+        );
+
+        if (!safeArray(purchases).length) {
+            await connection.rollback();
+
+            return res.status(403).json({
+                success: false,
+                message: "You can only review products you have purchased"
+            });
+        }
+
         const [result] = await connection.query(
             `
                 INSERT INTO reviews (product_id, user_id, rating, comment)

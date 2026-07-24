@@ -112,6 +112,10 @@
                         <div class="review-stars" aria-label="${Number(review.rating) || 0} out of 5 stars">
                             ${renderStars(review.rating)}
                         </div>
+                        <span class="review-verified-badge">
+                            <i class="fas fa-check-circle" aria-hidden="true"></i>
+                            Verified Purchase
+                        </span>
                     </div>
 
                     ${
