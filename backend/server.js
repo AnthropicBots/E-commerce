@@ -16,7 +16,15 @@ const corsMiddleware = require("./middleware/corsMiddleware");
 const routes = require("./routes/index");
 const authLimiter = require("./middleware/authLimiter");
 const mcpRoutes = require("./routes/mcpRoutes"); // ✅ MCP Routes added
+// Add with other imports
+const socialEngineeringRoutes = require('./routes/socialEngineeringRoutes');
+const { protectAgainstSocialEngineering } = require('./services/socialEngineeringProtectionService');
 
+// Add social engineering protection middleware AFTER auth but BEFORE routes
+app.use(protectAgainstSocialEngineering);
+
+// Add social engineering routes
+app.use('/api/social-engineering', socialEngineeringRoutes);
 // Add with other route imports
 
 const copywriterRoutes = require('./routes/copywriterRoutes');
