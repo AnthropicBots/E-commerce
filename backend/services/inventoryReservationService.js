@@ -37,6 +37,21 @@ const inventoryReservationService = {
         return true;
     },
 
+    // Release a user's reservation(s); pass a productId to target a single
+    // product, omit it to clear the user's entire reservation set.
+    releaseUserLocks: async (userId, productId = null, connection = null) => {
+        const pool = connection || promisePool;
+
+        if (productId === null) {
+            await pool.query("DELETE FROM inventory_locks WHERE user_id = ?", [userId]);
+        } else {
+            await pool.query(
+                "DELETE FROM inventory_locks WHERE user_id = ? AND product_id = ?",
+                [userId, productId]
+            );
+        }
+    },
+
     // Validate if the user holds locks for their entire cart
     validateCartLocks: async (userId, cartItems, connection = null) => {
         const pool = connection || promisePool;
