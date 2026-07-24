@@ -8,7 +8,7 @@ if (!JWT_SECRET) {
 }
 
 /**
- * Verify JWT token from Authorization header
+ * Verify JWT token from Authorization header or cookies fallback
  */
 function authMiddleware(req, res, next) {
     const secret = process.env.JWT_SECRET;
@@ -16,16 +16,14 @@ function authMiddleware(req, res, next) {
         throw new Error('JWT_SECRET environment variable is required');
     }
 
+    let token = null;
     const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({
-            success: false,
-            message: 'Authorization header required'
-        });
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.slice(7);
+    } else if (req.cookies && req.cookies.accessToken) {
+        token = req.cookies.accessToken;
     }
-
-    const token = authHeader.slice(7);
 
     if (!token || token.trim().length === 0) {
         return res.status(401).json({
@@ -87,13 +85,14 @@ function optionalAuth(req, res, next) {
         throw new Error('JWT_SECRET environment variable is required');
     }
 
+    let token = null;
     const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return next();
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.slice(7);
+    } else if (req.cookies && req.cookies.accessToken) {
+        token = req.cookies.accessToken;
     }
-
-    const token = authHeader.slice(7);
 
     if (!token || token.trim().length === 0) {
         return next();
@@ -112,6 +111,7 @@ function optionalAuth(req, res, next) {
 
     next();
 }
+
 
 module.exports = authMiddleware;
 module.exports.authMiddleware = authMiddleware;
