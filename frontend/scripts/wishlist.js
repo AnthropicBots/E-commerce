@@ -1,34 +1,25 @@
 try {
 // wishlist state
-let wishlist =
-    AppUtils.getWishlist();
-let cart =
-    AppUtils.getCart();
+let wishlist = AppUtils.getWishlist();
 
 // elements
 const elements = {
-    wishlistContainer:
-        document.getElementById(
-            "wishlist-container"
-        ),
-    emptyWishlist:
-        document.getElementById(
-            "empty-wishlist"
-        )
+    wishlistContainer: document.getElementById("wishlist-container"),
+    emptyWishlist: document.getElementById("empty-wishlist")
 };
 
-// render wishlist
+// ========================================
+// RENDER WISHLIST
+// ========================================
+
 function renderWishlist() {
     const wishlistContainer = document.getElementById("wishlist-container");
     const emptyWishlist = document.getElementById("empty-wishlist");
 
-    if (
-        !wishlistContainer
-    ) {
+    if (!wishlistContainer) {
         return;
     }
-    wishlistContainer.innerHTML =
-        "";
+    wishlistContainer.innerHTML = "";
     
     // Clean up any corrupted data
     if (Array.isArray(wishlist)) {
@@ -36,16 +27,9 @@ function renderWishlist() {
         AppUtils.saveWishlist(wishlist);
     }
 
-    if (
-        !Array.isArray(wishlist)
-        ||
-        wishlist.length === 0
-    ) {
-        if (
-            emptyWishlist
-        ) {
-            emptyWishlist.style.display =
-                "block";
+    if (!Array.isArray(wishlist) || wishlist.length === 0) {
+        if (emptyWishlist) {
+            emptyWishlist.style.display = "block";
         }
         return;
     }
@@ -54,266 +38,168 @@ function renderWishlist() {
         emptyWishlist.style.display = "none";
     }
 
-    if (
-        emptyWishlist
-    ) {
-        emptyWishlist.style.display =
-            "none";
-    }
-    const fragment =
-        document.createDocumentFragment();
+    const fragment = document.createDocumentFragment();
 
-    wishlist.forEach(
-        (product, index) => {
-            if (!product) return;
-            const card =
-                document.createElement(
-                    "div"
-                );
+    wishlist.forEach((product, index) => {
+        if (!product) return;
+        const card = document.createElement("div");
+        card.classList.add("wishlist-card");
 
-            card.classList.add(
-                "wishlist-card"
-            );
+        card.innerHTML = `
+            <img
+                src="${AppUtils.defaultImage(product?.image || product?.img)}"
+                alt="${product?.name || "Product"}"
+                loading="lazy"
+            >
+            <div class="wishlist-content">
+                <span>${product?.brand || "Brand"}</span>
+                <h4>${product?.name || "Product"}</h4>
+                <p class="wishlist-price">${AppUtils.formatPrice(product?.price || 0)}</p>
+                <div class="wishlist-buttons">
+                    <button class="add-cart-btn" data-index="${index}">
+                        <i class="fas fa-shopping-cart"></i>
+                        Add To Cart
+                    </button>
+                    <button class="remove-btn" data-index="${index}">
+                        <i class="fas fa-trash-alt"></i>
+                        Remove
+                    </button>
+                </div>
+            </div>
+        `;
 
-            card.innerHTML =
-                `
-                    <img
-                        src="${AppUtils.escapeHTML(AppUtils.defaultImage(product?.image || product?.img))}"
-                        alt="${AppUtils.escapeHTML(product?.name || "Product")}"
-                        loading="lazy"
-                    >
-                    <div class="wishlist-content">
-                        <span>
-                            ${AppUtils.escapeHTML(product?.brand || "Brand")}
-                        </span>
-                        <h4>
-                            ${AppUtils.escapeHTML(product?.name || "Product")}
-                        </h4>
-                        <p class="wishlist-price">
-                            ${AppUtils.formatPrice(product?.price || 0)}
-                        </p>
-                        <div class="wishlist-buttons">
-                            <button
-                                class="add-cart-btn"
-                                data-index="${index}"
-                            >
-                                <i class="fas fa-shopping-cart"></i>
-                                Add To Cart
-                            </button>
-                            <button
-                                class="remove-btn"
-                                data-index="${index}"
-                            >
-                                <i class="fas fa-trash-alt"></i>
-                                Remove
-                            </button>
-                        </div>
-                    </div>
-                `;
-
-            // product navigation
-            const clickable =
-                card.querySelectorAll(
-                    "img, h4"
-                );
-
-            clickable.forEach(
-                (element) => {
-                    element.addEventListener(
-                        "click",
-                        () => {
-                            if (
-                                product?.id
-                            ) {
-                                window.location.href =
-                                    `product.html?id=${product.id}`;
-                            }
-                        }
-                    );
+        // product navigation
+        const clickable = card.querySelectorAll("img, h4");
+        clickable.forEach((element) => {
+            element.addEventListener("click", () => {
+                if (product?.id) {
+                    window.location.href = `product.html?id=${product.id}`;
                 }
-            );
-            fragment.appendChild(
-                card
-            );
+            });
+        });
+        fragment.appendChild(card);
+    });
+    wishlistContainer.appendChild(fragment);
+}
+
+// ========================================
+// ✅ EVENT DELEGATION - FIX (Issue #1205)
+// ========================================
+
+document.addEventListener('click', function(event) {
+    // Add to Cart button
+    const addBtn = event.target.closest('.add-cart-btn');
+    if (addBtn) {
+        event.stopPropagation();
+        event.preventDefault();
+        const index = parseInt(addBtn.dataset.index, 10);
+        if (!isNaN(index)) {
+            addToCartFromWishlist(index);
         }
-    );
-    wishlistContainer.appendChild(
-        fragment
-    );
-    attachWishlistEventListeners();
-}
+        return;
+    }
+    
+    // Remove button
+    const removeBtn = event.target.closest('.remove-btn');
+    if (removeBtn) {
+        event.stopPropagation();
+        event.preventDefault();
+        const index = parseInt(removeBtn.dataset.index, 10);
+        if (!isNaN(index)) {
+            removeWishlist(index);
+        }
+        return;
+    }
+});
 
-// wishlist listeners
-function attachWishlistEventListeners() {
-    document
-        .querySelectorAll(
-            ".add-cart-btn"
-        )
-        .forEach((btn) => {
-            btn.addEventListener(
-                "click",
-                async (event) => {
-                    event.stopPropagation();
-                    const button =
-                        event.target.closest(
-                            "button"
-                        );
+// ========================================
+// REMOVE WISHLIST ITEM
+// ========================================
 
-                    if (
-                        !button
-                    ) {
-                        return;
-                    }
-
-                    const index =
-                        parseInt(
-                            button.dataset.index,
-                            10
-                        );
-
-                    await addToCartFromWishlist(
-                        index
-                    );
-                }
-            );
-        });
-
-    document
-        .querySelectorAll(
-            ".remove-btn"
-        )
-        .forEach((btn) => {
-            btn.addEventListener(
-                "click",
-                async (event) => {
-                    event.stopPropagation();
-                    const button =
-                        event.target.closest(
-                            "button"
-                        );
-
-                    if (
-                        !button
-                    ) {
-                        return;
-                    }
-
-                    const index =
-                        parseInt(
-                            button.dataset.index,
-                            10
-                        );
-
-                    await removeWishlist(
-                        index
-                    );
-                }
-            );
-        });
-}
-
-// remove wishlist item
-async function removeWishlist(
-    index
-) {
-    if (
-        !wishlist[index]
-    ) {
+async function removeWishlist(index) {
+    if (!wishlist[index]) {
         return;
     }
 
-    const product =
-        wishlist[index];
-
-    wishlist.splice(
-        index,
-        1
-    );
-
-    AppUtils.saveWishlist(
-        wishlist
-    );
-
+    const product = wishlist[index];
+    wishlist.splice(index, 1);
+    AppUtils.saveWishlist(wishlist);
     renderWishlist();
-    AppUtils.notify(
-        "Removed from wishlist",
-        "success"
-    );
+    AppUtils.notify("Removed from wishlist", "success");
 
-    const token =
-        AppUtils.getToken();
-
-    if (
-        token
-    ) {
+    const token = AppUtils.getToken();
+    if (token) {
         try {
-            await AppUtils.apiRequest(
-                "/wishlist/remove",
-                {
-                    method: "POST",
-                    body:
-                        JSON.stringify({
-                            productId:
-                                product.id
-                        })
-                }
-            );
-
+            await AppUtils.apiRequest("/wishlist/remove", {
+                method: "POST",
+                body: JSON.stringify({ productId: product.id })
+            });
         } catch (error) {
-            console.error(
-                "WISHLIST REMOVE ERROR:",
-                error
-            );
+            console.error("WISHLIST REMOVE ERROR:", error);
         }
     }
 }
 
-// add to cart
-async function addToCartFromWishlist(
-    index
-) {
-    if (
-        !wishlist[index]
-    ) {
+// ========================================
+// ✅ ADD TO CART FROM WISHLIST - FIX (Issue #1205)
+// ========================================
+
+async function addToCartFromWishlist(index) {
+    if (!wishlist[index]) {
+        AppUtils.notify("Product not found", "error");
         return;
     }
 
-    const product =
-        wishlist[index];
+    const product = wishlist[index];
+    
+    // Check stock
+    if (product.stock !== undefined && product.stock <= 0) {
+        AppUtils.notify("Product is out of stock", "error");
+        return;
+    }
 
     const item = {
-        id:
-            product.id,
-        name:
-            product.name,
-        price:
-            parseFloat(
-                product.price
-            ) || 0,
-        img:
-            product.image ||
-            product.img,
+        id: product.id,
+        name: product.name,
+        price: parseFloat(product.price) || 0,
+        img: product.image || product.img,
+        color: product.color || null,
+        size: product.size || null,
         qty: 1
     };
 
-    // addCartItem now routes signed-in users through the backend cart
-    // (including the inventory reservation), so no separate /cart/add call is
-    // needed here — a manual one previously sent the wrong payload shape.
-    cart =
-        AppUtils.addCartItem(
-            item
-        );
+    // ✅ Use fresh cart from localStorage
+    let cart = AppUtils.getCart() || [];
 
-    AppUtils.notify(
-        "Added to cart 🛍️",
-        "success"
+    // Check for duplicates (including variants)
+    const existingIndex = cart.findIndex((p) => 
+        p.id === item.id && 
+        p.color === item.color && 
+        p.size === item.size
     );
 
-    // Remove from wishlist
+    if (existingIndex >= 0) {
+        cart[existingIndex].qty = (cart[existingIndex].qty || 1) + 1;
+    } else {
+        cart.push(item);
+    }
+
+    AppUtils.saveCart(cart);
+    AppUtils.notify(`${product.name || "Product"} added to cart 🛍️`, "success");
+
+    // Update cart count
+    if (typeof updateCartCount === "function") {
+        updateCartCount();
+    }
+
+    // ✅ Remove from wishlist after adding to cart
     await removeWishlist(index);
 }
 
-// init
+// ========================================
+// INIT
+// ========================================
+
 async function initWishlist() {
     const token = AppUtils.getToken();
     if (token) {
