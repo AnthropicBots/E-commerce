@@ -91,48 +91,54 @@ function getDaysUntilExpiry() {
     return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
-// ==================== UNDO TOAST ====================
-function showUndoToast(message, onUndo, onConfirm) {
-    const toast = document.getElementById('undo-toast');
-    if (!toast) {
-        createUndoToast();
-        return showUndoToast(message, onUndo, onConfirm);
+// ========================================
+// EMPTY CART - FIXED Continue Shopping (Issue #1206)
+// ========================================
+function renderEmptyCart() {
+    if (
+        !elements.cartContainer
+    ) {
+        return;
     }
-    
-    toast.querySelector('.toast-message').textContent = message;
-    toast.classList.add('show');
-    
-    // Clear existing timeout
-    if (undoAction) {
-        clearTimeout(undoAction.timeout);
+
+    elements.cartContainer.innerHTML =
+        `
+            <div class="empty-cart">
+                <i class="fas fa-shopping-cart empty-cart-icon"></i>
+                <h2>
+                    Your cart is empty
+                </h2>
+
+                <p>
+                    Looks like you haven't added any items to your cart yet.
+                </p>
+
+                <p class="empty-cart-sub">
+                    Start shopping to fill your cart with amazing products!
+                </p>
+
+                <button 
+                    id="continue-shopping-btn" 
+                    class="continue-shopping-btn"
+                >
+                    <i class="fas fa-arrow-left"></i>
+                    Continue Shopping
+                </button>
+            </div>
+        `;
+
+    // ✅ FIX: Add event listener to Continue Shopping button
+    const continueBtn = document.getElementById('continue-shopping-btn');
+    if (continueBtn) {
+        continueBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            window.location.href = 'shop.html';
+        });
     }
-    
-    // Store undo action
-    undoAction = {
-        onUndo: onUndo,
-        onConfirm: onConfirm,
-        timeout: setTimeout(() => {
-            if (onConfirm) {
-                onConfirm();
-            }
-            hideUndoToast();
-            undoAction = null;
-        }, CART_CONFIG.UNDO_TIMEOUT)
-    };
-    
-    // Setup undo button
-    const undoBtn = toast.querySelector('.undo-btn');
-    undoBtn.onclick = () => {
-        if (undoAction) {
-            clearTimeout(undoAction.timeout);
-            if (undoAction.onUndo) {
-                undoAction.onUndo();
-            }
-            hideUndoToast();
-            undoAction = null;
-            AppUtils.notify('Action undone', 'success');
-        }
-    };
+
+    updateCartTotals(
+        0
+    );
 }
 
 function createUndoToast() {
@@ -834,34 +840,43 @@ if (elements.checkoutBtn) {
     });
 }
 
-// ==================== EVENT LISTENERS FOR BULK ACTIONS ====================
-document.getElementById('select-all')?.addEventListener('change', toggleSelectAll);
-document.getElementById('bulk-remove-btn')?.addEventListener('click', bulkRemove);
-document.getElementById('bulk-save-btn')?.addEventListener('click', bulkSaveForLater);
+// ========================================
+// CONTINUE SHOPPING - FIX (Issue #1206)
+// ========================================
 
-// ==================== CART UPDATED EVENT ====================
-window.addEventListener(AppUtils.CART_UPDATED_EVENT, () => {
-    cart = AppUtils.getCart();
-    renderCart();
-});
-
-// ==================== DOM CONTENT LOADED ====================
-document.addEventListener("DOMContentLoaded", () => {
-    if (appliedCoupon && elements.couponCode) {
-        elements.couponCode.value = appliedCoupon;
+function setupContinueShopping() {
+    const continueBtn = document.getElementById('continue-shopping-btn');
+    
+    if (!continueBtn) {
+        // Button might not exist yet (empty cart not rendered)
+        return;
     }
-    loadSavedForLater();
-    setCartExpiry();
-    renderCart();
-    syncSharedCartUI();
-});
+    
+    // Remove existing listeners to avoid duplicates
+    const newBtn = continueBtn.cloneNode(true);
+    continueBtn.parentNode.replaceChild(newBtn, continueBtn);
+    
+    newBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        window.location.href = 'shop.html';
+    });
+}
 
-// ==================== EXPOSE FUNCTIONS TO WINDOW ====================
-window.toggleSelectItem = toggleSelectItem;
-window.updateQuantity = updateQuantity;
-window.updateItemNote = updateItemNote;
-window.saveForLater = saveForLater;
-window.moveToCart = moveToCart;
-window.removeSavedItem = removeSavedItem;
+// INIT
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+        renderCart();
+        // Setup continue shopping after render
+        setTimeout(setupContinueShopping, 100);
+    }
+);
+
+// Also setup when cart is rendered (for dynamic updates)
+const originalRenderCart = renderCart;
+renderCart = function() {
+    originalRenderCart();
+    setTimeout(setupContinueShopping, 100);
+};
 
 })();
