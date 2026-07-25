@@ -33,6 +33,13 @@ const CONFIG = {
     CURRENCY:
         "₹",
 
+    // pricing rules (single source of truth for cart math)
+    PRICING: {
+        TAX_RATE: 0.18,
+        SHIPPING_FEE: 49,
+        FREE_SHIPPING_THRESHOLD: 999
+    },
+
     // storage keys
     STORAGE_KEYS: {
         CART:
@@ -62,6 +69,10 @@ Object.freeze(
 
 Object.freeze(
     CONFIG.STORAGE_KEYS
+);
+
+Object.freeze(
+    CONFIG.PRICING
 );
 
 // expose globally
