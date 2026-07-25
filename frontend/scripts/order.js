@@ -83,6 +83,8 @@ async function fetchOrderStatus() {
 
 // render order details
 function renderOrderDetails(order) {
+    currentOrder = order;
+
     // Hide loading, show details
     if (elements.loadingState) elements.loadingState.style.display = 'none';
     if (elements.orderDetails) elements.orderDetails.style.display = 'block';
@@ -162,6 +164,40 @@ function renderOrderDetails(order) {
             stepEl.style.opacity = '0.4';
         }
     });
+
+    // Delivered orders can be returned; surface the entry point inline.
+    renderReturnAction(order);
+}
+
+// render the "Request Return" entry point for delivered orders
+function renderReturnAction(order) {
+    const existing = document.getElementById("order-return-action");
+    if (existing) existing.remove();
+
+    if ((order.status || "").toLowerCase() !== "delivered") return;
+    if (!elements.orderDetails) return;
+
+    const wrapper = document.createElement("div");
+    wrapper.id = "order-return-action";
+    wrapper.style.cssText = "text-align: center; margin-top: 16px;";
+    wrapper.innerHTML = `
+        <button type="button" class="btn" style="padding: 10px 24px; border: 2px solid #111; border-radius: 8px; background: transparent; color: #111; cursor: pointer;">
+            <i class="fas fa-undo"></i> Request Return
+        </button>
+    `;
+    wrapper.querySelector("button").addEventListener("click", () => {
+        window.openReturnModal(order);
+    });
+
+    const itemsSection = elements.orderItemsContainer
+        ? elements.orderItemsContainer.closest(".order-items")
+        : null;
+
+    if (itemsSection && itemsSection.parentNode) {
+        itemsSection.parentNode.insertBefore(wrapper, itemsSection.nextSibling);
+    } else {
+        elements.orderDetails.appendChild(wrapper);
+    }
 }
 
 // init
