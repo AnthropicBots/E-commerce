@@ -43,6 +43,18 @@ const agentRoutes = require('./routes/agentRoutes');
 const legalRoutes = require('./routes/legalRoutes');
 const aiLegalRoutes = require('./routes/aiLegalRoutes');
 const routes = require("./routes/index");
+const authLimiter = require("./middleware/authLimiter");
+const mcpRoutes = require("./routes/mcpRoutes"); // ✅ MCP Routes added
+// Add with other imports
+const socialEngineeringRoutes = require('./routes/socialEngineeringRoutes');
+const { protectAgainstSocialEngineering } = require('./services/socialEngineeringProtectionService');
+
+// Add social engineering protection middleware AFTER auth but BEFORE routes
+app.use(protectAgainstSocialEngineering);
+
+// Add social engineering routes
+app.use('/api/social-engineering', socialEngineeringRoutes);
+
 const { authLimiter } = require("./middleware/authLimiter");
 const mcpRoutes = require("./routes/mcpRoutes");
 // Add with other imports
@@ -101,6 +113,7 @@ outboxService.initialize().catch(err => {
 
 // Add liability routes
 app.use('/api/liability', liabilityRoutes);
+
 // Add with other route imports
 const recentlyViewedRoutes = require('./routes/recentlyViewedRoutes');
 const complexityRoutes = require('./routes/complexityRoutes');
