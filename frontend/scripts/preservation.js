@@ -2,7 +2,9 @@
 
 class PreservationUI {
   constructor(options = {}) {
-    this.apiBase = options.apiBase || '/api/preservation';
+    // Path only; AppUtils.apiRequest prepends CONFIG.API_BASE (which already
+    // ends in /api), so this must not carry its own /api prefix.
+    this.apiBase = options.apiBase || '/preservation';
     this.container = options.container || '#preservation-container';
     this.currentItem = null;
     this.insights = null;
@@ -62,8 +64,7 @@ class PreservationUI {
 
   async loadItems() {
     try {
-      const response = await fetch(`${this.apiBase}/items`);
-      const data = await response.json();
+      const data = await AppUtils.apiRequest(`${this.apiBase}/items`);
 
       if (data.success) {
         this.renderItems(data.items);
@@ -156,8 +157,7 @@ class PreservationUI {
 
   async loadStats() {
     try {
-      const response = await fetch(`${this.apiBase}/stats`);
-      const data = await response.json();
+      const data = await AppUtils.apiRequest(`${this.apiBase}/stats`);
 
       if (data.success) {
         this.renderStats(data.stats);
