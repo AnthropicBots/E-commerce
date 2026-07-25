@@ -2,6 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
+const { authorizeRoles } = require("../middleware/rbacMiddleware");
 const refundController = require("../controllers/refundController");
 
 // ==================== CUSTOMER ROUTES ====================
@@ -11,5 +12,26 @@ router.post("/request", authMiddleware, refundController.createRequest);
 
 // List the authenticated user's own return requests
 router.get("/mine", authMiddleware, refundController.listMyRequests);
+
+// ==================== ADMIN ROUTES ====================
+
+// List all return requests (optionally filtered by ?status=)
+router.get("/", authMiddleware, authorizeRoles("admin"), refundController.listAll);
+
+// Approve a request and restock inventory
+router.post(
+    "/:id/approve",
+    authMiddleware,
+    authorizeRoles("admin"),
+    refundController.approveRequest
+);
+
+// Reject a request
+router.post(
+    "/:id/reject",
+    authMiddleware,
+    authorizeRoles("admin"),
+    refundController.rejectRequest
+);
 
 module.exports = router;
