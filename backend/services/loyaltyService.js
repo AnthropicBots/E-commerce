@@ -1,224 +1,267 @@
 // backend/services/loyaltyService.js
-//
-// Loyalty & Reward Points — ledger core (issue #1232, PR 1/3).
-//
-// LEDGER IS THE SOURCE OF TRUTH.
-// `loyalty_transactions` is an append-only ledger; every points change is one
-// immutable row with a signed `points` value and a `balance_after` snapshot.
-// `loyalty_accounts.points_balance` is only a cache of that ledger (the sum of
-// a user's `points`), kept so reads don't have to aggregate the whole history.
-//
-// The danger with a cached balance is drift: if the ledger row is written but
-// the cache update fails (or two concurrent earns/redeems interleave), the
-// cache silently disagrees with the ledger. To make drift impossible, every
-// write path here does BOTH the ledger append and the cache update inside a
-// single DB transaction, with the account row locked FOR UPDATE so concurrent
-// mutations serialize instead of racing on a stale read. A failure anywhere
-// rolls the whole thing back, so the cache can never move without a matching
-// ledger row and vice versa.
+const db = require('../config/db');
 
-const db = require("../config/db");
+// ============================================
+// LOYALTY CONFIGURATION
+// ============================================
 
-// EARN_RATE: points granted per whole currency unit spent (1 unit -> 1 point).
-// REDEEM_RATE: currency value of a single point when redeemed (100 pts -> 1.00).
+// Points earned per unit of order value.
 const EARN_RATE = 1;
+
+// Currency value of a single point when redeemed (100 points => 1.00).
 const REDEEM_RATE = 0.01;
 
-// Ascending lifetime-points thresholds; the highest one a member clears is
-// their tier. Kept here (not the DB) because it's program config, not data.
 const TIER_THRESHOLDS = [
-    ["Bronze", 0],
-    ["Silver", 1000],
-    ["Gold", 5000],
-    ["Platinum", 20000],
+    { tier: 'Platinum', minLifetimePoints: 50000 },
+    { tier: 'Gold', minLifetimePoints: 10000 },
+    { tier: 'Silver', minLifetimePoints: 2000 },
+    { tier: 'Bronze', minLifetimePoints: 0 }
 ];
 
-const ENSURE_ACCOUNT_SQL =
-    "INSERT INTO loyalty_accounts (user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id = user_id";
+const TRANSACTION_TYPE = {
+    EARN: 'earn',
+    REDEEM: 'redeem',
+    EXPIRE: 'expire',
+    ADJUST: 'adjust'
+};
 
-const INSERT_LEDGER_SQL =
-    `INSERT INTO loyalty_transactions
-        (user_id, order_id, type, points, balance_after, reason, metadata, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`;
+// Thrown when a redemption exceeds the available balance. The `code` lets
+// the HTTP layer map this to a 400 without string-matching the message.
+class InsufficientPointsError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'InsufficientPointsError';
+        this.code = 'INSUFFICIENT_POINTS';
+    }
+}
+
+// ============================================
+// LOYALTY SERVICE
+// ============================================
 
 class LoyaltyService {
     constructor() {
         this.isInitialized = false;
-        this.tablePresent = false;
     }
 
-    // Idempotent. Probes for the migration so callers can boot the service
-    // before `loyalty_points.sql` has been applied without crashing.
     async initialize() {
         if (this.isInitialized) return this;
-        try {
-            await db.query("SELECT 1 FROM loyalty_accounts LIMIT 1");
-            this.tablePresent = true;
-            console.log("✅ Loyalty service initialized");
-        } catch (error) {
-            this.tablePresent = false;
-            console.warn(`Loyalty tables not present yet, service is a no-op: ${error.message}`);
-        }
+
         this.isInitialized = true;
+        console.log('✅ Loyalty service initialized');
         return this;
     }
 
+    /**
+     * Fetch a user's loyalty account, creating a Bronze account on first use.
+     */
     async getOrCreateAccount(userId) {
-        await db.query(ENSURE_ACCOUNT_SQL, [userId]);
-        const [rows] = await db.query(
-            `SELECT user_id, points_balance, lifetime_points, tier, created_at, updated_at
-             FROM loyalty_accounts WHERE user_id = ?`,
+        if (!userId) {
+            throw new Error('userId is required');
+        }
+
+        const [existing] = await db.query(
+            'SELECT * FROM loyalty_accounts WHERE user_id = ?',
             [userId]
         );
-        return rows[0];
+        if (existing.length > 0) {
+            return existing[0];
+        }
+
+        await db.query(
+            `INSERT INTO loyalty_accounts (user_id, points_balance, lifetime_points, tier)
+             VALUES (?, 0, 0, 'Bronze')
+             ON DUPLICATE KEY UPDATE user_id = user_id`,
+            [userId]
+        );
+
+        const [created] = await db.query(
+            'SELECT * FROM loyalty_accounts WHERE user_id = ?',
+            [userId]
+        );
+        return created[0];
     }
 
-    // Grant points for a purchase. Ledger append + balance/lifetime bump happen
-    // atomically; returns the new cached balance.
-    async award(userId, { orderId = null, amount, reason = null } = {}) {
-        const points = _earnedPoints(amount);
+    /**
+     * Award points for an order. Writes the ledger row and updates the
+     * balance atomically under a row lock so concurrent awards can't race.
+     */
+    async award(userId, { orderId = null, amount, reason = 'Points earned' } = {}) {
+        if (!userId) {
+            throw new Error('userId is required');
+        }
 
-        const conn = await db.getConnection();
+        const orderValue = Number(amount);
+        if (!Number.isFinite(orderValue) || orderValue <= 0) {
+            throw new Error('amount must be a positive number');
+        }
+
+        const pointsToAward = Math.floor(orderValue * EARN_RATE);
+
+        const connection = await db.getConnection();
         try {
-            await db.beginTransaction(conn);
+            await db.beginTransaction(connection);
 
-            await conn.query(ENSURE_ACCOUNT_SQL, [userId]);
-            const [rows] = await conn.query(
-                "SELECT points_balance, lifetime_points FROM loyalty_accounts WHERE user_id = ? FOR UPDATE",
+            await connection.query(
+                `INSERT INTO loyalty_accounts (user_id, points_balance, lifetime_points, tier)
+                 VALUES (?, 0, 0, 'Bronze')
+                 ON DUPLICATE KEY UPDATE user_id = user_id`,
                 [userId]
             );
-            const { points_balance: balance, lifetime_points: lifetime } = rows[0];
 
-            const newBalance = balance + points;
-            const newLifetime = lifetime + points;
-            const tier = _tierForLifetime(newLifetime);
+            const [rows] = await connection.query(
+                'SELECT * FROM loyalty_accounts WHERE user_id = ? FOR UPDATE',
+                [userId]
+            );
+            const account = rows[0];
 
-            await conn.query(
-                "UPDATE loyalty_accounts SET points_balance = ?, lifetime_points = ?, tier = ? WHERE user_id = ?",
+            const newBalance = account.points_balance + pointsToAward;
+            const newLifetime = account.lifetime_points + pointsToAward;
+            const tier = this._computeTier(newLifetime);
+
+            await connection.query(
+                `UPDATE loyalty_accounts
+                 SET points_balance = ?, lifetime_points = ?, tier = ?
+                 WHERE user_id = ?`,
                 [newBalance, newLifetime, tier, userId]
             );
-            await conn.query(INSERT_LEDGER_SQL, [
-                userId,
-                orderId,
-                "earn",
-                points,
-                newBalance,
-                reason,
-                JSON.stringify({ amount, earnRate: EARN_RATE }),
-            ]);
 
-            await db.commitTransaction(conn);
-            return newBalance;
+            await connection.query(
+                `INSERT INTO loyalty_transactions
+                 (user_id, order_id, type, points, balance_after, reason, metadata)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    userId,
+                    orderId,
+                    TRANSACTION_TYPE.EARN,
+                    pointsToAward,
+                    newBalance,
+                    reason,
+                    JSON.stringify({ orderValue, earnRate: EARN_RATE })
+                ]
+            );
+
+            await db.commitTransaction(connection);
+
+            return { pointsAwarded: pointsToAward, balance: newBalance, tier };
         } catch (error) {
-            await db.rollbackTransaction(conn);
+            await db.rollbackTransaction(connection);
             throw error;
         } finally {
-            conn.release();
+            connection.release();
         }
     }
 
-    // Spend points. Rejects (before any write) if the balance can't cover the
-    // request, naming the exact shortfall. Ledger row is signed-negative.
-    async redeem(userId, { points, reason = null } = {}) {
-        if (!Number.isInteger(points) || points <= 0) {
-            throw new Error(`redeem requires a positive integer points amount, got: ${points}`);
+    /**
+     * Redeem points for a discount. Validates the balance under a row lock and
+     * throws InsufficientPointsError when the request exceeds what's available.
+     */
+    async redeem(userId, { points, reason = 'Points redeemed' } = {}) {
+        if (!userId) {
+            throw new Error('userId is required');
         }
 
-        const conn = await db.getConnection();
-        try {
-            await db.beginTransaction(conn);
+        const pointsToRedeem = Number(points);
+        if (!Number.isInteger(pointsToRedeem) || pointsToRedeem <= 0) {
+            throw new Error('points must be a positive integer');
+        }
 
-            await conn.query(ENSURE_ACCOUNT_SQL, [userId]);
-            const [rows] = await conn.query(
-                "SELECT points_balance FROM loyalty_accounts WHERE user_id = ? FOR UPDATE",
+        const connection = await db.getConnection();
+        try {
+            await db.beginTransaction(connection);
+
+            const [rows] = await connection.query(
+                'SELECT * FROM loyalty_accounts WHERE user_id = ? FOR UPDATE',
                 [userId]
             );
-            const balance = rows[0].points_balance;
+            const available = rows.length > 0 ? rows[0].points_balance : 0;
 
-            if (balance < points) {
-                throw new Error(
-                    `Insufficient loyalty points for user ${userId}: requested ${points}, ` +
-                        `available ${balance}, short by ${points - balance}`
+            if (pointsToRedeem > available) {
+                throw new InsufficientPointsError(
+                    `Insufficient points: requested ${pointsToRedeem} but only ${available} available`
                 );
             }
 
-            const newBalance = balance - points;
-            await conn.query(
-                "UPDATE loyalty_accounts SET points_balance = ? WHERE user_id = ?",
+            const newBalance = available - pointsToRedeem;
+            const discountValue = Number((pointsToRedeem * REDEEM_RATE).toFixed(2));
+
+            await connection.query(
+                'UPDATE loyalty_accounts SET points_balance = ? WHERE user_id = ?',
                 [newBalance, userId]
             );
-            await conn.query(INSERT_LEDGER_SQL, [
-                userId,
-                null,
-                "redeem",
-                -points,
-                newBalance,
-                reason,
-                JSON.stringify({ redeemRate: REDEEM_RATE }),
-            ]);
 
-            await db.commitTransaction(conn);
-            return {
-                pointsRedeemed: points,
-                discountValue: points * REDEEM_RATE,
-                balance: newBalance,
-            };
+            await connection.query(
+                `INSERT INTO loyalty_transactions
+                 (user_id, order_id, type, points, balance_after, reason, metadata)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    userId,
+                    null,
+                    TRANSACTION_TYPE.REDEEM,
+                    -pointsToRedeem,
+                    newBalance,
+                    reason,
+                    JSON.stringify({ discountValue, redeemRate: REDEEM_RATE })
+                ]
+            );
+
+            await db.commitTransaction(connection);
+
+            return { pointsRedeemed: pointsToRedeem, discountValue, balance: newBalance };
         } catch (error) {
-            await db.rollbackTransaction(conn);
+            await db.rollbackTransaction(connection);
             throw error;
         } finally {
-            conn.release();
+            connection.release();
         }
     }
 
     async getBalance(userId) {
-        const [rows] = await db.query(
-            "SELECT points_balance FROM loyalty_accounts WHERE user_id = ?",
-            [userId]
-        );
-        return rows.length > 0 ? rows[0].points_balance : 0;
+        const account = await this.getOrCreateAccount(userId);
+        return {
+            balance: account.points_balance,
+            lifetimePoints: account.lifetime_points,
+            tier: account.tier
+        };
     }
 
     async getHistory(userId, { limit = 50, offset = 0 } = {}) {
-        const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 500));
-        const safeOffset = Math.max(0, Number(offset) || 0);
+        if (!userId) {
+            throw new Error('userId is required');
+        }
+
+        const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+        const safeOffset = Math.max(parseInt(offset, 10) || 0, 0);
+
         const [rows] = await db.query(
-            `SELECT id, user_id, order_id, type, points, balance_after, reason, metadata, created_at
-             FROM loyalty_transactions
+            `SELECT * FROM loyalty_transactions
              WHERE user_id = ?
-             ORDER BY id DESC
+             ORDER BY created_at DESC, id DESC
              LIMIT ? OFFSET ?`,
             [userId, safeLimit, safeOffset]
         );
-        return {
-            userId,
-            limit: safeLimit,
-            offset: safeOffset,
-            count: rows.length,
-            transactions: rows,
-        };
+
+        return { transactions: rows, limit: safeLimit, offset: safeOffset };
+    }
+
+    _computeTier(lifetimePoints) {
+        for (const { tier, minLifetimePoints } of TIER_THRESHOLDS) {
+            if (lifetimePoints >= minLifetimePoints) {
+                return tier;
+            }
+        }
+        return 'Bronze';
     }
 }
 
-function _earnedPoints(amount) {
-    if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) {
-        throw new Error(`award requires a non-negative numeric amount, got: ${amount}`);
-    }
-    // Whole points only: fractional spend never rounds up into a free point.
-    return Math.floor(amount * EARN_RATE);
-}
-
-function _tierForLifetime(lifetimePoints) {
-    let tier = TIER_THRESHOLDS[0][0];
-    for (const [name, minPoints] of TIER_THRESHOLDS) {
-        if (lifetimePoints >= minPoints) tier = name;
-    }
-    return tier;
-}
+// ============================================
+// EXPORT
+// ============================================
 
 module.exports = {
-    loyaltyService: new LoyaltyService(),
     LoyaltyService,
+    InsufficientPointsError,
     EARN_RATE,
     REDEEM_RATE,
+    loyaltyService: new LoyaltyService()
 };

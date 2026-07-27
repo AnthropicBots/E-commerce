@@ -71,6 +71,9 @@ const { moduleMaturityService } = require('./services/moduleMaturityService');
 const slaRoutes = require('./routes/slaRoutes');
 const { slaService } = require('./services/businessSLAService');
 
+const loyaltyRoutes = require('./routes/loyaltyRoutes');
+const { loyaltyService } = require('./services/loyaltyService');
+
 
 const discoveryRoutes = require('./routes/discoveryRoutes');
 const { capabilityDiscoveryService } = require('./services/capabilityDiscoveryService');
@@ -315,7 +318,7 @@ app.use('/api/experiments', experimentRoutes);
 app.use('/api/copywriter', copywriterRoutes);
 app.use('/api/fraud', fraudRoutes);
 app.use('/api/ai', aiRoutes);
-app.use('/api/gift-cards', giftCardRoutes);
+app.use('/api/loyalty', loyaltyRoutes);
 app.use("/api", routes);
 app.use("/api/mcp", mcpRoutes);
 
@@ -428,6 +431,7 @@ async function bootstrap() {
         { name: 'OutboxService', instance: outboxService },
         { name: 'FeatureFlagService', instance: featureFlagService },
         { name: 'SLAService', instance: slaService },
+        { name: 'LoyaltyService', instance: loyaltyService },
         { name: 'ProvenanceService', instance: provenanceService },
         { name: 'CapabilityMappingService', instance: capabilityMappingService },
         { name: 'PluginSystem', instance: pluginSystem },
