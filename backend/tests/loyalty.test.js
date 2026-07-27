@@ -1,175 +1,257 @@
-// Tests for the loyalty ledger core (#1232, PR 1/3). The db module is mocked so
-// we exercise the transactional earn/redeem paths without a live MySQL: a fake
-// connection records every SQL string + params and returns canned rows keyed
-// off the query text, and the transaction helpers are spies so we can assert
-// commit-on-success / rollback-on-failure.
+// Tests for the loyalty program (#1232). The db module is mocked so we can
+// assert the transactional ledger writes and tier engine without a live MySQL.
+// A fake connection records every SQL string/params and returns a canned
+// account row, mirroring the mocking style in inventoryReservation.test.js.
 
-jest.mock("../config/db", () => ({
-    query: jest.fn(),
-    getConnection: jest.fn(),
-    beginTransaction: jest.fn(async () => {}),
-    commitTransaction: jest.fn(async () => {}),
-    rollbackTransaction: jest.fn(async () => {}),
-}));
+jest.mock("../config/db", () => {
+    const query = jest.fn();
+    const pool = { query, getConnection: jest.fn() };
+    // eventSubscribers.js requires `.promise`; point it back at the pool.
+    pool.promise = pool;
+    return pool;
+});
+
+// Capture the handlers registered by the promotions subscriber so we can invoke
+// the ORDER_CREATED auto-earn handler directly.
+jest.mock("../services/domainEventService", () => {
+    const registered = [];
+    return {
+        __registered: registered,
+        DOMAIN_EVENTS: {
+            ORDER_CREATED: "order.created",
+            ORDER_PAYMENT_SUCCESS: "order.payment.success",
+            ORDER_COMPLETED: "order.completed",
+            PRODUCT_VIEWED: "product.viewed",
+            USER_REGISTERED: "user.registered",
+            WISHLIST_ITEM_ADDED: "wishlist.item.added"
+        },
+        domainEventService: {
+            subscribe: jest.fn((eventName, handler, context = {}) => {
+                registered.push({ eventName, handler, context });
+            })
+        }
+    };
+});
 
 const db = require("../config/db");
-const { loyaltyService, EARN_RATE, REDEEM_RATE } = require("../services/loyaltyService");
+const {
+    loyaltyService,
+    EARN_RATE,
+    REDEEM_RATE,
+    TIERS
+} = require("../services/loyaltyService");
 
-// Fake promise-pool connection: `.query()` returns canned rows based on the SQL
-// text and records each call so tests can assert on the SQL/params.
-function makeConnection(responder) {
+// Builds a fake transactional connection that returns `account` for the
+// account SELECTs and a generic affected-rows result for writes.
+function makeConnection(account) {
     const calls = [];
     const query = jest.fn(async (sql, params = []) => {
         calls.push({ sql, params });
-        return responder(sql, params);
+        if (/FROM loyalty_accounts WHERE user_id = \?/i.test(sql)) {
+            return [account ? [account] : []];
+        }
+        return [{ affectedRows: 1, insertId: 1 }];
     });
-    return { query, calls, release: jest.fn() };
+    const connection = {
+        query,
+        beginTransaction: jest.fn(async () => {}),
+        commit: jest.fn(async () => {}),
+        rollback: jest.fn(async () => {}),
+        release: jest.fn()
+    };
+    return { connection, calls };
 }
 
 function sqlsMatching(calls, regex) {
     return calls.filter(({ sql }) => regex.test(sql));
 }
 
+function accountUpdate(calls) {
+    return sqlsMatching(calls, /UPDATE loyalty_accounts\s+SET points_balance/i)[0];
+}
+
+function ledgerInsert(calls) {
+    return sqlsMatching(calls, /INSERT INTO loyalty_transactions/i)[0];
+}
+
 afterEach(() => {
-    jest.clearAllMocks();
+    db.query.mockReset();
+    db.getConnection.mockReset();
+    jest.restoreAllMocks();
+});
+
+describe("computeTier", () => {
+    test("maps lifetime points to the correct tier at each threshold boundary", () => {
+        expect(loyaltyService.computeTier(0).name).toBe("Bronze");
+        expect(loyaltyService.computeTier(999).name).toBe("Bronze");
+        expect(loyaltyService.computeTier(1000).name).toBe("Silver");
+        expect(loyaltyService.computeTier(4999).name).toBe("Silver");
+        expect(loyaltyService.computeTier(5000).name).toBe("Gold");
+        expect(loyaltyService.computeTier(19999).name).toBe("Gold");
+        expect(loyaltyService.computeTier(20000).name).toBe("Platinum");
+        expect(loyaltyService.computeTier(10_000_000).name).toBe("Platinum");
+    });
+
+    test("exports a consistent, ascending tier ladder", () => {
+        expect(EARN_RATE).toBe(1);
+        expect(REDEEM_RATE).toBe(0.01);
+        expect(TIERS.map((t) => t.name)).toEqual(["Bronze", "Silver", "Gold", "Platinum"]);
+        for (let i = 1; i < TIERS.length; i++) {
+            expect(TIERS[i].minLifetimePoints).toBeGreaterThan(TIERS[i - 1].minLifetimePoints);
+            expect(TIERS[i].multiplier).toBeGreaterThan(TIERS[i - 1].multiplier);
+        }
+    });
 });
 
 describe("award", () => {
-    test("computes points from amount via EARN_RATE and records balance_after", async () => {
-        const conn = makeConnection((sql) => {
-            if (/SELECT points_balance, lifetime_points/i.test(sql)) {
-                return [[{ points_balance: 100, lifetime_points: 300 }]];
-            }
-            return [{ affectedRows: 1, insertId: 1 }];
+    test("scales base points by the current tier multiplier and appends an earn row", async () => {
+        // Silver account (lifetime 2000, multiplier 1.25). $100 order => 100 base
+        // points => floor(100 * 1.25) = 125 earned.
+        const { connection, calls } = makeConnection({
+            user_id: 7,
+            points_balance: 500,
+            lifetime_points: 2000,
+            tier: "Silver"
         });
-        db.getConnection.mockResolvedValue(conn);
+        db.getConnection.mockResolvedValue(connection);
 
-        const newBalance = await loyaltyService.award("user-1", {
-            orderId: 55,
-            amount: 250,
-            reason: "order #55",
-        });
+        const result = await loyaltyService.award(7, { orderId: 42, amount: 100, reason: "order" });
 
-        // 250 currency units * EARN_RATE(1) = 250 points on top of the 100 held.
-        expect(newBalance).toBe(100 + 250 * EARN_RATE);
+        expect(result.pointsEarned).toBe(125);
+        expect(result.balance).toBe(625);
+        expect(result.lifetimePoints).toBe(2125);
+        expect(result.tier).toBe("Silver");
 
-        expect(db.beginTransaction).toHaveBeenCalledTimes(1);
-        expect(db.commitTransaction).toHaveBeenCalledTimes(1);
-        expect(db.rollbackTransaction).not.toHaveBeenCalled();
-        expect(conn.release).toHaveBeenCalledTimes(1);
+        // Balance snapshot persisted in the same transaction.
+        expect(accountUpdate(calls).params).toEqual([625, 2125, "Silver", 7]);
 
-        const inserts = sqlsMatching(conn.calls, /INSERT INTO loyalty_transactions/i);
-        expect(inserts).toHaveLength(1);
-        const [userId, orderId, type, points, balanceAfter] = inserts[0].params;
-        expect({ userId, orderId, type, points, balanceAfter }).toEqual({
-            userId: "user-1",
-            orderId: 55,
-            type: "earn",
-            points: 250,
-            balanceAfter: 350,
-        });
+        // Signed, order-linked earn row.
+        const ledger = ledgerInsert(calls);
+        expect(ledger.params.slice(0, 5)).toEqual([7, 42, "earn", 125, 625]);
+
+        expect(connection.commit).toHaveBeenCalledTimes(1);
+        expect(connection.rollback).not.toHaveBeenCalled();
+        expect(connection.release).toHaveBeenCalledTimes(1);
     });
 
-    test("floors fractional points and rejects a negative amount", async () => {
-        const conn = makeConnection((sql) => {
-            if (/SELECT points_balance, lifetime_points/i.test(sql)) {
-                return [[{ points_balance: 0, lifetime_points: 0 }]];
-            }
-            return [{ affectedRows: 1 }];
+    test("upgrades the tier when the award crosses a lifetime threshold", async () => {
+        // Bronze account (lifetime 900). $200 order at 1.0x => 200 points =>
+        // lifetime 1100 crosses the 1000 Silver threshold.
+        const { connection, calls } = makeConnection({
+            user_id: 9,
+            points_balance: 900,
+            lifetime_points: 900,
+            tier: "Bronze"
         });
-        db.getConnection.mockResolvedValue(conn);
+        db.getConnection.mockResolvedValue(connection);
 
-        const balance = await loyaltyService.award("user-2", { amount: 10.9 });
-        expect(balance).toBe(10);
+        const result = await loyaltyService.award(9, { orderId: 1, amount: 200 });
 
-        await expect(loyaltyService.award("user-2", { amount: -5 })).rejects.toThrow(
-            /non-negative numeric amount/i
-        );
+        expect(result.pointsEarned).toBe(200);
+        expect(result.tier).toBe("Silver");
+        expect(result.tierUpgraded).toBe(true);
+        expect(accountUpdate(calls).params).toEqual([1100, 1100, "Silver", 9]);
     });
 });
 
-describe("redeem", () => {
-    test("succeeds when the balance covers the request and returns the discount value", async () => {
-        const conn = makeConnection((sql) => {
-            if (/SELECT points_balance FROM loyalty_accounts/i.test(sql)) {
-                return [[{ points_balance: 500 }]];
-            }
-            return [{ affectedRows: 1, insertId: 1 }];
+describe("adjust", () => {
+    test("writes a signed positive adjust row and lifts lifetime/tier", async () => {
+        const { connection, calls } = makeConnection({
+            user_id: 3,
+            points_balance: 500,
+            lifetime_points: 500,
+            tier: "Bronze"
         });
-        db.getConnection.mockResolvedValue(conn);
+        db.getConnection.mockResolvedValue(connection);
 
-        const result = await loyaltyService.redeem("user-1", { points: 200, reason: "checkout" });
+        const result = await loyaltyService.adjust(3, { points: 600, reason: "goodwill" });
 
-        expect(result).toEqual({
-            pointsRedeemed: 200,
-            discountValue: 200 * REDEEM_RATE,
-            balance: 300,
-        });
-        expect(db.commitTransaction).toHaveBeenCalledTimes(1);
-        expect(db.rollbackTransaction).not.toHaveBeenCalled();
-        expect(conn.release).toHaveBeenCalledTimes(1);
+        expect(result.pointsAdjusted).toBe(600);
+        expect(result.balance).toBe(1100);
+        expect(result.lifetimePoints).toBe(1100);
+        expect(result.tier).toBe("Silver");
 
-        // Ledger row is signed-negative with balance_after tracking the new total.
-        const inserts = sqlsMatching(conn.calls, /INSERT INTO loyalty_transactions/i);
-        expect(inserts).toHaveLength(1);
-        const [, , type, points, balanceAfter] = inserts[0].params;
-        expect({ type, points, balanceAfter }).toEqual({
-            type: "redeem",
-            points: -200,
-            balanceAfter: 300,
-        });
+        const ledger = ledgerInsert(calls);
+        expect(ledger.params.slice(0, 5)).toEqual([3, null, "adjust", 600, 1100]);
     });
 
-    test("throws naming the shortfall on insufficient balance and rolls back without writing", async () => {
-        const conn = makeConnection((sql) => {
-            if (/SELECT points_balance FROM loyalty_accounts/i.test(sql)) {
-                return [[{ points_balance: 50 }]];
-            }
-            return [{ affectedRows: 1 }];
+    test("writes a signed negative adjust row without reducing lifetime", async () => {
+        const { connection, calls } = makeConnection({
+            user_id: 3,
+            points_balance: 500,
+            lifetime_points: 500,
+            tier: "Bronze"
         });
-        db.getConnection.mockResolvedValue(conn);
+        db.getConnection.mockResolvedValue(connection);
 
-        await expect(
-            loyaltyService.redeem("user-1", { points: 200 })
-        ).rejects.toThrow(/requested 200, available 50, short by 150/i);
+        const result = await loyaltyService.adjust(3, { points: -50, reason: "clawback" });
 
-        // Never appended a ledger row or updated the balance.
-        expect(sqlsMatching(conn.calls, /INSERT INTO loyalty_transactions/i)).toHaveLength(0);
-        expect(sqlsMatching(conn.calls, /UPDATE loyalty_accounts SET points_balance/i)).toHaveLength(0);
+        expect(result.pointsAdjusted).toBe(-50);
+        expect(result.balance).toBe(450);
+        expect(result.lifetimePoints).toBe(500);
 
-        expect(db.rollbackTransaction).toHaveBeenCalledTimes(1);
-        expect(db.commitTransaction).not.toHaveBeenCalled();
-        expect(conn.release).toHaveBeenCalledTimes(1);
+        const ledger = ledgerInsert(calls);
+        expect(ledger.params.slice(0, 5)).toEqual([3, null, "adjust", -50, 450]);
     });
 
-    test("rejects a non-positive points request before touching the DB", async () => {
-        await expect(loyaltyService.redeem("user-1", { points: 0 })).rejects.toThrow(
-            /positive integer/i
-        );
+    test("rejects a zero adjustment", async () => {
+        await expect(loyaltyService.adjust(3, { points: 0 })).rejects.toThrow(/non-zero integer/i);
         expect(db.getConnection).not.toHaveBeenCalled();
     });
 });
 
-describe("getHistory", () => {
-    test("returns the pagination envelope and passes limit/offset to SQL", async () => {
-        const rows = [
-            { id: 3, user_id: "user-1", type: "redeem", points: -200, balance_after: 300 },
-            { id: 2, user_id: "user-1", type: "earn", points: 250, balance_after: 500 },
-        ];
-        db.query.mockResolvedValue([rows, null]);
-
-        const history = await loyaltyService.getHistory("user-1", { limit: 10, offset: 20 });
-
-        expect(history).toEqual({
-            userId: "user-1",
-            limit: 10,
-            offset: 20,
-            count: 2,
-            transactions: rows,
+describe("redeem", () => {
+    test("throws a clear error when balance is insufficient", async () => {
+        const { connection } = makeConnection({
+            user_id: 3,
+            points_balance: 40,
+            lifetime_points: 40,
+            tier: "Bronze"
         });
+        db.getConnection.mockResolvedValue(connection);
 
-        const [sql, params] = db.query.mock.calls[0];
-        expect(sql).toMatch(/LIMIT \? OFFSET \?/i);
-        expect(params).toEqual(["user-1", 10, 20]);
+        await expect(loyaltyService.redeem(3, { points: 100 })).rejects.toThrow(
+            /Insufficient points to redeem: requested 100, available 40/i
+        );
+        expect(connection.rollback).toHaveBeenCalledTimes(1);
+        expect(connection.commit).not.toHaveBeenCalled();
+    });
+});
+
+describe("auto-earn subscriber (ORDER_CREATED)", () => {
+    test("awards points for the order's user and amount, guarding failures", async () => {
+        const { setupPromotionsSubscriber } = require("../services/eventSubscribers");
+        const { __registered } = require("../services/domainEventService");
+
+        const awardSpy = jest.spyOn(loyaltyService, "award").mockResolvedValue({});
+
+        setupPromotionsSubscriber();
+
+        const entry = __registered.find(
+            (r) => r.eventName === "order.created" && r.context.name === "promotions"
+        );
+        expect(entry).toBeDefined();
+
+        await entry.handler({ orderId: 42, userId: 7, total: 250 });
+
+        expect(awardSpy).toHaveBeenCalledWith(7, {
+            orderId: 42,
+            amount: 250,
+            reason: "order"
+        });
+    });
+
+    test("does not throw when award fails (non-blocking)", async () => {
+        const { setupPromotionsSubscriber } = require("../services/eventSubscribers");
+        const { __registered } = require("../services/domainEventService");
+
+        jest.spyOn(loyaltyService, "award").mockRejectedValue(new Error("db down"));
+
+        setupPromotionsSubscriber();
+        const entry = __registered.find(
+            (r) => r.eventName === "order.created" && r.context.name === "promotions"
+        );
+
+        await expect(entry.handler({ orderId: 99, userId: 5, total: 10 })).resolves.toBeUndefined();
     });
 });

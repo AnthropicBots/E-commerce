@@ -2,7 +2,14 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/authMiddleware');
+const { adminMiddleware } = require('../middleware/rbacMiddleware');
 const { loyaltyService } = require('../services/loyaltyService');
+
+// authMiddleware attaches the decoded token (id or userId); adminMiddleware
+// later replaces it with a full User model. Resolve either shape.
+function resolveUserId(req) {
+    return req.user?.id ?? req.user?.userId;
+}
 
 /**
  * GET /api/loyalty/balance
@@ -10,104 +17,84 @@ const { loyaltyService } = require('../services/loyaltyService');
  */
 router.get('/balance', authMiddleware, async (req, res) => {
     try {
-        const balance = await loyaltyService.getBalance(req.user.id);
-
-        res.json({
-            success: true,
-            data: balance
-        });
+        const balance = await loyaltyService.getBalance(resolveUserId(req));
+        res.json({ success: true, data: balance });
     } catch (error) {
         console.error('Get loyalty balance error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get loyalty balance'
-        });
+        res.status(500).json({ success: false, error: 'Failed to get balance' });
     }
 });
 
 /**
  * GET /api/loyalty/history
- * Paginated ledger for the current user (?limit & ?offset).
+ * Current user's ledger history (newest first).
  */
 router.get('/history', authMiddleware, async (req, res) => {
     try {
-        const { limit, offset } = req.query;
-
-        if (limit !== undefined && !isPositiveInteger(limit)) {
-            return res.status(400).json({
-                success: false,
-                error: 'limit must be a positive integer'
-            });
-        }
-
-        if (offset !== undefined && !isNonNegativeInteger(offset)) {
-            return res.status(400).json({
-                success: false,
-                error: 'offset must be a non-negative integer'
-            });
-        }
-
-        const history = await loyaltyService.getHistory(req.user.id, {
-            limit: limit !== undefined ? parseInt(limit, 10) : undefined,
-            offset: offset !== undefined ? parseInt(offset, 10) : undefined
-        });
-
-        res.json({
-            success: true,
-            data: history
-        });
+        const { limit } = req.query;
+        const history = await loyaltyService.getHistory(resolveUserId(req), limit);
+        res.json({ success: true, data: history });
     } catch (error) {
         console.error('Get loyalty history error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get loyalty history'
-        });
+        res.status(500).json({ success: false, error: 'Failed to get history' });
     }
 });
 
 /**
  * POST /api/loyalty/redeem
- * Redeem points for a discount. Body: { points }.
+ * Redeem points for a discount. Body: { points, reason? }.
  */
 router.post('/redeem', authMiddleware, async (req, res) => {
     try {
-        const { points } = req.body || {};
-
-        if (!Number.isInteger(points) || points <= 0) {
-            return res.status(400).json({
-                success: false,
-                error: 'points must be a positive integer'
-            });
+        const { points, reason } = req.body;
+        if (points === undefined || points === null) {
+            return res.status(400).json({ success: false, error: 'points is required' });
         }
 
-        const result = await loyaltyService.redeem(req.user.id, { points });
-
-        res.json({
-            success: true,
-            data: result
-        });
+        const result = await loyaltyService.redeem(resolveUserId(req), { points, reason });
+        res.json({ success: true, data: result });
     } catch (error) {
-        if (error && error.code === 'INSUFFICIENT_POINTS') {
-            return res.status(400).json({
-                success: false,
-                error: error.message
-            });
-        }
-
         console.error('Redeem loyalty points error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to redeem loyalty points'
-        });
+        // Validation / insufficient-balance errors are client errors.
+        res.status(400).json({ success: false, error: error.message || 'Failed to redeem points' });
     }
 });
 
-function isPositiveInteger(value) {
-    return /^\d+$/.test(String(value)) && parseInt(value, 10) > 0;
-}
+/**
+ * GET /api/loyalty/tiers
+ * The full tier ladder plus the current user's tier position.
+ */
+router.get('/tiers', authMiddleware, async (req, res) => {
+    try {
+        const tiers = loyaltyService.getTiers();
+        const currentTier = await loyaltyService.getTier(resolveUserId(req));
+        res.json({ success: true, data: { tiers, currentTier } });
+    } catch (error) {
+        console.error('Get loyalty tiers error:', error);
+        res.status(500).json({ success: false, error: 'Failed to get tiers' });
+    }
+});
 
-function isNonNegativeInteger(value) {
-    return /^\d+$/.test(String(value)) && parseInt(value, 10) >= 0;
-}
+/**
+ * POST /api/loyalty/admin/adjust
+ * Admin-only manual points correction. Body: { userId, points, reason? }.
+ */
+router.post('/admin/adjust', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const { userId, points, reason } = req.body;
+        if (userId === undefined || userId === null) {
+            return res.status(400).json({ success: false, error: 'userId is required' });
+        }
+        if (points === undefined || points === null) {
+            return res.status(400).json({ success: false, error: 'points is required' });
+        }
+
+        const result = await loyaltyService.adjust(userId, { points, reason });
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error('Adjust loyalty points error:', error);
+        res.status(400).json({ success: false, error: error.message || 'Failed to adjust points' });
+    }
+});
 
 module.exports = router;

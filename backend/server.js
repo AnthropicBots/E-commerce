@@ -305,6 +305,7 @@ app.use('/api/flags', flagRoutes);
 app.use('/api/correlation', correlationRoutes);
 app.use('/api/provenance', provenanceRoutes);
 app.use('/api/recommendations', recommendationRoutes);
+app.use('/api/loyalty', loyaltyRoutes);
 app.use('/api/rules', ruleRoutes);
 app.use('/api/plugins', pluginRoutes);
 app.use('/api/events', eventRoutes);
