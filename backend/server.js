@@ -164,6 +164,10 @@ const { verifyAICrawler } = require('./middleware/aiCrawlerMiddleware');
 const fraudRoutes = require('./routes/fraudRoutes');
 const aiRoutes = require('./routes/aiRoutes');
 
+// Back-in-stock & price-drop alerts (#1233)
+const stockAlertRoutes = require('./routes/stockAlertRoutes');
+const { startStockAlertScheduler } = require('./services/stockAlertScheduler');
+
 // 6. Connect to database configuration (runs pool initialization side-effects)
 require("./config/db");
 
@@ -316,6 +320,7 @@ app.use('/api/experiments', experimentRoutes);
 app.use('/api/copywriter', copywriterRoutes);
 app.use('/api/fraud', fraudRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/stock-alerts', stockAlertRoutes);
 app.use("/api", routes);
 app.use("/api/mcp", mcpRoutes);
 
@@ -455,6 +460,15 @@ async function bootstrap() {
         console.log("Event subscribers set up successfully.");
     } catch (err) {
         console.error("Warning: Failed to setup event subscribers:", err.message);
+    }
+
+    // Periodic back-in-stock / price-drop scan (#1233). No-ops under test.
+    if (process.env.NODE_ENV !== "test") {
+        try {
+            startStockAlertScheduler();
+        } catch (err) {
+            console.error("Warning: Failed to start stock-alert scheduler:", err.message);
+        }
     }
 
     // Start HTTP listening only after services finish initializations
