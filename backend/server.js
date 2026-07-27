@@ -73,6 +73,9 @@ const { moduleMaturityService } = require('./services/moduleMaturityService');
 const slaRoutes = require('./routes/slaRoutes');
 const { slaService } = require('./services/businessSLAService');
 
+const loyaltyRoutes = require('./routes/loyaltyRoutes');
+const { loyaltyService } = require('./services/loyaltyService');
+
 
 const discoveryRoutes = require('./routes/discoveryRoutes');
 const { capabilityDiscoveryService } = require('./services/capabilityDiscoveryService');
@@ -303,6 +306,7 @@ app.use('/api/flags', flagRoutes);
 app.use('/api/correlation', correlationRoutes);
 app.use('/api/provenance', provenanceRoutes);
 app.use('/api/recommendations', recommendationRoutes);
+app.use('/api/loyalty', loyaltyRoutes);
 app.use('/api/rules', ruleRoutes);
 app.use('/api/plugins', pluginRoutes);
 app.use('/api/events', eventRoutes);
@@ -428,6 +432,7 @@ async function bootstrap() {
         { name: 'OutboxService', instance: outboxService },
         { name: 'FeatureFlagService', instance: featureFlagService },
         { name: 'SLAService', instance: slaService },
+        { name: 'LoyaltyService', instance: loyaltyService },
         { name: 'ProvenanceService', instance: provenanceService },
         { name: 'CapabilityMappingService', instance: capabilityMappingService },
         { name: 'PluginSystem', instance: pluginSystem },
