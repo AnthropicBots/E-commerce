@@ -43,7 +43,6 @@ const agentRoutes = require('./routes/agentRoutes');
 const legalRoutes = require('./routes/legalRoutes');
 const aiLegalRoutes = require('./routes/aiLegalRoutes');
 const routes = require("./routes/index");
-const authLimiter = require("./middleware/authLimiter");
 const mcpRoutes = require("./routes/mcpRoutes"); // ✅ MCP Routes added
 // Add with other imports
 const socialEngineeringRoutes = require('./routes/socialEngineeringRoutes');
@@ -56,7 +55,6 @@ app.use(protectAgainstSocialEngineering);
 app.use('/api/social-engineering', socialEngineeringRoutes);
 
 const { authLimiter } = require("./middleware/authLimiter");
-const mcpRoutes = require("./routes/mcpRoutes");
 // Add with other imports
 const agentCheckoutRoutes = require('./routes/agentCheckoutRoutes');
 const { agentCheckoutService } = require('./services/agentCheckoutService');
@@ -166,6 +164,7 @@ const { detectBot, addBotDetectionHeaders } = require('./middleware/botProtectio
 const { verifyAICrawler } = require('./middleware/aiCrawlerMiddleware');
 const fraudRoutes = require('./routes/fraudRoutes');
 const aiRoutes = require('./routes/aiRoutes');
+const giftCardRoutes = require('./routes/giftCardRoutes');
 
 // 6. Connect to database configuration (runs pool initialization side-effects)
 require("./config/db");
@@ -320,6 +319,7 @@ app.use('/api/experiments', experimentRoutes);
 app.use('/api/copywriter', copywriterRoutes);
 app.use('/api/fraud', fraudRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/loyalty', loyaltyRoutes);
 app.use("/api", routes);
 app.use("/api/mcp", mcpRoutes);
 
