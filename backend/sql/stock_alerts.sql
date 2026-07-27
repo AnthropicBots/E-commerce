@@ -1,5 +1,7 @@
--- Stock Alert Subscriptions
--- Back-in-stock and price-drop alerts for wishlist/products (#1233).
+-- Stock Alert Subscriptions (#1233)
+-- Users subscribe to be notified when an out-of-stock product is restocked
+-- (back_in_stock) or when a wishlisted product's price drops (price_drop).
+-- Notifications are delivered via the existing notificationBrokerService.
 CREATE TABLE IF NOT EXISTS stock_alert_subscriptions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id CHAR(36) NOT NULL,

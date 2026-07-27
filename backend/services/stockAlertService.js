@@ -1,14 +1,12 @@
 // backend/services/stockAlertService.js
+// Subscription management and evaluation for back-in-stock and price-drop
+// alerts (#1233).
 //
-// Stock alert subscriptions and evaluation for #1233 ("Back-in-stock &
-// price-drop alerts for wishlist/products").
-//
-// Subscription management (subscribe / unsubscribe / listSubscriptions) is the
-// PR 1/3 foundation. The evaluation engine (evaluateRestocks /
+// The subscribe/unsubscribe/list surface over the `stock_alert_subscriptions`
+// table is the PR 1/3 foundation. The evaluation engine (evaluateRestocks /
 // evaluatePriceDrops) is the PR 2/3 contribution: it scans active
 // subscriptions, dispatches notifications through the existing broker, and
 // flips each notified subscription to 'notified' so a re-run cannot re-notify.
-
 const db = require("../config/db");
 const { notificationBroker, NOTIFICATION_TYPES } = require("./notificationBrokerService");
 
@@ -23,68 +21,114 @@ const SUBSCRIPTION_STATUS = {
     CANCELLED: "cancelled",
 };
 
+const VALID_ALERT_TYPES = Object.values(ALERT_TYPES);
+
 // Both back-in-stock and price-drop alerts are worth surfacing in the app and
 // over email, so every dispatch fans out to the same two channels.
 const ALERT_CHANNELS = ["in_app", "email"];
 
+function assertAlertType(alertType) {
+    if (!VALID_ALERT_TYPES.includes(alertType)) {
+        throw new Error(
+            `Invalid alertType: ${alertType}. Expected one of ${VALID_ALERT_TYPES.join(", ")}`
+        );
+    }
+}
+
+async function fetchCurrentPrice(productId) {
+    const [rows] = await db.query(
+        "SELECT price FROM products WHERE id = ?",
+        [productId]
+    );
+    if (!rows || rows.length === 0) {
+        throw new Error(`Product not found: ${productId}`);
+    }
+    return rows[0].price;
+}
+
+async function fetchSubscription(userId, productId, alertType) {
+    const [rows] = await db.query(
+        `SELECT * FROM stock_alert_subscriptions
+         WHERE user_id = ? AND product_id = ? AND alert_type = ?`,
+        [userId, productId, alertType]
+    );
+    return rows && rows.length > 0 ? rows[0] : null;
+}
+
+// Flip a subscription to 'notified' after a successful dispatch. This is the
+// dedupe hinge: the evaluate queries only ever pick up ACTIVE rows, so a
+// notified row is excluded from every later run.
+async function markNotified(subscriptionId) {
+    await db.query(
+        `UPDATE stock_alert_subscriptions
+         SET status = '${SUBSCRIPTION_STATUS.NOTIFIED}', last_notified_at = ?
+         WHERE id = ?`,
+        [new Date(), subscriptionId]
+    );
+}
+
 const stockAlertService = {
-    // --- PR 1/3 foundation: subscription management -----------------------
+    ALERT_TYPES,
+    SUBSCRIPTION_STATUS,
 
-    // Create (or re-activate) a subscription. The UNIQUE key on
-    // (user_id, product_id, alert_type) makes this idempotent: a repeat
-    // subscribe re-arms an existing row rather than inserting a duplicate.
-    // A price_drop subscription with no explicit referencePrice anchors to the
-    // product's current price so any later dip counts as a drop.
+    // Create (or reactivate) a subscription. The UNIQUE key on
+    // (user_id, product_id, alert_type) makes this idempotent: a repeat call
+    // for the same triple reactivates the existing row instead of inserting a
+    // duplicate, resetting status to 'active' and clearing last_notified_at so
+    // the evaluation engine treats it as a fresh subscription.
     subscribe: async ({ userId, productId, alertType, referencePrice = null }) => {
-        let price = referencePrice;
+        assertAlertType(alertType);
 
-        if (alertType === ALERT_TYPES.PRICE_DROP && price === null) {
-            const [products] = await db.query(
-                "SELECT price FROM products WHERE id = ?",
-                [productId]
-            );
-            if (products.length === 0) {
-                throw new Error(`Cannot subscribe to price drop: product ${productId} not found`);
-            }
-            price = products[0].price;
+        // A price-drop alert needs a baseline to compare against; default it to
+        // the product's current price when the caller doesn't pin one.
+        let effectiveReferencePrice = referencePrice;
+        if (alertType === ALERT_TYPES.PRICE_DROP && effectiveReferencePrice === null) {
+            effectiveReferencePrice = await fetchCurrentPrice(productId);
         }
 
-        const [result] = await db.query(
-            `INSERT INTO stock_alert_subscriptions (user_id, product_id, alert_type, reference_price, status)
-             VALUES (?, ?, ?, ?, 'active')
+        await db.query(
+            `INSERT INTO stock_alert_subscriptions
+                (user_id, product_id, alert_type, reference_price, status, last_notified_at)
+             VALUES (?, ?, ?, ?, 'active', NULL)
              ON DUPLICATE KEY UPDATE
-                reference_price = VALUES(reference_price),
                 status = 'active',
                 last_notified_at = NULL,
-                updated_at = CURRENT_TIMESTAMP`,
-            [userId, productId, alertType, price]
+                reference_price = VALUES(reference_price)`,
+            [userId, productId, alertType, effectiveReferencePrice]
         );
 
-        return { userId, productId, alertType, referencePrice: price, id: result.insertId };
+        return fetchSubscription(userId, productId, alertType);
     },
 
-    // Soft cancel: keep the row (and its history) but stop it from being
-    // evaluated by flipping status to 'cancelled'.
+    // Soft-cancel: flip status to 'cancelled' so the row (and its reference
+    // price / notification history) is preserved and a later subscribe can
+    // reactivate the same row via the UNIQUE key.
     unsubscribe: async ({ userId, productId, alertType }) => {
+        assertAlertType(alertType);
+
         const [result] = await db.query(
             `UPDATE stock_alert_subscriptions
-             SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+             SET status = 'cancelled'
              WHERE user_id = ? AND product_id = ? AND alert_type = ?`,
             [userId, productId, alertType]
         );
 
-        return result.affectedRows > 0;
+        return result;
     },
 
-    listSubscriptions: async (userId, { alertType, status } = {}) => {
+    // List a user's subscriptions, optionally narrowed by alert type and/or
+    // status. Filters are appended only when provided so the query stays a
+    // single indexed lookup on user_id in the common case.
+    listSubscriptions: async (userId, { alertType = null, status = null } = {}) => {
         let sql = "SELECT * FROM stock_alert_subscriptions WHERE user_id = ?";
         const params = [userId];
 
-        if (alertType) {
+        if (alertType !== null) {
             sql += " AND alert_type = ?";
             params.push(alertType);
         }
-        if (status) {
+
+        if (status !== null) {
             sql += " AND status = ?";
             params.push(status);
         }
@@ -95,8 +139,6 @@ const stockAlertService = {
         return rows;
     },
 
-    // --- PR 2/3: evaluation engine ---------------------------------------
-
     // Notify subscribers whose out-of-stock product is now back in stock.
     // A single join surfaces exactly the rows that qualify (active
     // back_in_stock alerts whose product has stock > 0); each gets one
@@ -106,8 +148,8 @@ const stockAlertService = {
             `SELECT s.id, s.user_id, s.product_id, p.stock
              FROM stock_alert_subscriptions s
              JOIN products p ON p.id = s.product_id
-             WHERE s.alert_type = 'back_in_stock'
-               AND s.status = 'active'
+             WHERE s.alert_type = '${ALERT_TYPES.BACK_IN_STOCK}'
+               AND s.status = '${SUBSCRIPTION_STATUS.ACTIVE}'
                AND p.stock > 0`,
             []
         );
@@ -134,8 +176,8 @@ const stockAlertService = {
             `SELECT s.id, s.user_id, s.product_id, s.reference_price, p.price
              FROM stock_alert_subscriptions s
              JOIN products p ON p.id = s.product_id
-             WHERE s.alert_type = 'price_drop'
-               AND s.status = 'active'
+             WHERE s.alert_type = '${ALERT_TYPES.PRICE_DROP}'
+               AND s.status = '${SUBSCRIPTION_STATUS.ACTIVE}'
                AND p.price < s.reference_price`,
             []
         );
@@ -160,18 +202,4 @@ const stockAlertService = {
     },
 };
 
-// Flip a subscription to 'notified' after a successful dispatch. This is the
-// dedupe hinge: the evaluate queries only ever pick up status='active' rows,
-// so a notified row is excluded from every later run.
-async function markNotified(subscriptionId) {
-    await db.query(
-        `UPDATE stock_alert_subscriptions
-         SET status = 'notified', last_notified_at = ?
-         WHERE id = ?`,
-        [new Date(), subscriptionId]
-    );
-}
-
 module.exports = stockAlertService;
-module.exports.ALERT_TYPES = ALERT_TYPES;
-module.exports.SUBSCRIPTION_STATUS = SUBSCRIPTION_STATUS;

@@ -153,6 +153,10 @@ describe("subscription foundation (PR 1/3)", () => {
     test("subscribe to price_drop with no referencePrice anchors to the current product price", async () => {
         respondWith((sql) => {
             if (/SELECT price FROM products/i.test(sql)) return [{ price: 100.0 }];
+            // subscribe returns the freshly upserted row via a SELECT *.
+            if (/SELECT \* FROM stock_alert_subscriptions/i.test(sql)) {
+                return [{ id: 5, user_id: "user-1", product_id: "prod-1", alert_type: "price_drop", reference_price: 100.0, status: "active" }];
+            }
             return { insertId: 5, affectedRows: 1 };
         });
 
@@ -162,7 +166,7 @@ describe("subscription foundation (PR 1/3)", () => {
             alertType: "price_drop",
         });
 
-        expect(result).toMatchObject({ referencePrice: 100.0, id: 5 });
+        expect(result).toMatchObject({ reference_price: 100.0, id: 5 });
 
         // Idempotent insert: dedupe rides the UNIQUE key via ON DUPLICATE KEY.
         const [insertSql, insertParams] = db.query.mock.calls.find(([sql]) =>
@@ -197,13 +201,13 @@ describe("subscription foundation (PR 1/3)", () => {
     test("unsubscribe soft-cancels the matching subscription", async () => {
         respondWith(() => ({ affectedRows: 1 }));
 
-        const ok = await service.unsubscribe({
+        const result = await service.unsubscribe({
             userId: "user-1",
             productId: "prod-1",
             alertType: "back_in_stock",
         });
 
-        expect(ok).toBe(true);
+        expect(result).toMatchObject({ affectedRows: 1 });
         const [sql, params] = db.query.mock.calls[0];
         expect(sql).toMatch(/SET status = 'cancelled'/i);
         expect(params).toEqual(["user-1", "prod-1", "back_in_stock"]);
