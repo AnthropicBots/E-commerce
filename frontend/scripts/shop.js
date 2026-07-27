@@ -93,6 +93,12 @@ let hasAppliedUrlFilters = false;
 // SHOP PAGE ELEMENTS
 const elements = {};
 
+const cacheShopElements = () => {
+    elements.searchInput = document.getElementById("search-input");
+    elements.suggestions = document.getElementById("search-suggestions");
+    elements.searchForm = document.querySelector(".search-box");
+};
+
 const getFilterUtils = () =>
     globalThis.ShopFilterUtils;
 
@@ -1133,6 +1139,7 @@ function setupFilterDrawer() {
 
 // INITIALIZATION (Updated)
 document.addEventListener("DOMContentLoaded", () => {
+    cacheShopElements();
     fetchProducts();
     setupSearch();
     setupCategoryFilters();
