@@ -161,8 +161,7 @@ const { detectBot, addBotDetectionHeaders } = require('./middleware/botProtectio
 const { verifyAICrawler } = require('./middleware/aiCrawlerMiddleware');
 const fraudRoutes = require('./routes/fraudRoutes');
 const aiRoutes = require('./routes/aiRoutes');
-const experimentRoutes = require('./routes/experimentRoutes');
-const copywriterRoutes = require('./routes/copywriterRoutes');
+const giftCardRoutes = require('./routes/giftCardRoutes');
 
 // 6. Connect to database configuration (runs pool initialization side-effects)
 require("./config/db");
@@ -316,6 +315,7 @@ app.use('/api/experiments', experimentRoutes);
 app.use('/api/copywriter', copywriterRoutes);
 app.use('/api/fraud', fraudRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/gift-cards', giftCardRoutes);
 app.use("/api", routes);
 app.use("/api/mcp", mcpRoutes);
 
