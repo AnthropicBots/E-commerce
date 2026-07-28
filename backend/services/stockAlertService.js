@@ -1,9 +1,14 @@
 // backend/services/stockAlertService.js
-// Subscription management for back-in-stock and price-drop alerts (#1233).
-// Owns only the subscribe/unsubscribe/list surface over the
-// `stock_alert_subscriptions` table; the evaluation engine and the API/
-// scheduler that consume these rows live in follow-up changes.
+// Subscription management and evaluation for back-in-stock and price-drop
+// alerts (#1233).
+//
+// The subscribe/unsubscribe/list surface over the `stock_alert_subscriptions`
+// table is the PR 1/3 foundation. The evaluation engine (evaluateRestocks /
+// evaluatePriceDrops) is the PR 2/3 contribution: it scans active
+// subscriptions, dispatches notifications through the existing broker, and
+// flips each notified subscription to 'notified' so a re-run cannot re-notify.
 const db = require("../config/db");
+const { notificationBroker, NOTIFICATION_TYPES } = require("./notificationBrokerService");
 
 const ALERT_TYPES = {
     BACK_IN_STOCK: "back_in_stock",
@@ -17,6 +22,10 @@ const SUBSCRIPTION_STATUS = {
 };
 
 const VALID_ALERT_TYPES = Object.values(ALERT_TYPES);
+
+// Both back-in-stock and price-drop alerts are worth surfacing in the app and
+// over email, so every dispatch fans out to the same two channels.
+const ALERT_CHANNELS = ["in_app", "email"];
 
 function assertAlertType(alertType) {
     if (!VALID_ALERT_TYPES.includes(alertType)) {
@@ -44,6 +53,18 @@ async function fetchSubscription(userId, productId, alertType) {
         [userId, productId, alertType]
     );
     return rows && rows.length > 0 ? rows[0] : null;
+}
+
+// Flip a subscription to 'notified' after a successful dispatch. This is the
+// dedupe hinge: the evaluate queries only ever pick up ACTIVE rows, so a
+// notified row is excluded from every later run.
+async function markNotified(subscriptionId) {
+    await db.query(
+        `UPDATE stock_alert_subscriptions
+         SET status = '${SUBSCRIPTION_STATUS.NOTIFIED}', last_notified_at = ?
+         WHERE id = ?`,
+        [new Date(), subscriptionId]
+    );
 }
 
 const stockAlertService = {
@@ -116,6 +137,68 @@ const stockAlertService = {
 
         const [rows] = await db.query(sql, params);
         return rows;
+    },
+
+    // Notify subscribers whose out-of-stock product is now back in stock.
+    // A single join surfaces exactly the rows that qualify (active
+    // back_in_stock alerts whose product has stock > 0); each gets one
+    // notification, then is marked 'notified' so a subsequent run skips it.
+    evaluateRestocks: async () => {
+        const [rows] = await db.query(
+            `SELECT s.id, s.user_id, s.product_id, p.stock
+             FROM stock_alert_subscriptions s
+             JOIN products p ON p.id = s.product_id
+             WHERE s.alert_type = '${ALERT_TYPES.BACK_IN_STOCK}'
+               AND s.status = '${SUBSCRIPTION_STATUS.ACTIVE}'
+               AND p.stock > 0`,
+            []
+        );
+
+        const notifiedIds = [];
+        for (const row of rows) {
+            await notificationBroker.publish(
+                NOTIFICATION_TYPES.PRODUCT_BACK_IN_STOCK,
+                { userId: row.user_id, productId: row.product_id, stock: row.stock },
+                { channels: ALERT_CHANNELS }
+            );
+            await markNotified(row.id);
+            notifiedIds.push(row.id);
+        }
+
+        return { notifiedCount: notifiedIds.length, notifiedIds };
+    },
+
+    // Notify subscribers whose product's current price fell below the price
+    // they anchored to when subscribing. Same dispatch-then-mark-notified
+    // dedupe as evaluateRestocks.
+    evaluatePriceDrops: async () => {
+        const [rows] = await db.query(
+            `SELECT s.id, s.user_id, s.product_id, s.reference_price, p.price
+             FROM stock_alert_subscriptions s
+             JOIN products p ON p.id = s.product_id
+             WHERE s.alert_type = '${ALERT_TYPES.PRICE_DROP}'
+               AND s.status = '${SUBSCRIPTION_STATUS.ACTIVE}'
+               AND p.price < s.reference_price`,
+            []
+        );
+
+        const notifiedIds = [];
+        for (const row of rows) {
+            await notificationBroker.publish(
+                NOTIFICATION_TYPES.WISHLIST_PRICE_DROP,
+                {
+                    userId: row.user_id,
+                    productId: row.product_id,
+                    price: row.price,
+                    referencePrice: row.reference_price,
+                },
+                { channels: ALERT_CHANNELS }
+            );
+            await markNotified(row.id);
+            notifiedIds.push(row.id);
+        }
+
+        return { notifiedCount: notifiedIds.length, notifiedIds };
     },
 };
 
