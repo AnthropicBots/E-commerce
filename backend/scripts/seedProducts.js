@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const crypto = require('crypto');
 
 const sampleProducts = [
   {
@@ -113,10 +114,43 @@ const sampleProducts = [
 
 (async function seed() {
   try {
+    // Resolve all categories to IDs first
+    const categoryNameToId = new Map();
+    const uniqueCategoryNames = [...new Set(sampleProducts.map(p => p.category).filter(Boolean))];
+    
+    for (const catName of uniqueCategoryNames) {
+        const trimmed = catName.trim();
+        const [rows] = await db.query(
+            "SELECT id FROM categories WHERE LOWER(TRIM(name)) = LOWER(?) LIMIT 1",
+            [trimmed]
+        );
+        if (rows.length > 0) {
+            categoryNameToId.set(trimmed, rows[0].id);
+        } else {
+            const slug = trimmed
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, "-")
+                .replace(/^-+|-+$/g, "");
+            
+            const [result] = await db.query(
+                "INSERT INTO categories (name, slug, level, is_active) VALUES (?, ?, 0, 1)",
+                [trimmed, slug]
+            );
+            categoryNameToId.set(trimmed, result.insertId);
+        }
+    }
+
     for (const p of sampleProducts) {
-      const query = `INSERT INTO products (name, description, price, image, category, stock, featured) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-      const [result] = await db.query(query, [p.name, p.description, p.price, p.image, p.category, p.stock, p.featured]);
-      console.log('Inserted product id:', result.insertId, p.name);
+      const categoryId = categoryNameToId.get(p.category) || null;
+      const productId = crypto.randomUUID();
+      const slug = p.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
+      const query = `INSERT INTO products (id, name, description, price, image, category_id, stock, featured, slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+      await db.query(query, [productId, p.name, p.description, p.price, p.image, categoryId, p.stock, p.featured, slug]);
+      console.log('Inserted product id:', productId, p.name);
     }
     console.log('Seeding complete.');
     process.exit(0);

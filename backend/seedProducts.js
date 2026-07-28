@@ -1,6 +1,7 @@
 const mysql = require("mysql2/promise");
 require("dotenv").config();
 const fs = require("fs");
+const crypto = require("crypto");
 
 const config = {
   allowProduction: process.env.ALLOW_PRODUCTION_SEED === "true" || false,
@@ -295,7 +296,11 @@ async function seed() {
     if (config.clearExisting) {
       console.log("Clearing existing products...");
       await connection.execute("DELETE FROM products");
-      await connection.execute("ALTER TABLE products AUTO_INCREMENT = 1");
+      try {
+        await connection.execute("ALTER TABLE products AUTO_INCREMENT = 1");
+      } catch (err) {
+        // Ignore if id is not auto-increment
+      }
       console.log("Existing products cleared");
     }
 
@@ -325,6 +330,32 @@ async function seed() {
 
     await connection.beginTransaction();
 
+    // Resolve all categories to IDs
+    const categoryNameToId = new Map();
+    const uniqueCategoryNames = [...new Set(productData.map(p => p.category).filter(Boolean))];
+    
+    for (const catName of uniqueCategoryNames) {
+        const trimmed = catName.trim();
+        const [rows] = await connection.execute(
+            "SELECT id FROM categories WHERE LOWER(TRIM(name)) = LOWER(?) LIMIT 1",
+            [trimmed]
+        );
+        if (rows.length > 0) {
+            categoryNameToId.set(trimmed, rows[0].id);
+        } else {
+            const slug = trimmed
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, "-")
+                .replace(/^-+|-+$/g, "");
+            
+            const [result] = await connection.execute(
+                "INSERT INTO categories (name, slug, level, is_active) VALUES (?, ?, 0, 1)",
+                [trimmed, slug]
+            );
+            categoryNameToId.set(trimmed, result.insertId);
+        }
+    }
+
     let inserted = 0;
     let skipped = 0;
     const errors = [];
@@ -353,12 +384,16 @@ async function seed() {
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-+|-+$/g, "");
 
+      const categoryId = categoryNameToId.get(product.category) || null;
+      const productId = crypto.randomUUID();
+
       batch.push([
+        productId,
         product.name,
         product.description || "",
         product.price,
         product.image || "",
-        product.category,
+        categoryId,
         product.stock || 0,
         product.featured || 0,
         slug,
@@ -368,7 +403,7 @@ async function seed() {
 
       if (batch.length >= config.batchSize) {
         const placeholders = batch
-          .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())")
+          .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())")
           .join(", ");
 
         const values = batch.flat();
@@ -376,7 +411,7 @@ async function seed() {
         try {
           const query = `
                         INSERT INTO products 
-                        (name, description, price, image, category, stock, featured, slug, created_at, updated_at)
+                        (id, name, description, price, image, category_id, stock, featured, slug, created_at, updated_at)
                         VALUES ${placeholders}
                     `;
           await connection.execute(query, values);
@@ -392,7 +427,7 @@ async function seed() {
 
     if (batch.length > 0) {
       const placeholders = batch
-        .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())")
+        .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())")
         .join(", ");
 
       const values = batch.flat();
@@ -400,7 +435,7 @@ async function seed() {
       try {
         const query = `
                     INSERT INTO products 
-                    (name, description, price, image, category, stock, featured, slug, created_at, updated_at)
+                    (id, name, description, price, image, category_id, stock, featured, slug, created_at, updated_at)
                     VALUES ${placeholders}
                 `;
         await connection.execute(query, values);
