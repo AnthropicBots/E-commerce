@@ -84,67 +84,81 @@ const validatePromoCode = async (req, res) => {
         }
 
         const cacheKey = `promo_${promoCode}`;
-        const cached = promoCache.get(cacheKey);
-        if (cached) {
-            // Only return cached success responses, not errors
-            if (cached.valid === false) {
-                return res.status(404).json({ success: false, message: cached.message });
-            }
-            return res.status(200).json({ success: true, data: cached, cached: true });
-        }
+        let promo = promoCache.get(cacheKey);
+        let fromCache = true;
 
-        const promo = await getPromoByCode(promoCode);
         if (!promo) {
-            // Do NOT cache negative results - only cache successful validations
-            return res.status(404).json({ success: false, message: "Promo code not found" });
+            fromCache = false;
+            promo = await getPromoByCode(promoCode);
+            if (!promo) {
+                // Do NOT cache negative results - only cache successful validations
+                return res.status(404).json({ success: false, message: "Promo code not found" });
+            }
+
+            if (!validateDiscount(Number(promo.discount_value), promo.discount_type)) {
+                // Do NOT cache negative results
+                return res.status(400).json({ success: false, message: "Invalid discount value" });
+            }
+
+            // Cache the raw promo code DB row if valid format/discount
+            promoCache.set(cacheKey, promo);
         }
 
-        if (!validateDiscount(promo.discount_value, promo.discount_type)) {
-            // Do NOT cache negative results
-            return res.status(400).json({ success: false, message: "Invalid discount value" });
+        // Perform validations dynamically on the cached/fetched promo row
+        if (!promo.is_active) {
+            return res.status(400).json({ success: false, message: "Promo code is inactive" });
         }
 
-        const validation = await validatePromo(promoCode, cartTotal);
-        if (!validation.valid) {
-            // Do NOT cache negative results
-            return res.status(400).json({ success: false, message: validation.message });
+        const currentDate = new Date();
+        if (new Date(promo.start_date) > currentDate) {
+            return res.status(400).json({ success: false, message: "Promo code is not yet active" });
         }
 
-        const discount = calculateDiscount(validation.promo, cartTotal);
+        if (new Date(promo.expiry_date) < currentDate) {
+            return res.status(400).json({ success: false, message: "Promo code has expired" });
+        }
+
+        if (safeNumber(cartTotal) < safeNumber(promo.minimum_order_amount)) {
+            return res.status(400).json({
+                success: false,
+                message: `Minimum order amount of ₹${promo.minimum_order_amount} required`
+            });
+        }
+
+        // Calculate dynamic values for this request's cartTotal
+        const discount = calculateDiscount(promo, cartTotal);
         const maxAllowedDiscount = calculateMaxDiscount(
             cartTotal,
-            validation.promo.discount_type,
-            validation.promo.discount_value
+            promo.discount_type,
+            promo.discount_value
         );
         const finalDiscount = Math.min(discount, maxAllowedDiscount);
         const finalAmount = Number((cartTotal - finalDiscount).toFixed(2));
 
-        const expiresAt = validation.promo.expires_at;
+        const expiresAt = promo.expiry_date;
         const isExpiringSoon = expiresAt && (new Date(expiresAt) - new Date()) < 7 * 24 * 60 * 60 * 1000;
 
         const promoData = {
-            promoCode: validation.promo.code,
-            discountType: validation.promo.discount_type || 'percentage',
-            discountValue: validation.promo.discount_value || 0,
-            maxDiscount: validation.promo.max_discount || null,
-            minCartValue: validation.promo.min_cart_value || 0,
-            expiresAt: validation.promo.expires_at || null,
-            usageLimit: validation.promo.usage_limit || null,
-            usedCount: validation.promo.used_count || 0,
-            remainingUses: validation.promo.usage_limit ? (validation.promo.usage_limit - (validation.promo.used_count || 0)) : null,
+            promoCode: promo.code,
+            discountType: promo.discount_type || 'percentage',
+            discountValue: promo.discount_value || 0,
+            maxDiscount: promo.maximum_discount || null,
+            minCartValue: promo.minimum_order_amount || 0,
+            expiresAt: promo.expiry_date || null,
+            usageLimit: promo.usage_limit || null,
+            usedCount: promo.used_count || 0,
+            remainingUses: promo.usage_limit ? (promo.usage_limit - (promo.used_count || 0)) : null,
             valid: true,
             discount: finalDiscount,
             finalAmount: finalAmount,
             isExpiringSoon: isExpiringSoon,
-            isStackable: validation.promo.is_stackable !== false,
-            maxStack: validation.promo.max_stack || 1
+            isStackable: promo.is_stackable !== false,
+            maxStack: promo.max_stack || 1
         };
 
-        promoCache.set(cacheKey, promoData);
+        console.log(`[AUDIT] Promo ${promoCode} validated by user ${userId} - Discount: ${finalDiscount} (Cached: ${fromCache})`);
 
-        console.log(`[AUDIT] Promo ${promoCode} validated by user ${userId} - Discount: ${finalDiscount}`);
-
-        return res.status(200).json({ success: true, data: promoData, cached: false });
+        return res.status(200).json({ success: true, data: promoData, cached: fromCache });
 
     } catch (error) {
         console.error("PROMO VALIDATION ERROR:", error);
