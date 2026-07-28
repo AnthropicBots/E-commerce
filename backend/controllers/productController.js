@@ -7,12 +7,55 @@ const {
     safeUUID,
     sanitizeString,
     buildPaginationMeta,
-    safeArray
+    safeArray,
+    generateUUID
 } = require("../utils/helpers");
 
 const MAX_PRODUCT_LIMIT = 50;
 const NORMALIZED_CATEGORY_SQL =
-    "LOWER(REPLACE(REPLACE(category, '-', ''), ' ', ''))";
+    "LOWER(REPLACE(REPLACE(c.name, '-', ''), ' ', ''))";
+
+async function getOrCreateCategoryId(categoryName, connection = db) {
+    if (!categoryName || typeof categoryName !== 'string') return null;
+    const trimmed = categoryName.trim();
+    if (!trimmed) return null;
+
+    // Search case-insensitively
+    const [rows] = await connection.query(
+        "SELECT id FROM categories WHERE LOWER(TRIM(name)) = LOWER(?) LIMIT 1",
+        [trimmed]
+    );
+
+    if (rows.length > 0) {
+        return rows[0].id;
+    }
+
+    // Otherwise, insert it
+    const slug = trimmed
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
+    try {
+        const [result] = await connection.query(
+            "INSERT INTO categories (name, slug, level, is_active) VALUES (?, ?, 0, 1)",
+            [trimmed, slug]
+        );
+        return result.insertId;
+    } catch (err) {
+        // If duplicate slug (concurrency safety), fetch it again
+        if (err.code === 'ER_DUP_ENTRY') {
+            const [rows] = await connection.query(
+                "SELECT id FROM categories WHERE LOWER(TRIM(name)) = LOWER(?) LIMIT 1",
+                [trimmed]
+            );
+            if (rows.length > 0) {
+                return rows[0].id;
+            }
+        }
+        throw err;
+    }
+}
 
 const FULLTEXT_SEARCH_COLUMNS = "name, description, short_description, meta_keywords";
 
@@ -26,13 +69,13 @@ const FULLTEXT_UNAVAILABLE_CODES = new Set([
 // `id DESC` tie-breaker keeps pagination free of overlaps/gaps when the
 // primary sort column has duplicate values.
 const SORT_CLAUSES = {
-    newest: "id DESC",
-    oldest: "id ASC",
-    "price-low-high": "price ASC, id DESC",
-    "price-high-low": "price DESC, id DESC",
-    popularity: "num_reviews DESC, id DESC",
-    "highest-rated": "rating DESC, id DESC",
-    "alphabetical-az": "name ASC, id DESC"
+    newest: "p.id DESC",
+    oldest: "p.id ASC",
+    "price-low-high": "p.price ASC, p.id DESC",
+    "price-high-low": "p.price DESC, p.id DESC",
+    popularity: "p.num_reviews DESC, p.id DESC",
+    "highest-rated": "p.rating DESC, p.id DESC",
+    "alphabetical-az": "p.name ASC, p.id DESC"
 };
 const DEFAULT_SORT_CLAUSE = SORT_CLAUSES.newest;
 const TOYS_CATEGORY_VALUES = [
@@ -141,7 +184,7 @@ const getProducts = async (req, res) => {
         const orderByClause =
             SORT_CLAUSES[sanitizeString(req.query.sort)] || DEFAULT_SORT_CLAUSE;
 
-        const filterConditions = [];
+        const filterConditions = ["p.deleted_at IS NULL"];
         const filterParams = [];
 
         // category filter (case/format-insensitive)
@@ -182,7 +225,7 @@ const getProducts = async (req, res) => {
             req.query.featured === "true"
         ) {
             filterConditions.push(
-                "featured = 1"
+                "p.featured = 1"
             );
         }
 
@@ -197,18 +240,18 @@ const getProducts = async (req, res) => {
                     );
                     params.push(booleanSearch);
                 } else {
-                    conditions.push("name LIKE ?");
+                    conditions.push("p.name LIKE ?");
                     params.push(likeSearch);
                 }
             }
 
             if (minPrice !== null) {
-                conditions.push("price >= ?");
+                conditions.push("p.price >= ?");
                 params.push(minPrice);
             }
 
             if (maxPrice !== null) {
-                conditions.push("price <= ?");
+                conditions.push("p.price <= ?");
                 params.push(maxPrice);
             }
 
@@ -218,23 +261,25 @@ const getProducts = async (req, res) => {
 
             const countQuery = `
                 SELECT COUNT(*) AS total
-                FROM products
+                FROM products p
+                LEFT JOIN categories c ON p.category_id = c.id
                 ${whereClause}
             `;
 
             const productQuery = `
                 SELECT
-                    id,
-                    name,
-                    description,
-                    price,
-                    image,
-                    category,
-                    stock,
-                    featured,
-                    rating,
-                    num_reviews
-                FROM products
+                    p.id,
+                    p.name,
+                    p.description,
+                    p.price,
+                    p.image,
+                    c.name AS category,
+                    p.stock,
+                    p.featured,
+                    p.rating,
+                    p.num_reviews
+                FROM products p
+                LEFT JOIN categories c ON p.category_id = c.id
                 ${whereClause}
                 ORDER BY ${orderByClause}
                 LIMIT ?
@@ -347,18 +392,19 @@ const getSingleProduct = async (req, res) => {
 
     const query = `
         SELECT
-            id,
-            name,
-            description,
-            price,
-            image,
-            category,
-            stock,
-            featured,
-            rating,
-            num_reviews
-        FROM products
-        WHERE id = ?
+            p.id,
+            p.name,
+            p.description,
+            p.price,
+            p.image,
+            c.name AS category,
+            p.stock,
+            p.featured,
+            p.rating,
+            p.num_reviews
+        FROM products p
+        LEFT JOIN categories c ON p.category_id = c.id
+        WHERE p.id = ? AND p.deleted_at IS NULL
     `;
 
     try {
@@ -416,19 +462,13 @@ const createProduct = async (req, res) => {
         });
     }
 
-    const query = `
-        INSERT INTO products
-        (name, description, price, image, category, stock, featured)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    `;
-
     try {
-    // Prevent duplicate product names (case-insensitive)
+        // Prevent duplicate product names (case-insensitive)
         const [existingProducts] = await db.query(
             `
         SELECT id
         FROM products
-        WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))
+        WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND deleted_at IS NULL
         LIMIT 1
     `,
             [normalizedName]
@@ -440,15 +480,25 @@ const createProduct = async (req, res) => {
                 message: "A product with this name already exists."
             });
         }
+
+        const categoryId = await getOrCreateCategoryId(category, db);
+        const productId = generateUUID();
+
+        const query = `
+            INSERT INTO products
+            (id, name, description, price, image, category_id, stock, featured)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `;
         
-        const [result] = await db.query(
+        await db.query(
             query,
             [
+                productId,
                 normalizedName,
                 description || "",
                 safeNumber(price),
                 sanitizeString(image),
-                sanitizeString(category),
+                categoryId,
                 Math.max(
                     0,
                     safeInteger(stock)
@@ -464,7 +514,7 @@ const createProduct = async (req, res) => {
         res.status(201).json({
             success: true,
             message: "Product created successfully",
-            productId: result.insertId
+            productId: productId
         });
     } catch (error) {
         console.error(error);
@@ -519,20 +569,22 @@ const updateProduct = async (req, res) => {
         });
     }
 
-    const query = `
-        UPDATE products
-        SET
-            name = ?,
-            description = ?,
-            price = ?,
-            image = ?,
-            category = ?,
-            stock = ?,
-            featured = ?
-        WHERE id = ?
-    `;
-
     try {
+        const categoryId = category !== undefined ? await getOrCreateCategoryId(category, db) : undefined;
+
+        const query = `
+            UPDATE products
+            SET
+                name = ?,
+                description = ?,
+                price = ?,
+                image = ?,
+                category_id = COALESCE(?, category_id),
+                stock = ?,
+                featured = ?
+            WHERE id = ? AND deleted_at IS NULL
+        `;
+
         const [result] = await db.query(
             query,
             [
@@ -540,7 +592,7 @@ const updateProduct = async (req, res) => {
                 description || "",
                 safeNumber(price),
                 sanitizeString(image),
-                sanitizeString(category),
+                categoryId,
                 Math.max(
                     0,
                     safeInteger(stock)
