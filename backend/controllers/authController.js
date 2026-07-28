@@ -290,9 +290,10 @@ const verifySignup = async (req, res) => {
         }
 
         // Save to MySQL with email_verified flag
+        const userId = crypto.randomUUID();
         await db.query(
-            `INSERT INTO users (name, email, password, role, email_verified) VALUES (?, ?, ?, ?, ?)`,
-            [pendingUser.name, cleanEmail, pendingUser.hashedPassword, "user", 1]
+            `INSERT INTO users (id, name, email, password, role, is_verified) VALUES (?, ?, ?, ?, ?, ?)`,
+            [userId, pendingUser.name, cleanEmail, pendingUser.hashedPassword, "user", 1]
         );
 
         // Cleanup Appwrite session
@@ -431,7 +432,7 @@ const forgotPassword = async (req, res) => {
             });
         }
 
-        const [users] = await db.query(`SELECT id, email_verified FROM users WHERE email = ? LIMIT 1`, [cleanEmail]);
+        const [users] = await db.query(`SELECT id, is_verified AS email_verified FROM users WHERE email = ? LIMIT 1`, [cleanEmail]);
         if (!safeArray(users).length) {
             // Security: Don't reveal if email exists
             return res.status(200).json({ 
