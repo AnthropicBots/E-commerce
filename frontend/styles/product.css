@@ -108,7 +108,7 @@
   border-radius: 6px;
   cursor: pointer;
   margin-right: 10px;
-  margin-bottom: 20px;
+  margin-bottom: -10px;
   transition: 0.3s ease;
 }
 

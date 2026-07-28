@@ -113,20 +113,20 @@ product section
 #product1 .pro .cart,
 #new-arrivals .pro .cart,
 #recently-viewed .pro .cart {
-  width: 48px;
-  height: 48px;
-  line-height: 48px;
+  width: 55px;
+  height: 55px;
+  line-height: 55px;
   border-radius: 50%;
   background-color: #e8f6ea;
   font-weight: 600;
   color: var(--primary-color);
   border: none;
   position: absolute;
-  bottom: 24px;
-  right: 16px;
+  bottom: 15px;
+  right: 12px;
   transition: var(--transition-fast);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  font-size: 18px;
+  font-size: 21px;
   cursor: pointer;
 }
 

@@ -686,6 +686,9 @@ function setupSearch() {
     filters.megaCategory = category;
     filters.megaSubcategory = subcategory;
 
+    elements.searchInput.addEventListener(
+        "input",
+        () => {
             clearTimeout(searchTimeout);
 
             searchTimeout = setTimeout(() => {
