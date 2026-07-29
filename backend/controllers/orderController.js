@@ -2,7 +2,8 @@ const db =
     require("../config/db");
 
 const {
-    createOrderService
+    createOrderService,
+    TOTAL_MISMATCH_CODE
 } = require(
     "../services/order.service"
 );
@@ -86,6 +87,9 @@ const createOrder =
                     });
             }
 
+            // Shape check only. The submitted total is a claim; the order
+            // service prices the basket itself and rejects a claim that does
+            // not match.
             if (
                 safeNumber(total) <= 0
             ) {
@@ -162,13 +166,27 @@ const createOrder =
                     message:
                         "Order placed successfully",
                     orderId:
-                        result.orderId
+                        result.orderId,
+                    breakdown:
+                        result.breakdown
                 });
 
         } catch (error) {
             if (connection) {
                 await connection.rollback();
             }
+
+            if (error.code === TOTAL_MISMATCH_CODE) {
+                return res.status(409)
+                    .json({
+                        success: false,
+                        code: TOTAL_MISMATCH_CODE,
+                        message: error.message,
+                        submittedTotal: error.submittedTotal,
+                        computedTotal: error.computedTotal
+                    });
+            }
+
             console.error(
                 "CREATE ORDER ERROR:",
                 error
@@ -632,6 +650,7 @@ const createPaymentIntent = async (req, res) => {
         if (!Array.isArray(items) || !items.length) {
             return res.status(400).json({ success: false, message: "Order items required" });
         }
+        // Shape check only; the charged amount comes from the order service.
         if (safeNumber(total) <= 0) {
             return res.status(400).json({ success: false, message: "Invalid order total" });
         }
@@ -661,10 +680,10 @@ const createPaymentIntent = async (req, res) => {
         
         await inventoryReservationService.consumeLocks(req.user.id, items, connection);
 
-        const [orders] = await connection.query("SELECT final_amount, total FROM orders WHERE id = ?", [result.orderId]);
-        const orderTotal = orders[0].final_amount || orders[0].total;
+        // Charge what the engine priced, never what the browser claimed.
+        const chargeableTotal = result.breakdown.total;
 
-        const paymentIntentResult = await paymentService.createPaymentIntent(orderTotal, 'usd', { orderId: result.orderId, userId: req.user.id });
+        const paymentIntentResult = await paymentService.createPaymentIntent(chargeableTotal, 'usd', { orderId: result.orderId, userId: req.user.id });
         if (!paymentIntentResult.success) {
             await connection.rollback();
             return res.status(500).json({ success: false, message: paymentIntentResult.error });
@@ -677,13 +696,25 @@ const createPaymentIntent = async (req, res) => {
         return res.status(201).json({
             success: true,
             clientSecret: paymentIntentResult.clientSecret,
-            orderId: result.orderId
+            orderId: result.orderId,
+            breakdown: result.breakdown
         });
 
     } catch (error) {
         if (connection) {
             await connection.rollback();
         }
+
+        if (error.code === TOTAL_MISMATCH_CODE) {
+            return res.status(409).json({
+                success: false,
+                code: TOTAL_MISMATCH_CODE,
+                message: error.message,
+                submittedTotal: error.submittedTotal,
+                computedTotal: error.computedTotal
+            });
+        }
+
         console.error("CREATE PAYMENT INTENT ERROR:", error);
         return res.status(500).json({ success: false, message: "Failed to create payment intent" });
     } finally {

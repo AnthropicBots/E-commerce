@@ -446,11 +446,22 @@ const apiRequest =
                 !response.ok
             ) {
 
-                throw new Error(
-                    data.message
-                    ||
-                    `Request failed (${response.status})`
-                );
+                const failure =
+                    new Error(
+                        data.message
+                        ||
+                        `Request failed (${response.status})`
+                    );
+
+                // Carried through the catch below so callers can branch on a
+                // specific server-side condition instead of matching on text.
+                failure.status =
+                    response.status;
+
+                failure.code =
+                    data.code;
+
+                throw failure;
             }
 
             return data;
@@ -501,6 +512,12 @@ const apiRequest =
             return {
 
                 success: false,
+
+                status:
+                    error.status,
+
+                code:
+                    error.code,
 
                 message:
                     error.message
@@ -1265,6 +1282,59 @@ const calculateCartTotals = async (
     };
 };
 
+// Ask the server what this basket costs. The server owns the tax, shipping and
+// discount rules and prices from its own product records, so what comes back
+// here is what checkout will charge.
+//
+// calculateCartTotals stays as the fallback: if the quote cannot be fetched the
+// shopper still sees a plausible summary rather than a blank or zeroed one, and
+// `isServerQuote` tells callers which of the two they are looking at.
+const fetchCartQuote = async (
+    cart = getCart(),
+    couponCode = ""
+) => {
+    const items = safeArray(cart).map(
+        (item) => ({
+            id: item.id,
+            qty: Math.max(1, safeInteger(item.qty, 1)),
+            variantId: item.variantId || item.variant_id || null,
+            color: item.color || "",
+            size: item.size || ""
+        })
+    );
+
+    try {
+        const response = await apiRequest("/checkout/quote", {
+            method: "POST",
+            body: JSON.stringify({
+                items,
+                promoCode: couponCode || null
+            })
+        });
+
+        if (!response || !response.success || !response.breakdown) {
+            throw new Error(
+                (response && response.message) || "Quote unavailable"
+            );
+        }
+
+        return {
+            ...response.breakdown,
+            promoMessage: response.promoMessage || null,
+            isServerQuote: true
+        };
+    } catch (error) {
+        console.error("CART QUOTE ERROR:", error);
+
+        const fallback = await calculateCartTotals(cart, couponCode);
+
+        return {
+            ...fallback,
+            isServerQuote: false
+        };
+    }
+};
+
 const getWishlist = () => {
 
     return getJSON(
@@ -1324,6 +1394,7 @@ window.AppUtils = {
     loadUserCollections,
     validateCoupon,
     calculateCartTotals,
+    fetchCartQuote,
     getWishlist,
     saveWishlist
 };
