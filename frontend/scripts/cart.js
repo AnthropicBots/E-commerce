@@ -244,25 +244,32 @@ function updateButtonStates() {
 
 // ==================== UPDATE CART TOTALS ====================
 async function updateCartTotals() {
-    const totals = await AppUtils.calculateCartTotals(cart, appliedCoupon);
-    
+    // Server-priced, so the cart and the checkout page cannot show different
+    // numbers for the same basket. Falls back to the local calculation when the
+    // quote cannot be fetched.
+    const totals = await AppUtils.fetchCartQuote(cart, appliedCoupon);
+
+    // The breakdown states the currency it was priced in; render in that rather
+    // than in a local constant.
+    const currency = totals.currency;
+
     AppUtils.setJSON("shippingCost", totals.shipping);
     AppUtils.setJSON("cartTotals", totals);
 
     if (elements.subtotalElement) {
-        elements.subtotalElement.innerText = AppUtils.formatPrice(totals.subtotal);
+        elements.subtotalElement.innerText = AppUtils.formatPrice(totals.subtotal, currency);
     }
     if (elements.taxElement) {
-        elements.taxElement.innerText = AppUtils.formatPrice(totals.tax);
+        elements.taxElement.innerText = AppUtils.formatPrice(totals.tax, currency);
     }
     if (elements.shippingElement) {
-        elements.shippingElement.innerText = totals.shipping === 0 ? "Free" : AppUtils.formatPrice(totals.shipping);
+        elements.shippingElement.innerText = totals.shipping === 0 ? "Free" : AppUtils.formatPrice(totals.shipping, currency);
     }
     if (elements.discountElement) {
-        elements.discountElement.innerText = totals.discount > 0 ? `-${AppUtils.formatPrice(totals.discount)}` : "-₹0.00";
+        elements.discountElement.innerText = `-${AppUtils.formatPrice(totals.discount > 0 ? totals.discount : 0, currency)}`;
     }
     if (elements.totalElement) {
-        elements.totalElement.innerText = AppUtils.formatPrice(totals.total);
+        elements.totalElement.innerText = AppUtils.formatPrice(totals.total, currency);
     }
     
     // Update cart item count

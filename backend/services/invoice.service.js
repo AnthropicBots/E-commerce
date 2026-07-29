@@ -1,4 +1,7 @@
 const PDFDocument = require('pdfkit');
+const CURRENCY = require('../config/currency');
+
+const money = (amount) => `${CURRENCY.symbol}${(Number(amount) || 0).toFixed(2)}`;
 
 function generateInvoicePdf(order, items) {
     return new Promise((resolve, reject) => {
@@ -64,8 +67,8 @@ function generateInvoicePdf(order, items) {
 
                 doc.text(name, 50, y, { width: 230 });
                 doc.text(qty.toString(), 300, y, { width: 50, align: 'right' });
-                doc.text(`$${price.toFixed(2)}`, 380, y, { width: 50, align: 'right' });
-                doc.text(`$${lineTotal.toFixed(2)}`, 480, y, { width: 50, align: 'right' });
+                doc.text(money(price), 380, y, { width: 50, align: 'right' });
+                doc.text(money(lineTotal), 480, y, { width: 50, align: 'right' });
                 y += 20;
             });
             
@@ -85,26 +88,28 @@ function generateInvoicePdf(order, items) {
                 total = Number(order.final_amount);
             }
 
-            doc.text(`Subtotal: $${subtotal.toFixed(2)}`, 380, y, { align: 'right' });
+            doc.text(`Subtotal: ${money(subtotal)}`, 380, y, { align: 'right' });
             y += 15;
             if (discount > 0) {
-                doc.text(`Discount: -$${discount.toFixed(2)}`, 380, y, { align: 'right' });
+                doc.text(`Discount: -${money(discount)}`, 380, y, { align: 'right' });
                 y += 15;
             }
             if (tax > 0) {
-                doc.text(`Tax: $${tax.toFixed(2)}`, 380, y, { align: 'right' });
+                doc.text(`Tax: ${money(tax)}`, 380, y, { align: 'right' });
                 y += 15;
             }
             if (shipping > 0) {
-                doc.text(`Shipping: $${shipping.toFixed(2)}`, 380, y, { align: 'right' });
+                doc.text(`Shipping: ${money(shipping)}`, 380, y, { align: 'right' });
                 y += 15;
             }
             
             doc.font('Helvetica-Bold');
-            doc.text(`Total: $${total.toFixed(2)}`, 380, y, { align: 'right' });
+            doc.text(`Total: ${money(total)}`, 380, y, { align: 'right' });
             y += 15;
             doc.font('Helvetica');
             doc.text(`Payment Method: ${order.payment_method || 'N/A'}`, 380, y, { align: 'right' });
+            y += 15;
+            doc.text(`Amounts in ${CURRENCY.code}`, 380, y, { align: 'right' });
 
             doc.end();
         } catch (error) {

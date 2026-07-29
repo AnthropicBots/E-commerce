@@ -1,4 +1,5 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const CURRENCY = require('../config/currency');
 
 /**
  * Payment Service Abstraction
@@ -6,11 +7,29 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
  * future migration to other payment providers if needed.
  */
 
-const createPaymentIntent = async (amount, currency = 'usd', metadata = {}) => {
+/**
+ * Convert a decimal amount to the smallest unit the provider bills in.
+ *
+ * The exponent comes from the currency configuration rather than a hardcoded
+ * hundred, because zero-decimal currencies would otherwise be charged a
+ * hundred times over.
+ *
+ * @param {number} amount
+ * @param {number} [minorUnitExponent]
+ * @returns {number}
+ */
+const toMinorUnits = (amount, minorUnitExponent = CURRENCY.minorUnitExponent) => {
+    const factor = 10 ** minorUnitExponent;
+    return Math.round((Number(amount) || 0) * factor);
+};
+
+const createPaymentIntent = async (amount, currency = CURRENCY.code, metadata = {}) => {
     try {
         const paymentIntent = await stripe.paymentIntents.create({
-            amount: Math.round(amount * 100), // Stripe expects amounts in cents
-            currency,
+            amount: toMinorUnits(amount),
+            // Stripe wants the ISO code lowercased; the configuration holds it
+            // in its canonical uppercase form.
+            currency: String(currency).toLowerCase(),
             metadata,
         });
         
@@ -43,6 +62,7 @@ const constructWebhookEvent = (rawBody, signature) => {
 };
 
 module.exports = {
+    toMinorUnits,
     createPaymentIntent,
     constructWebhookEvent
 };
