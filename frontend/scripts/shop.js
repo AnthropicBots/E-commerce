@@ -623,9 +623,13 @@ function setupProductCard(
                 }
 
                 // fallback cart
-                AppUtils.addCartItem(
-                    item
-                );
+                const countBefore =
+                    AppUtils.getCartCount();
+
+                const cart =
+                    await AppUtils.addCartItem(
+                        item
+                    );
 
                 if (
                     typeof updateCartCount ===
@@ -639,6 +643,15 @@ function setupProductCard(
                     "function"
                 ) {
                     renderCartDrawer();
+                }
+
+                // A refused add has already told the shopper why.
+                if (
+                    AppUtils.getCartCount(cart)
+                    <=
+                    countBefore
+                ) {
+                    return;
                 }
 
                 AppUtils.notify(

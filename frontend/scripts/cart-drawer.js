@@ -260,18 +260,13 @@ function updateDrawerQty(
         return;
     }
 
-    drawerCart[parsedIndex].qty =
-        Math.max(
-            1,
+    drawerCart =
+        AppUtils.updateCartItemQty(
+            parsedIndex,
             AppUtils.safeInteger(
                 drawerCart[parsedIndex].qty,
                 1
             ) + delta
-        );
-
-    drawerCart =
-        AppUtils.saveCart(
-            drawerCart
         );
 
     renderCartDrawer();
@@ -308,14 +303,9 @@ function removeDrawerItem(
         return;
     }
 
-    drawerCart.splice(
-        parsedIndex,
-        1
-    );
-
     drawerCart =
-        AppUtils.saveCart(
-            drawerCart
+        AppUtils.removeCartItem(
+            parsedIndex
         );
 
     renderCartDrawer();
