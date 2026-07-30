@@ -95,6 +95,8 @@ async function loadRelatedProducts(
             return;
         }
 
+        AppUtils.renderSkeletonState(relatedProductsContainer, 4);
+
         const response =
             await AppUtils.apiRequest(
                 "/products"
