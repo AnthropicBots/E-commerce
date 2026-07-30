@@ -49,7 +49,14 @@ function validateType(value, type) {
         case 'boolean':
             return value === 'true' || value === 'false' || value === true || value === false;
         case 'url':
-            return validator.isURL(value);
+            // `require_tld: false` so localhost is accepted. With validator's
+            // defaults a hostname must have a TLD, so `http://localhost:3000`
+            // -- the FRONTEND_URL that .env.example, CONTRIBUTING.md and the
+            // README all tell contributors to use -- was rejected and
+            // validateEnv() called process.exit(1). Following the documented
+            // setup made the server refuse to start, and
+            // tests/serverBootstrap.test.js could never pass.
+            return validator.isURL(value, { require_tld: false });
         case 'email':
             return validator.isEmail(value);
         case 'jwt':

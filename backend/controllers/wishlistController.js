@@ -301,16 +301,35 @@ const wishlistController = {
 
         try {
             const userId = req.user.id;
-            const { productIds } = req.body;
-            const uniqueProductIds = [...new Set(productIds.map((id) => safeUUID(id)))];
 
-            // Validate batch
-            const validation = validateBatchOperation(uniqueProductIds);
-            if (!validation.valid) {
-                return res.status(400).json({
-                    success: false,
-                    message: validation.error
-                });
+            // routes/wishlistRoutes.js `validateBatchProducts` has already
+            // rejected non-arrays, malformed UUIDs, duplicates and oversized
+            // batches, and left the normalised ids on the request. The fallback
+            // below keeps this handler safe if it is ever mounted without that
+            // middleware: the previous version called `productIds.map()` before
+            // any array check, so a body without `productIds` threw a
+            // TypeError and surfaced as a 500 instead of a 400.
+            let uniqueProductIds = req.validatedProductIds;
+
+            if (!Array.isArray(uniqueProductIds)) {
+                const { productIds } = req.body;
+
+                if (!Array.isArray(productIds)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Products array is required'
+                    });
+                }
+
+                uniqueProductIds = [...new Set(productIds.map((id) => safeUUID(id)))];
+
+                const validation = validateBatchOperation(uniqueProductIds);
+                if (!validation.valid) {
+                    return res.status(400).json({
+                        success: false,
+                        message: validation.error
+                    });
+                }
             }
 
             await connection.beginTransaction();
@@ -389,14 +408,24 @@ const wishlistController = {
         const connection = await promisePool.getConnection();
         try {
             const userId = req.user.id;
-            const { productIds } = req.body;
 
-            const validation = validateBatchOperation(productIds);
-            if (!validation.valid) {
-                return res.status(400).json({
-                    success: false,
-                    message: validation.error
-                });
+            // Use the ids normalised by `validateBatchProducts`. The previous
+            // version validated `req.body.productIds` but then looped over the
+            // same raw array, so unsanitised values reached the DELETE.
+            let productIds = req.validatedProductIds;
+
+            if (!Array.isArray(productIds)) {
+                const raw = req.body.productIds;
+
+                const validation = validateBatchOperation(raw);
+                if (!validation.valid) {
+                    return res.status(400).json({
+                        success: false,
+                        message: validation.error
+                    });
+                }
+
+                productIds = raw.map((id) => safeUUID(id));
             }
 
             await connection.beginTransaction();
@@ -870,12 +899,22 @@ const wishlistController = {
     }
 };
 
-// 1. Get any user's wishlist (Admin)
-exports.getAdminUserWishlist = async (req, res) => {
-    try {
-        const { safeUUID } = require("../utils/helpers"); // Require helper if not top-level
-        const db = require("../config/db");
+// ==================== ADMIN HANDLERS ====================
+//
+// Fixes #1295. These two handlers were previously attached to `exports`
+// (`exports.getAdminUserWishlist = ...`) while the bottom of the file did
+// `module.exports = wishlistController`. Assigning to `exports.x` mutates the
+// original exports object; reassigning `module.exports` then discards it, so
+// both handlers resolved to `undefined` at the require site and
+// `routes/wishlistRoutes.js` mounted them anyway:
+//
+//     TypeError: Route.get() requires a callback function but got a [object Undefined]
+//
+// They are now defined on the same object that is actually exported.
 
+// 1. Get any user's wishlist (Admin)
+wishlistController.getAdminUserWishlist = async (req, res) => {
+    try {
         const userId = safeUUID(req.params.userId);
         if (!userId) {
             return res.status(400).json({
@@ -884,7 +923,7 @@ exports.getAdminUserWishlist = async (req, res) => {
             });
         }
 
-        const [rows] = await db.query(
+        const [rows] = await promisePool.query(
             `
             SELECT 
                 p.id, 
@@ -919,22 +958,20 @@ exports.getAdminUserWishlist = async (req, res) => {
 };
 
 // 2. Get wishlist stats (Admin)
-exports.getWishlistStats = async (req, res) => {
+wishlistController.getWishlistStats = async (req, res) => {
     try {
-        const db = require("../config/db");
-
         // Get total wishlist items across all users
-        const [totalItems] = await db.query(
+        const [totalItems] = await promisePool.query(
             "SELECT COUNT(*) as total FROM wishlist_items",
         );
 
         // Get unique users with wishlist
-        const [uniqueUsers] = await db.query(
+        const [uniqueUsers] = await promisePool.query(
             "SELECT COUNT(DISTINCT user_id) as users FROM wishlist_items",
         );
 
         // Get most wishlisted products
-        const [topProducts] = await db.query(`
+        const [topProducts] = await promisePool.query(`
             SELECT p.id, p.name, COUNT(*) as wishlist_count
             FROM wishlist_items w
             JOIN products p ON w.product_id = p.id
@@ -944,7 +981,7 @@ exports.getWishlistStats = async (req, res) => {
         `);
 
         // Get recent activity
-        const [recentActivity] = await db.query(`
+        const [recentActivity] = await promisePool.query(`
             SELECT w.*, p.name as product_name, u.name as user_name
             FROM wishlist_items w
             JOIN products p ON w.product_id = p.id

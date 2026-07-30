@@ -1,77 +1,79 @@
 // backend/services/recommendationService.js
+//
+// Fixes #1294.
+//
+// This file previously held two complete, incompatible recommendation engines
+// concatenated together:
+//
+//   A) a `node-cache` + free-function implementation exporting an object
+//      literal, whose `getRecommendations(userId, limit, offset)` took a
+//      pagination offset as its third argument; and
+//   B) this class, whose `getRecommendations(userId, limit, strategy)` takes a
+//      strategy name as its third argument.
+//
+// Both declared `const cache` and both declared `const recommendationService`
+// in module scope, so the file did not parse:
+//
+//     SyntaxError: Identifier 'cache' has already been declared
+//
+// Implementation A was removed rather than B. A's `validateUserId()` did
+// `isNaN(parseInt(userId))`, which rejects every UUID — and externally exposed
+// ids were migrated to UUIDs in #1025 — so it could not have worked against
+// the current schema. A's only behaviour worth keeping was its bounds
+// checking, which is folded into `clampLimit()` below; the class previously
+// passed `limit` through to SQL unclamped.
+
 const db = require("../config/db");
 const { INTERACTION_TYPES } = require("../constants/interactionTypes");
-const NodeCache = require('node-cache');
-
-const config = {
-    cacheTTL: parseInt(process.env.RECOMMENDATION_CACHE_TTL) || 300,
-    interactionLimit: parseInt(process.env.INTERACTION_LIMIT) || 100,
-    defaultLimit: parseInt(process.env.DEFAULT_LIMIT) || 8,
-    maxLimit: parseInt(process.env.MAX_LIMIT) || 50,
-    weights: {
-        [INTERACTION_TYPES.PURCHASE]: parseInt(process.env.WEIGHT_PURCHASE) || 5,
-        [INTERACTION_TYPES.CART_ADD]: parseInt(process.env.WEIGHT_CART) || 3,
-        [INTERACTION_TYPES.WISHLIST_ADD]: parseInt(process.env.WEIGHT_WISHLIST) || 2,
-        [INTERACTION_TYPES.VIEW]: parseInt(process.env.WEIGHT_VIEW) || 1
-    }
-};
-
-const cache = new NodeCache({
-    stdTTL: config.cacheTTL,
-    checkperiod: 60
-});
-
-function validateUserId(userId) {
-    if (!userId || isNaN(parseInt(userId))) {
-        throw new Error('Invalid user ID');
-    }
-    return parseInt(userId);
-}
-
-function validateLimit(limit) {
-    const parsed = parseInt(limit) || config.defaultLimit;
-    if (parsed < 1) {
-        throw new Error('Limit must be greater than 0');
-    }
-    if (parsed > config.maxLimit) {
-        throw new Error(`Limit cannot exceed ${config.maxLimit}`);
-    }
-    return parsed;
-}
-
-function validateOffset(offset) {
-    const parsed = parseInt(offset) || 0;
-    if (parsed < 0) {
-        throw new Error('Offset must be greater than or equal to 0');
-    }
-    return parsed;
-}
-
-function getCacheKey(userId, limit, offset) {
-    return `recommendations_${userId}_${limit}_${offset}`;
-}
-
 
 // Cache configuration
 const CACHE_TTL = 300000; // 5 minutes
+const CACHE_CLEAN_INTERVAL = 600000; // 10 minutes
+const DEFAULT_LIMIT = 8;
+const MAX_LIMIT = 50;
+
 const cache = new Map();
+
+/**
+ * Clamp a caller-supplied limit into [1, MAX_LIMIT].
+ *
+ * Carried over from the implementation that was removed. Without it a caller
+ * could pass `?limit=100000` straight through to a `LIMIT` clause.
+ *
+ * @param {any} limit
+ * @returns {number}
+ */
+function clampLimit(limit) {
+    const parsed = Number.parseInt(limit, 10);
+    if (!Number.isInteger(parsed) || parsed < 1) return DEFAULT_LIMIT;
+    return Math.min(parsed, MAX_LIMIT);
+}
 
 class RecommendationService {
     constructor() {
         this.maxItems = 20;
         this.cacheTTL = CACHE_TTL;
         this.initialized = false;
+        // Handle for the periodic cache sweep, so shutdown() can stop it.
+        this.cleanupTimer = null;
     }
 
     /**
      * Initialize service
      */
     initialize() {
-        if (this.initialized) return;
-        
-        // Clean cache periodically
-        setInterval(() => this.cleanCache(), 600000); // 10 minutes
-        
+        if (this.initialized) return this;
+
+        // Clean cache periodically. The handle is retained so shutdown() can
+        // clear it -- previously the interval was created and dropped, so it
+        // kept the event loop alive forever and shutdown() could not stop it.
+        // unref() lets the process exit while the timer is still pending,
+        // which is what stops this service from hanging the test runner.
+        this.cleanupTimer = setInterval(() => this.cleanCache(), CACHE_CLEAN_INTERVAL);
+        if (typeof this.cleanupTimer.unref === 'function') {
+            this.cleanupTimer.unref();
+        }
+
         this.initialized = true;
         console.log('✅ Recommendation Service initialized');
         return this;
@@ -79,15 +81,23 @@ class RecommendationService {
 
     /**
      * Get recommendations with multiple strategies
+     *
+     * @param {string} userId
+     * @param {number} [limit] - Clamped into [1, MAX_LIMIT].
+     * @param {'hybrid'|'collaborative'|'content_based'} [strategy]
      */
-    async getRecommendations(userId, limit = 8, strategy = 'hybrid') {
+    async getRecommendations(userId, limit = DEFAULT_LIMIT, strategy = 'hybrid') {
+        const safeLimit = clampLimit(limit);
+
         if (!userId) {
-            return this.getTrendingProducts(limit);
+            return this.getTrendingProducts(safeLimit);
         }
 
         try {
-            // Check cache
-            const cacheKey = `recommendations_${userId}_${strategy}`;
+            // Cache key includes the limit: the same user asking for 8 and for
+            // 24 items must not share an entry, or the second caller silently
+            // receives the first caller's shorter list.
+            const cacheKey = `recommendations_${userId}_${strategy}_${safeLimit}`;
             const cached = cache.get(cacheKey);
             
             if (cached && cached.timestamp && (Date.now() - cached.timestamp < this.cacheTTL)) {
@@ -98,14 +108,14 @@ class RecommendationService {
 
             switch (strategy) {
                 case 'collaborative':
-                    recommendations = await this.collaborativeFiltering(userId, limit);
+                    recommendations = await this.collaborativeFiltering(userId, safeLimit);
                     break;
                 case 'content_based':
-                    recommendations = await this.contentBased(userId, limit);
+                    recommendations = await this.contentBased(userId, safeLimit);
                     break;
                 case 'hybrid':
                 default:
-                    recommendations = await this.hybridRecommendations(userId, limit);
+                    recommendations = await this.hybridRecommendations(userId, safeLimit);
                     break;
             }
 
@@ -120,7 +130,7 @@ class RecommendationService {
             return recommendations;
         } catch (error) {
             console.error("❌ Error generating recommendations:", error);
-            return this.getTrendingProducts(limit);
+            return this.getTrendingProducts(safeLimit);
         }
     }
 
@@ -309,8 +319,12 @@ class RecommendationService {
 
     /**
      * Get trending products
+     *
+     * Public entry point, so the limit is clamped here as well as in
+     * getRecommendations().
      */
     async getTrendingProducts(limit = 10) {
+        limit = clampLimit(limit);
         try {
             const [recommendations] = await db.query(
                 `SELECT 
@@ -474,6 +488,7 @@ class RecommendationService {
      * Get personalized recommendations for a specific product
      */
     async getRelatedProducts(productId, limit = 5) {
+        limit = clampLimit(limit);
         try {
             // Get product details
             const [product] = await db.query(
@@ -569,6 +584,10 @@ class RecommendationService {
      * Shutdown service
      */
     shutdown() {
+        if (this.cleanupTimer) {
+            clearInterval(this.cleanupTimer);
+            this.cleanupTimer = null;
+        }
         cache.clear();
         this.initialized = false;
         console.log('⏹️ Recommendation Service shut down');
@@ -580,222 +599,5 @@ const recommendationService = new RecommendationService();
 
 // Auto-initialize
 recommendationService.initialize();
-
-const recommendationService = {
-    getRecommendations: async (userId, limit = config.defaultLimit, offset = 0) => {
-        try {
-            const validUserId = validateUserId(userId);
-            const validLimit = validateLimit(limit);
-            const validOffset = validateOffset(offset);
-
-            const cacheKey = getCacheKey(validUserId, validLimit, validOffset);
-            const cached = cache.get(cacheKey);
-            if (cached) {
-                console.log(`Cache hit for user ${validUserId}`);
-                return cached;
-            }
-
-            const [interactions] = await db.query(
-                `
-                SELECT ui.interaction_type, p.category, ui.product_id
-                FROM user_interactions ui
-                JOIN products p ON ui.product_id = p.id
-                WHERE ui.user_id = ?
-                ORDER BY ui.created_at DESC
-                LIMIT ?
-                `,
-                [validUserId, config.interactionLimit]
-            );
-
-            if (!interactions || interactions.length === 0) {
-                const fallback = await getFallbackRecommendations(validLimit);
-                cache.set(cacheKey, fallback);
-                return fallback;
-            }
-
-            const weights = config.weights;
-            const categoryScores = {};
-            interactions.forEach((item) => {
-                if (!item.category) return;
-                const weight = weights[item.interaction_type] || 1;
-                categoryScores[item.category] =
-                    (categoryScores[item.category] || 0) + weight;
-            });
-
-            const topCategories = Object.entries(categoryScores)
-                .sort((a, b) => b[1] - a[1])
-                .map((entry) => entry[0]);
-
-            if (topCategories.length === 0) {
-                const fallback = await getFallbackRecommendations(validLimit);
-                cache.set(cacheKey, fallback);
-                return fallback;
-            }
-
-            const [purchased] = await db.query(
-                `
-                SELECT product_id
-                FROM user_interactions
-                WHERE user_id = ? AND interaction_type = ?
-                `,
-                [validUserId, INTERACTION_TYPES.PURCHASE]
-            );
-
-            const purchasedIds = purchased.map((p) => p.product_id);
-            const categoryPlaceholders = topCategories.map(() => "?").join(",");
-
-            let query = `
-                SELECT * FROM products
-                WHERE category IN (${categoryPlaceholders})
-                AND stock > 0
-                AND status = 'active'
-            `;
-
-            const queryParams = [...topCategories];
-
-            if (purchasedIds.length > 0) {
-                const idPlaceholders = purchasedIds.map(() => "?").join(",");
-                query += ` AND id NOT IN (${idPlaceholders})`;
-                queryParams.push(...purchasedIds);
-            }
-
-            query += ` ORDER BY rating DESC, num_reviews DESC LIMIT ? OFFSET ?`;
-            queryParams.push(validLimit, validOffset);
-
-            const [recommendedProducts] = await db.query(query, queryParams);
-
-            const result = {
-                data: recommendedProducts,
-                pagination: {
-                    limit: validLimit,
-                    offset: validOffset,
-                    total: recommendedProducts.length
-                }
-            };
-
-            cache.set(cacheKey, result);
-
-            console.log(`Recommendations generated for user ${validUserId}: ${recommendedProducts.length} products`);
-
-            return result;
-
-        } catch (error) {
-            console.error("Error generating recommendations:", error);
-            throw error;
-        }
-    },
-
-    getTrendingRecommendations: async (limit = config.defaultLimit) => {
-        try {
-            const validLimit = validateLimit(limit);
-
-            const [products] = await db.query(
-                `
-                SELECT p.*, 
-                       COUNT(ui.id) as interaction_count,
-                       AVG(ui.rating) as avg_rating
-                FROM products p
-                LEFT JOIN user_interactions ui ON p.id = ui.product_id
-                WHERE p.stock > 0 AND p.status = 'active'
-                GROUP BY p.id
-                ORDER BY interaction_count DESC, avg_rating DESC
-                LIMIT ?
-                `,
-                [validLimit]
-            );
-
-            return {
-                data: products,
-                pagination: {
-                    limit: validLimit,
-                    total: products.length
-                }
-            };
-        } catch (error) {
-            console.error("Error getting trending recommendations:", error);
-            throw error;
-        }
-    },
-
-    getSimilarProducts: async (productId, limit = config.defaultLimit) => {
-        try {
-            const validLimit = validateLimit(limit);
-
-            const [product] = await db.query(
-                'SELECT category FROM products WHERE id = ? AND status = "active"',
-                [productId]
-            );
-
-            if (!product || product.length === 0) {
-                throw new Error('Product not found');
-            }
-
-            const category = product[0].category;
-
-            const [similar] = await db.query(
-                `
-                SELECT * FROM products
-                WHERE category = ?
-                AND id != ?
-                AND stock > 0
-                AND status = 'active'
-                ORDER BY rating DESC
-                LIMIT ?
-                `,
-                [category, productId, validLimit]
-            );
-
-            return {
-                data: similar,
-                pagination: {
-                    limit: validLimit,
-                    total: similar.length
-                }
-            };
-        } catch (error) {
-            console.error("Error getting similar products:", error);
-            throw error;
-        }
-    },
-
-    clearCache: async (userId = null) => {
-        try {
-            if (userId) {
-                const keys = cache.keys();
-                const userKeys = keys.filter(key => key.includes(`_${userId}_`));
-                userKeys.forEach(key => cache.del(key));
-                console.log(`Cleared cache for user ${userId}: ${userKeys.length} entries`);
-                return { cleared: userKeys.length };
-            } else {
-                cache.flushAll();
-                console.log('Cleared all recommendation cache');
-                return { cleared: 'all' };
-            }
-        } catch (error) {
-            console.error("Error clearing cache:", error);
-            throw error;
-        }
-    }
-};
-
-
-async function getFallbackRecommendations(limit) {
-    const [fallbackProducts] = await db.query(
-        `
-        SELECT * FROM products
-        WHERE stock > 0 AND status = 'active'
-        ORDER BY rating DESC, num_reviews DESC
-        LIMIT ?
-        `,
-        [limit]
-    );
-    return {
-        data: fallbackProducts,
-        pagination: {
-            limit: limit,
-            total: fallbackProducts.length
-        }
-    };
-}
 
 module.exports = recommendationService;

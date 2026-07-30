@@ -28,7 +28,84 @@
         shareDropdown: document.getElementById("share-dropdown"), // 🔥 NEW
         shareToast: document.getElementById("share-toast") // 🔥 NEW
     };
-}
+
+    // ============================================
+    // PRODUCT STATE
+    // ============================================
+    //
+    // These declarations were previously trapped inside the stale
+    // `async function fetchProduct()` left behind by merge 99abcd6 (#1296).
+    // Being function-scoped there, every other function in this module saw
+    // them as undefined, and `fetchProduct` itself read `isLoading` on its
+    // first line while the `let isLoading` sat 20 lines further down in the
+    // same scope -- a temporal-dead-zone ReferenceError on the very first
+    // call. They belong at module scope.
+    let currentProductData = null;
+    let isLoading = false;
+
+    window.currentProductData = null;
+
+    // ============================================
+    // URL PARAMS
+    // ============================================
+    const urlParams = new URLSearchParams(window.location.search);
+
+    // Product ids are UUIDs (#1025, #1191). The previous
+    // `parseInt(urlParams.get("id"), 10)` produced NaN for every real id and
+    // bounced the visitor straight back to shop.html, so the product page
+    // could never open. Other pages (recommendations.js, product-reviews.js)
+    // already read this parameter as an opaque string.
+    const productId = (urlParams.get("id") || "").trim();
+
+    // ============================================
+    // UTILITY FUNCTIONS
+    // ============================================
+    function escapeHTML(value) {
+        return String(value || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    /**
+     * Coerce a quantity input into a positive integer.
+     *
+     * Called in four places but never defined -- `safeQty` lives in
+     * checkout.js, which product.html does not load, so every quantity
+     * interaction threw `ReferenceError: safeQty is not defined` (#1296).
+     *
+     * @param {any} value
+     * @returns {number} An integer >= 1.
+     */
+    function safeQty(value) {
+        const parsed = parseInt(value, 10);
+        return Number.isNaN(parsed) ? 1 : Math.max(1, parsed);
+    }
+
+    /**
+     * Minimal placeholder shown when the product cannot be fetched and nothing
+     * is cached.
+     *
+     * `fetchProduct` calls this on both of its failure paths but it was never
+     * defined, so an API error turned a graceful degradation into a hard
+     * `ReferenceError` (#1296).
+     *
+     * @returns {object}
+     */
+    function getFallbackProduct() {
+        return {
+            id: productId,
+            name: "Product unavailable",
+            description: "We could not load this product. Please try again later.",
+            price: 0,
+            stock: 0,
+            brand: "",
+            category: "",
+            image: "/assets/images/f1.jpg"
+        };
+    }
 
 // loading state
 function showLoadingState() {
@@ -215,184 +292,6 @@ async function toggleWishlist(productId) {
     }
 }
 
-// fetch product
-async function fetchProduct() {
-
-    if (
-        isLoading
-    ) {
-
-        return;
-    }
-
-    isLoading =
-        true;
-
-    showLoadingState();
-
-    // ============================================
-    // PRODUCT STATE
-    // ============================================
-    let currentProductData = null;
-
-    window.currentProductData = null;
-    
-
-    // loading state
-
-    let isLoading = false;
-
-    // ============================================
-    // URL PARAMS
-    // ============================================
-    const urlParams = new URLSearchParams(window.location.search);
-    const productId = parseInt(urlParams.get("id"), 10);
-
-    if (Number.isNaN(productId) || productId <= 0) {
-        window.location.href = "shop.html";
-        throw new Error("Invalid product ID");
-    }
-
-    // ============================================
-    // UTILITY FUNCTIONS
-    // ============================================
-    function escapeHTML(value) {
-        return String(value || "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
-    }
-
-    // Update breadcrumb
-    updateBreadcrumb(product);
-
-    // ===== TRACK RECENTLY VIEWED (Issue #1126) =====
-    trackRecentlyViewed(product.id);
-
-    // out of stock
-    if (
-        Number(
-            product.stock
-        ) <= 0
-    ) {
-
-        if (
-            productElements.addToCartBtn
-        ) {
-
-            productElements.addToCartBtn.disabled =
-                true;
-
-            productElements.addToCartBtn.innerText =
-                "Out of Stock";
-        }
-
-        if (
-            productElements.buyNowBtn
-        ) {
-
-            productElements.buyNowBtn.disabled =
-                true;
-        }
-    }
-
-    renderProduct(
-        product
-    );
-
-    // ========== WISHLIST ICON STATUS ==========
-    updateWishlistIcon(product.id);
-
-    // Attach wishlist button event listener
-    if (productElements.wishlistBtn) {
-        productElements.wishlistBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            toggleWishlist(product.id);
-        });
-    }
-
-    if (
-        typeof setupVariants ===
-        "function"
-    ) {
-
-        setupVariants(
-            product
-        );
-    }
-    setCurrentProduct(
-        product
-    );
-
-    setupCartActions(
-        product
-    );
-
-    if (
-        typeof loadProductReviews ===
-        "function"
-    ) {
-
-        loadProductReviews(
-            product.id
-        );
-    }
-
-    function showLoadingState() {
-        document.body.classList.add("loading");
-    }
-
-    function hideLoadingState() {
-        document.body.classList.remove("loading");
-    }
-
-    // ===== INITIALIZE IMAGE ZOOM (Lens Effect) =====
-    initializeImageZoom();
-
-    initializeProductGallery(
-        product
-    );
-}
-
-// add to cart
-function addProductToCart(
-    product,
-    redirect = false
-) {
-
-    if (
-        !product
-    ) {
-
-        return;
-    }
-
-    function cacheProduct(product) {
-        AppUtils.setJSON(`product-${productId}`, product);
-    }
-
-    // ============================================
-    // BREADCRUMB
-    // ============================================
-    function updateBreadcrumb(product) {
-        const categoryEl = document.getElementById('breadcrumb-category');
-        const categoryLink = document.getElementById('breadcrumb-category-link');
-        const productNameEl = document.getElementById('breadcrumb-product-name');
-
-        if (!product || !productNameEl) return;
-
-        productNameEl.textContent = product.name || 'Product';
-
-        if (product.category) {
-            categoryEl.style.display = 'inline-block';
-            categoryLink.textContent = product.category.charAt(0).toUpperCase() + product.category.slice(1);
-            categoryLink.href = `shop.html?category=${encodeURIComponent(product.category)}`;
-        } else {
-            categoryEl.style.display = 'none';
-        }
-    }
 
     // ============================================
     // RECENTLY VIEWED
@@ -734,8 +633,138 @@ function addProductToCart(
     // ============================================
     // RENDER PRODUCT
     // ============================================
-    function renderProduct(product) {
-        if (!product) return;
+    function renderProduct(
+        product
+    ) {
+
+        if (
+            !product
+        ) {
+
+            return;
+        }
+
+        // image
+        if (
+            productElements.mainImage
+        ) {
+
+            productElements.mainImage.src =
+                escapeHTML(
+                    product.image
+                    ||
+                    "/assets/images/f1.jpg"
+                );
+
+            productElements.mainImage.alt = escapeHTML(product.name || "Product image");
+
+            productElements.mainImage.onerror =
+                () => {
+
+                    productElements.mainImage.src =
+                        "/assets/images/f1.jpg";
+                };
+        }
+
+        // category
+        if (
+            productElements.productCategory
+        ) {
+
+            productElements.productCategory.innerText =
+                product.category
+                || "Fashion";
+        }
+
+        // name
+        if (
+            productElements.productName
+        ) {
+
+            productElements.productName.innerText =
+                product.name
+                || "Product Name";
+        }
+
+        // price
+        if (
+            productElements.productPrice
+        ) {
+
+            productElements.productPrice.innerText =
+                AppUtils.formatPrice(
+                    product.price || 0
+                );
+        }
+
+        // original price
+        if (
+            productElements.productOriginalPrice
+        ) {
+
+            const productPrice =
+                parseFloat(
+                    product.price || 0
+                );
+
+            const originalPrice =
+                productPrice + 1000;
+
+            productElements.productOriginalPrice.innerText =
+                AppUtils.formatPrice(
+                    originalPrice
+                );
+        }
+
+        // discount
+        if (
+            productElements.productDiscount
+        ) {
+
+            productElements.productDiscount.innerText =
+                `${
+                    product.discount_percent
+                    || 50
+                }% OFF`;
+        }
+
+        // brand
+        if (
+            productElements.productBrand
+        ) {
+
+            productElements.productBrand.innerText =
+                product.brand
+                || "Fashion";
+        }
+
+        // description
+        if (
+            productElements.productDescription
+        ) {
+
+            productElements.productDescription.innerText =
+                product.description
+                || "Premium fashion product.";
+        }
+
+        // stock
+        if (
+            productElements.productStock
+        ) {
+
+            productElements.productStock.innerText =
+                Number(
+                    product.stock
+                ) > 0
+                    ? "In Stock"
+                    : "Out Of Stock";
+        }
+
+        // page title
+        document.title =
+            `${product.name} | AnthropicBots E-Commerce`;
+    }
 
 // ========================================
 // IMAGE ZOOM / LENS EFFECT (Issue #779)
@@ -911,31 +940,6 @@ function initializeImageZoom() {
 // PRODUCT GALLERY (Thumbnails)
 // ========================================
 
-function initializeProductGallery(
-    product
-) {
-
-        if (mainImage.dataset.zoomReady) return;
-        mainImage.dataset.zoomReady = "true";
-
-        container.addEventListener("mousemove", (e) => {
-            const rect = container.getBoundingClientRect();
-            const x = ((e.clientX - rect.left) / rect.width) * 100;
-            const y = ((e.clientY - rect.top) / rect.height) * 100;
-
-            mainImage.style.transformOrigin = `${x}% ${y}%`;
-            mainImage.style.transform = "scale(2.5)";
-        });
-
-        container.addEventListener("mouseleave", () => {
-            mainImage.style.transformOrigin = "center center";
-            mainImage.style.transform = "scale(1)";
-        });
-    }
-
-    // ============================================
-    // PRODUCT GALLERY
-    // ============================================
     function initializeProductGallery(product) {
         const thumbnails = document.querySelectorAll(".small-image");
         if (!thumbnails.length) return;
@@ -966,14 +970,6 @@ function initializeProductGallery(
         const cap = getStockCap();
         const qty = Math.max(1, Math.min(cap, safeQty(productElements.qtyInput.value)));
 
-// ========================================
-// QUANTITY CONTROLS
-// ========================================
-
-if (
-    productElements.plusBtn
-) {
-
         if (productElements.plusBtn) {
             productElements.plusBtn.disabled = qty >= cap;
         }
@@ -983,29 +979,17 @@ if (
         }
     }
 
-// ========================================
-// KEYBOARD ACCESSIBILITY
-// ========================================
-
-document.addEventListener(
-    "keydown",
-    (
-        event
-    ) => {
-
-        const activeTag =
-            document.activeElement
-                ?.tagName;
-
-        if (
-            [
-                "INPUT",
-                "TEXTAREA"
-            ].includes(
-                activeTag
-            )
-        ) {
-
+    // ============================================
+    // QUANTITY CONTROLS
+    // ============================================
+    if (productElements.plusBtn) {
+        productElements.plusBtn.addEventListener("click", () => {
+            const cap = getStockCap();
+            const next = safeQty(productElements.qtyInput.value) + 1;
+            productElements.qtyInput.value = Math.min(cap, next);
+            syncQtyControls();
+        });
+    }
     if (productElements.minusBtn) {
         productElements.minusBtn.addEventListener("click", () => {
             productElements.qtyInput.value = safeQty(productElements.qtyInput.value) - 1;
@@ -1052,31 +1036,6 @@ document.addEventListener(
             window.scrollTo({ top: 0, behavior: 'smooth' });
         });
     }
-
-// ========================================
-// BACK TO TOP BUTTON (Issue #345)
-// ========================================
-
-function initBackToTop() {
-    const backToTopBtn = document.getElementById('back-to-top-btn');
-    if (!backToTopBtn) return;
-
-    // Show/hide button based on scroll position
-    window.addEventListener('scroll', () => {
-        if (window.scrollY > 300) {
-            backToTopBtn.classList.add('show');
-            backToTopBtn.style.display = 'flex';
-        } else {
-            backToTopBtn.classList.remove('show');
-            backToTopBtn.style.display = 'none';
-        }
-    });
-
-    // Smooth scroll to top on click
-    backToTopBtn.addEventListener('click', () => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-
 // ========================================
 // INITIALIZATION
 // ========================================

@@ -51,10 +51,46 @@ function isOutOfStock(stock) {
     return Number(stock) === 0;
 }
 
+/**
+ * Is this product currently on the shopper's wishlist?
+ *
+ * `script.js` builds a `Set` of wishlist ids once per render and passes it in,
+ * so the whole grid costs one `AppUtils.getWishlist()` call rather than one
+ * per card. When the set is not supplied (other callers pass only a product),
+ * fall back to reading the wishlist directly.
+ *
+ * @param {string|number} productId
+ * @param {Set<string>} [wishlistIds]
+ * @returns {boolean}
+ */
+function isProductWishlisted(productId, wishlistIds) {
+    const id = String(productId);
+
+    // Duck-typed rather than `instanceof Set`, which is false for a Set built
+    // in a different realm (iframe, test sandbox).
+    if (wishlistIds && typeof wishlistIds.has === "function") {
+        return wishlistIds.has(id);
+    }
+
+    const wishlist =
+        (typeof AppUtils !== "undefined" && AppUtils.getWishlist &&
+            AppUtils.getWishlist()) || [];
+
+    return wishlist.some((item) => item && String(item.id) === id);
+}
+
 // render product card with stock badge
+//
+// `wishlistIds` was previously missing from the signature even though
+// `script.js` passes it as the second argument, and the body referenced an
+// undefined `isWishlisted` -- a ReferenceError that was masked only because
+// the file did not parse at all (#1296).
 function createProductCard(
-    product
+    product,
+    wishlistIds
 ) {
+    const isWishlisted = isProductWishlisted(product.id, wishlistIds);
+
     const rating =
         Math.min(
             5,
@@ -170,9 +206,6 @@ function createProductCard(
                         Wishlist
                     </button>
                 </div>
-                    `
-                    : ""
-                }
             </div>
         </div>`;
 }
