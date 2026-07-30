@@ -244,7 +244,10 @@ function updateButtonStates() {
 
 // ==================== UPDATE CART TOTALS ====================
 async function updateCartTotals() {
-    const totals = await AppUtils.calculateCartTotals(cart, appliedCoupon);
+    // Server-priced, so the cart and the checkout page cannot show different
+    // numbers for the same basket. Falls back to the local calculation when the
+    // quote cannot be fetched.
+    const totals = await AppUtils.fetchCartQuote(cart, appliedCoupon);
     
     AppUtils.setJSON("shippingCost", totals.shipping);
     AppUtils.setJSON("cartTotals", totals);
