@@ -7,7 +7,12 @@ const {
     sanitizeString,
 } = require("../utils/helpers");
 const logger = require("../utils/logger");
-const { validatePromo, calculateDiscount } = require("./promo.service");
+const { validatePromo } = require("./promo.service");
+const pricing = require("./pricing.service");
+
+// Marks the one failure the client can act on, so controllers can answer with
+// the specific figures instead of a generic server error.
+const TOTAL_MISMATCH_CODE = "ORDER_TOTAL_MISMATCH";
 
 // Validation helper functions
 const isValidEmail = (email) => {
@@ -91,15 +96,19 @@ const validateOrderData = (orderData) => {
 // against the variant's `attributes` JSON. Only an unambiguous, active match
 // is honored. The lookup is deliberately defensive: deployments without a
 // `product_variants` table simply fall back to base product pricing.
-const resolveItemVariant = async (connection, productId, item) => {
+//
+// `lockRows` is off for read-only pricing (a quote holds no rows); order
+// creation keeps it on so the price cannot move under the transaction.
+const resolveItemVariant = async (connection, productId, item, lockRows = true) => {
     const explicitVariantId = safeInteger(item.variantId ?? item.variant_id, 0);
+    const rowLock = lockRows ? " FOR UPDATE" : "";
 
     try {
         if (explicitVariantId > 0) {
             const [rows] = await connection.query(
                 `SELECT id, price, stock FROM product_variants
                  WHERE id = ? AND product_id = ? AND is_active = 1
-                 LIMIT 1 FOR UPDATE`,
+                 LIMIT 1${rowLock}`,
                 [explicitVariantId, productId],
             );
             return safeArray(rows)[0] || null;
@@ -133,7 +142,7 @@ const resolveItemVariant = async (connection, productId, item) => {
             `SELECT id, price, stock FROM product_variants
              WHERE product_id = ? AND is_active = 1
              AND ${conditions.join(" AND ")}
-             LIMIT 2 FOR UPDATE`,
+             LIMIT 2${rowLock}`,
             params,
         );
 
@@ -147,6 +156,86 @@ const resolveItemVariant = async (connection, productId, item) => {
         );
         return null;
     }
+};
+
+/**
+ * Turn a client-supplied basket into priced lines using the database's own
+ * prices. Client-supplied prices are never read — the only fields taken from
+ * the request are which product, which variant and how many.
+ *
+ * Order creation runs this inside its transaction with row locks and stock
+ * enforcement; the quote endpoint runs it read-only, where an out-of-stock
+ * item should still be priced rather than rejected.
+ *
+ * @param {Object} connection - pool or transactional connection
+ * @param {Array<Object>} items
+ * @param {{ lockRows?: boolean, enforceStock?: boolean }} [options]
+ * @returns {Promise<Array<Object>>} priced lines
+ */
+const resolveOrderLines = async (connection, items, options = {}) => {
+    const { lockRows = true, enforceStock = true } = options;
+    const rowLock = lockRows ? " FOR UPDATE" : "";
+    const resolvedLines = [];
+
+    for (const item of safeArray(items)) {
+        const productId = safeUUID(item.id);
+
+        if (!productId) {
+            throw new Error("Invalid product ID");
+        }
+
+        const [productResults] = await connection.query(
+            `SELECT id, name, price, stock, image FROM products WHERE id = ?
+             LIMIT 1${rowLock}`,
+            [productId],
+        );
+        const safeResults = safeArray(productResults);
+
+        if (!safeResults.length) {
+            throw new Error(`Product not found: ${productId}`);
+        }
+
+        const product = safeResults[0];
+        const qty = Math.max(1, safeInteger(item.qty, 1));
+
+        if (enforceStock && safeInteger(product.stock) < qty) {
+            throw new Error(
+                `Insufficient stock for ${sanitizeString(product.name)}`,
+            );
+        }
+
+        // Prefer the selected variant's price when it defines one; the base
+        // product price is only a fallback. This keeps order totals correct
+        // for variants that are priced differently from their parent.
+        let realPrice = safeNumber(product.price);
+
+        const variant = await resolveItemVariant(
+            connection,
+            productId,
+            item,
+            lockRows,
+        );
+
+        if (variant && variant.price !== null && variant.price !== undefined) {
+            const variantPrice = safeNumber(variant.price);
+
+            if (variantPrice > 0) {
+                realPrice = variantPrice;
+            }
+        }
+
+        resolvedLines.push({
+            id: safeUUID(product.id),
+            name: sanitizeString(product.name),
+            image: sanitizeString(product.image),
+            price: realPrice,
+            qty,
+            color: sanitizeString(item.color),
+            size: sanitizeString(item.size),
+        });
+    }
+
+    return resolvedLines;
 };
 
 const createOrderService = async (connection, orderData) => {
@@ -170,10 +259,8 @@ const createOrderService = async (connection, orderData) => {
             payment_method,
             items,
             promo_code,
+            total: claimedTotal,
         } = orderData;
-
-        // validated items
-        const validatedItems = [];
 
         // validate empty cart
         if (!safeArray(items).length) {
@@ -181,93 +268,48 @@ const createOrderService = async (connection, orderData) => {
             throw new Error("Cart is empty");
         }
 
-        // secure total
-        let calculatedTotal = 0;
+        const validatedItems = await resolveOrderLines(connection, items);
 
-        // validate each item
-        for (const item of safeArray(items)) {
-            const productId = safeUUID(item.id);
-
-            // invalid product id
-            if (!productId) {
-                throw new Error("Invalid product ID");
-            }
-
-            const productQuery = `SELECT id, name, price, stock, image FROM products WHERE id = ?
-            LIMIT 1 FOR UPDATE `;
-
-            const [productResults] = await connection.query(productQuery, [
-                productId,
-            ]);
-            const safeResults = safeArray(productResults);
-
-            // product missing
-            if (!safeResults.length) {
-                throw new Error(`Product not found: ${productId}`);
-            }
-
-            const product = safeResults[0];
-            const qty = Math.max(1, safeInteger(item.qty, 1));
-
-            // stock validation
-            if (safeInteger(product.stock) < qty) {
-                throw new Error(
-                    `Insufficient stock for ${sanitizeString(product.name)}`,
-                );
-            }
-
-            // Prefer the selected variant's price when it defines one; the base
-            // product price is only a fallback. This keeps order totals correct
-            // for variants that are priced differently from their parent.
-            let realPrice = safeNumber(product.price);
-
-            const variant = await resolveItemVariant(connection, productId, item);
-
-            if (variant && variant.price !== null && variant.price !== undefined) {
-                const variantPrice = safeNumber(variant.price);
-
-                if (variantPrice > 0) {
-                    realPrice = variantPrice;
-                }
-            }
-
-            const itemTotal = realPrice * qty;
-
-            // floating-safe total
-            calculatedTotal = Number((calculatedTotal + itemTotal).toFixed(2));
-
-            // save validated item
-            validatedItems.push({
-                id: safeUUID(product.id),
-                name: sanitizeString(product.name),
-                image: sanitizeString(product.image),
-                price: realPrice,
-                qty,
-                color: sanitizeString(item.color),
-                size: sanitizeString(item.size),
-            });
-        }
-
-        // calculate discount if promo provided
-        let discountAmount = 0;
-        let finalAmount = calculatedTotal;
-        let appliedPromoCode = null;
-        let appliedPromoId = null;
+        // Promo *validation* needs the database, so it stays here; the
+        // arithmetic that follows belongs to the pricing engine, which is the
+        // only place that knows the ordering of discount, tax and shipping.
+        let appliedPromo = null;
 
         if (promo_code) {
-            const promoValidation = await validatePromo(promo_code, calculatedTotal);
+            const { subtotal } = pricing.priceLineItems(validatedItems);
+            const promoValidation = await validatePromo(promo_code, subtotal);
+
             if (!promoValidation.valid) {
                 logger.error("Promo validation failed:", promoValidation.message);
                 throw new Error("Invalid promo code.");
             }
-            discountAmount = calculateDiscount(
-                promoValidation.promo,
-                calculatedTotal,
-            );
-            finalAmount = Number((calculatedTotal - discountAmount).toFixed(2));
-            appliedPromoCode = promoValidation.promo.code;
-            appliedPromoId = promoValidation.promo.id;
+
+            appliedPromo = promoValidation.promo;
         }
+
+        const breakdown = pricing.quote({
+            items: validatedItems,
+            promo: appliedPromo,
+            promoCode: appliedPromo ? appliedPromo.code : null,
+        });
+
+        const verification = pricing.verifyClaimedTotal(
+            claimedTotal,
+            breakdown.total,
+        );
+
+        if (!verification.isAcceptable) {
+            logger.error(`Order total rejected: ${verification.message}`);
+            const mismatch = new Error(verification.message);
+            mismatch.code = TOTAL_MISMATCH_CODE;
+            mismatch.submittedTotal = verification.claimed;
+            mismatch.computedTotal = verification.computed;
+            throw mismatch;
+        }
+
+        const appliedPromoCode = breakdown.promoCode;
+        const appliedPromoId = appliedPromo ? appliedPromo.id : null;
+        const discountAmount = breakdown.discount;
 
         // create order
         const orderQuery = `
@@ -284,13 +326,17 @@ const createOrderService = async (connection, orderData) => {
                 total,
                 status,
                 subtotal,
+                tax,
+                shipping_cost,
+                discount,
+                discount_code,
                 promo_code,
                 discount_amount,
                 final_amount,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         `;
 
         const [orderResult] = await connection.query(orderQuery, [
@@ -303,12 +349,16 @@ const createOrderService = async (connection, orderData) => {
             zip,
             full_address,
             payment_method,
-            finalAmount, // maintain total for backwards compatibility
+            breakdown.total,
             "pending",
-            calculatedTotal,
+            breakdown.subtotal,
+            breakdown.tax,
+            breakdown.shipping,
+            discountAmount,
+            appliedPromoCode,
             appliedPromoCode,
             discountAmount,
-            finalAmount,
+            breakdown.total,
         ]);
 
         const orderId = orderResult.insertId;
@@ -408,10 +458,12 @@ const createOrderService = async (connection, orderData) => {
         return {
             success: true,
             orderId: orderResult.insertId,
-            total: calculatedTotal,
-            finalAmount: finalAmount,
+            subtotal: breakdown.subtotal,
+            total: breakdown.total,
+            finalAmount: breakdown.total,
             discountAmount: discountAmount,
             promoCode: appliedPromoCode,
+            breakdown,
             items: validatedItems,
             summary: orderSummary
         };
@@ -438,6 +490,8 @@ const getOrderSummaryById = async (connection, orderId) => {
                 o.total,
                 o.status,
                 o.subtotal,
+                o.tax,
+                o.shipping_cost,
                 o.discount_amount,
                 o.final_amount,
                 o.created_at,
@@ -758,6 +812,8 @@ const generateOrderSummaryService = async (orderId) => {
             items: order.items || [],
             subtotal: order.subtotal || order.total,
             discountAmount: order.discount_amount || 0,
+            tax: order.tax || 0,
+            shipping: order.shipping_cost || 0,
             total: order.final_amount || order.total,
             timeline: await getOrderTimeline(orderId)
         };
@@ -792,6 +848,8 @@ const validateOrderDataService = (orderData) => {
 };
 
 module.exports = {
+    TOTAL_MISMATCH_CODE,
+    resolveOrderLines,
     createOrderService,
     getOrdersService,
     getOrderByIdService,

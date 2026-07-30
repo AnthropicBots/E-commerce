@@ -32,17 +32,28 @@
 
 // loading state
 function showLoadingState() {
-
-    document.body.classList.add(
-        "loading"
-    );
+    document.body.classList.add("loading");
+    const mainImgWrapper = document.getElementById("mainImageWrapper");
+    if (mainImgWrapper && !mainImgWrapper.querySelector(".product-skeleton-overlay")) {
+        const skeletonOverlay = document.createElement("div");
+        skeletonOverlay.className = "skeleton skeleton-img-lg product-skeleton-overlay";
+        skeletonOverlay.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;z-index:5;border-radius:16px;";
+        mainImgWrapper.appendChild(skeletonOverlay);
+    }
+    const nameEl = document.getElementById("product-name");
+    if (nameEl) nameEl.classList.add("skeleton", "skeleton-text");
+    const priceEl = document.getElementById("product-price");
+    if (priceEl) priceEl.classList.add("skeleton", "skeleton-text", "price");
 }
 
 function hideLoadingState() {
-
-    document.body.classList.remove(
-        "loading"
-    );
+    document.body.classList.remove("loading");
+    const skeletonOverlay = document.querySelector(".product-skeleton-overlay");
+    if (skeletonOverlay) skeletonOverlay.remove();
+    const nameEl = document.getElementById("product-name");
+    if (nameEl) nameEl.classList.remove("skeleton", "skeleton-text");
+    const priceEl = document.getElementById("product-price");
+    if (priceEl) priceEl.classList.remove("skeleton", "skeleton-text", "price");
 }
 
 // cache helpers

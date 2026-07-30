@@ -567,9 +567,9 @@ function renderProduct(
 
         window.mainImage.onerror =
             () => {
-
-                window.mainImage.src =
-                    "/assets/images/f1.jpg";
+                if (window.AppUtils && typeof window.AppUtils.handleImageError === "function") {
+                    window.AppUtils.handleImageError(window.mainImage);
+                }
             };
     }
 

@@ -9,6 +9,16 @@ const isLocalhost =
     hostname.startsWith("192.168.") ||
     hostname.startsWith("172.");
 
+// Mirrors backend/config/currency.js. The minor-unit exponent is here so that
+// anything converting to the smallest unit does not assume a factor of a
+// hundred, and the locale so amounts can be formatted for the right region.
+const CURRENCY_INFO = {
+    CODE: "INR",
+    SYMBOL: "₹",
+    MINOR_UNIT_EXPONENT: 2,
+    LOCALE: "en-IN"
+};
+
 const CONFIG = {
     // api base url
     API_BASE: isLocalhost
@@ -30,8 +40,12 @@ const CONFIG = {
         8,
 
     // currency
+    CURRENCY_INFO,
+
+    // Kept as a bare symbol string: existing scripts interpolate CONFIG.CURRENCY
+    // directly.
     CURRENCY:
-        "₹",
+        CURRENCY_INFO.SYMBOL,
 
     // pricing rules (single source of truth for cart math)
     PRICING: {
@@ -73,6 +87,10 @@ Object.freeze(
 
 Object.freeze(
     CONFIG.PRICING
+);
+
+Object.freeze(
+    CONFIG.CURRENCY_INFO
 );
 
 // expose globally

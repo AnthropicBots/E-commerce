@@ -452,11 +452,22 @@ const apiRequest =
                 !response.ok
             ) {
 
-                throw new Error(
-                    data.message
-                    ||
-                    `Request failed (${response.status})`
-                );
+                const failure =
+                    new Error(
+                        data.message
+                        ||
+                        `Request failed (${response.status})`
+                    );
+
+                // Carried through the catch below so callers can branch on a
+                // specific server-side condition instead of matching on text.
+                failure.status =
+                    response.status;
+
+                failure.code =
+                    data.code;
+
+                throw failure;
             }
 
             return data;
@@ -508,6 +519,12 @@ const apiRequest =
 
                 success: false,
 
+                status:
+                    error.status,
+
+                code:
+                    error.code,
+
                 message:
                     error.message
                     || "Request failed"
@@ -537,16 +554,35 @@ const $$ = (
 };
 
 // price formatter
+//
+// Pass the currency descriptor from a server breakdown to render an amount in
+// the currency it was actually priced in; without one the local configuration
+// is used. The server sends lowercase keys and the local config uppercase, so
+// both are accepted.
 const formatPrice = (
-    price
+    price,
+    currency = CONFIG.CURRENCY_INFO
 ) => {
 
-    return `₹${parseFloat(
+    const symbol =
+        (currency &&
+            (currency.symbol || currency.SYMBOL)) ||
+        CONFIG.CURRENCY;
+
+    return `${symbol}${parseFloat(
         price || 0
     ).toFixed(2)}`;
 };
 
-// image fallback
+// image fallback constants & handlers
+const FALLBACK_PRODUCT_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'%3E%3Crect width='400' height='400' fill='%23f3f4f6'/%3E%3Cg fill='%239ca3af' text-anchor='middle'%3E%3Cpath d='M160 140c0-11 9-20 20-20s20 9 20 20-9 20-20 20-20-9-20-20zm80 80H160l25-33 15 20 30-40 40 53z'/%3E%3Cpath d='M130 110h140c11 0 20 9 20 20v140c0 11-9 20-20 20H130c-11 0-20-9-20-20V130c0-11 9-20 20-20zm0 160h140V130H130v140z'/%3E%3Ctext x='200' y='310' font-family='sans-serif' font-size='16' font-weight='500'%3ENo Image Available%3C/text%3E%3C/g%3E%3C/svg%3E";
+
+const handleImageError = (img) => {
+    if (!img || img.dataset.fallbackApplied === "true") return;
+    img.dataset.fallbackApplied = "true";
+    img.src = FALLBACK_PRODUCT_IMAGE;
+};
+
 const defaultImage = (
     url
 ) => {
@@ -559,7 +595,7 @@ const defaultImage = (
         url.trim()
     )
         ? url
-        : "assets/images/default-product.png";
+        : FALLBACK_PRODUCT_IMAGE;
 };
 
 // safe array
@@ -1664,6 +1700,59 @@ const calculateCartTotals = async (
     };
 };
 
+// Ask the server what this basket costs. The server owns the tax, shipping and
+// discount rules and prices from its own product records, so what comes back
+// here is what checkout will charge.
+//
+// calculateCartTotals stays as the fallback: if the quote cannot be fetched the
+// shopper still sees a plausible summary rather than a blank or zeroed one, and
+// `isServerQuote` tells callers which of the two they are looking at.
+const fetchCartQuote = async (
+    cart = getCart(),
+    couponCode = ""
+) => {
+    const items = safeArray(cart).map(
+        (item) => ({
+            id: item.id,
+            qty: Math.max(1, safeInteger(item.qty, 1)),
+            variantId: item.variantId || item.variant_id || null,
+            color: item.color || "",
+            size: item.size || ""
+        })
+    );
+
+    try {
+        const response = await apiRequest("/checkout/quote", {
+            method: "POST",
+            body: JSON.stringify({
+                items,
+                promoCode: couponCode || null
+            })
+        });
+
+        if (!response || !response.success || !response.breakdown) {
+            throw new Error(
+                (response && response.message) || "Quote unavailable"
+            );
+        }
+
+        return {
+            ...response.breakdown,
+            promoMessage: response.promoMessage || null,
+            isServerQuote: true
+        };
+    } catch (error) {
+        console.error("CART QUOTE ERROR:", error);
+
+        const fallback = await calculateCartTotals(cart, couponCode);
+
+        return {
+            ...fallback,
+            isServerQuote: false
+        };
+    }
+};
+
 const getWishlist = () => {
 
     return getJSON(
@@ -1681,6 +1770,29 @@ const saveWishlist = (
         safeArray(wishlist)
     );
 }; // Fixed: Added missing closing bracket here
+
+const getSkeletonCardHTML = (count = 4) => {
+    let html = "";
+    for (let i = 0; i < count; i++) {
+        html += `
+            <div class="pro skeleton-wrapper">
+                <div class="skeleton skeleton-img"></div>
+                <div class="des">
+                    <div class="skeleton skeleton-text short"></div>
+                    <div class="skeleton skeleton-text"></div>
+                    <div class="skeleton skeleton-text short"></div>
+                    <div class="skeleton skeleton-text price"></div>
+                </div>
+            </div>
+        `;
+    }
+    return html;
+};
+
+const renderSkeletonState = (container, count = 4) => {
+    if (!container) return;
+    container.innerHTML = getSkeletonCardHTML(count);
+};
 
 // app utils assignment
 window.AppUtils = {
@@ -1725,8 +1837,13 @@ window.AppUtils = {
     mergeGuestCartIntoAccount,
     validateCoupon,
     calculateCartTotals,
+    fetchCartQuote,
     getWishlist,
-    saveWishlist
+    saveWishlist,
+    getSkeletonCardHTML,
+    renderSkeletonState,
+    FALLBACK_PRODUCT_IMAGE,
+    handleImageError
 };
 
 // backward compatibility assignments
@@ -1734,12 +1851,16 @@ window.API_BASE = CONFIG.API_BASE;
 window.notify = notify;
 window.getJSON = getJSON;
 window.setJSON = setJSON;
+window.getSkeletonCardHTML = getSkeletonCardHTML;
+window.renderSkeletonState = renderSkeletonState;
 window.apiRequest = apiRequest;
 window.$ = $;
 window.$$ = $$;
 window.formatPrice = formatPrice;
 window.requireAuth = requireAuth;
 window.defaultImage = defaultImage;
+window.FALLBACK_PRODUCT_IMAGE = FALLBACK_PRODUCT_IMAGE;
+window.handleImageError = handleImageError;
 window.safeForEach = safeForEach;
 window.safeMap = safeMap;
 

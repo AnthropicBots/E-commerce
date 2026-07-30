@@ -70,6 +70,16 @@ const elements = {
             "checkout-shipping"
         ),
 
+    discount:
+        document.getElementById(
+            "checkout-discount"
+        ),
+
+    discountRow:
+        document.getElementById(
+            "checkout-discount-row"
+        ),
+
     total:
         document.getElementById(
             "checkout-total"
@@ -263,10 +273,102 @@ function safeQty(
 // CALCULATE TOTALS
 async function calculateTotals() {
 
-    return AppUtils.calculateCartTotals(
+    return AppUtils.fetchCartQuote(
         cart,
         appliedCoupon
     );
+}
+
+function renderTotals(
+    totals
+) {
+
+    // The breakdown states the currency it was priced in; trust that over the
+    // local constant so display can never drift from what is charged.
+    const currency =
+        totals.currency;
+
+    if (
+        elements.subtotal
+    ) {
+
+        elements.subtotal.innerText =
+            AppUtils.formatPrice(
+                totals.subtotal,
+                currency
+            );
+    }
+
+    if (
+        elements.tax
+    ) {
+
+        elements.tax.innerText =
+            AppUtils.formatPrice(
+                totals.tax,
+                currency
+            );
+    }
+
+    if (
+        elements.shipping
+    ) {
+
+        elements.shipping.innerText =
+            totals.shipping === 0
+                ? "Free"
+                : AppUtils.formatPrice(
+                    totals.shipping,
+                    currency
+                );
+    }
+
+    const discount =
+        Number(totals.discount) || 0;
+
+    if (
+        elements.discountRow
+    ) {
+
+        elements.discountRow.style.display =
+            discount > 0
+                ? ""
+                : "none";
+    }
+
+    if (
+        elements.discount
+    ) {
+
+        elements.discount.innerText =
+            `-${AppUtils.formatPrice(discount, currency)}`;
+    }
+
+    if (
+        elements.total
+    ) {
+
+        elements.total.innerText =
+            AppUtils.formatPrice(
+                totals.total,
+                currency
+            );
+    }
+}
+
+// Re-price the basket and repaint the summary, returning the figures that were
+// shown so the caller can submit exactly those — the shopper must never be
+// asked to confirm one total and charged another.
+async function refreshSummary() {
+
+    const totals =
+        await calculateTotals();
+
+    renderTotals(
+        totals
+    );
+
+    return totals;
 }
 
 // RENDER CHECKOUT
@@ -347,48 +449,16 @@ async function renderCheckout() {
     );
 
     const totals =
-        await calculateTotals();
+        await refreshSummary();
 
     if (
-        elements.subtotal
+        !totals.isServerQuote
     ) {
 
-        elements.subtotal.innerText =
-            AppUtils.formatPrice(
-                totals.subtotal
-            );
-    }
-
-    if (
-        elements.tax
-    ) {
-
-        elements.tax.innerText =
-            AppUtils.formatPrice(
-                totals.tax
-            );
-    }
-
-    if (
-        elements.shipping
-    ) {
-
-        elements.shipping.innerText =
-            totals.shipping === 0
-                ? "Free"
-                : AppUtils.formatPrice(
-                    totals.shipping
-                );
-    }
-
-    if (
-        elements.total
-    ) {
-
-        elements.total.innerText =
-            AppUtils.formatPrice(
-                totals.total
-            );
+        AppUtils.notify(
+            "Showing estimated totals — we could not reach the server. Your order will be priced when you place it.",
+            "warning"
+        );
     }
 }
 
@@ -521,7 +591,7 @@ async function createOrderPayload() {
         );
 
     const totals =
-        await calculateTotals();
+        await refreshSummary();
 
     return {
 
@@ -559,6 +629,11 @@ async function createOrderPayload() {
         total:
             totals.total,
 
+        // Without this the backend never sees the coupon the shopper applied
+        // and quietly charges them the undiscounted price.
+        promoCode:
+            appliedCoupon || null,
+
         items:
             AppUtils.safeArray(
                 cart
@@ -588,6 +663,33 @@ async function createOrderPayload() {
 // PLACE ORDER
 let isSubmitting =
     false;
+
+const TOTAL_MISMATCH_CODE =
+    "ORDER_TOTAL_MISMATCH";
+
+// Turns an unsuccessful API response into an error the submit handler can
+// present. A rejected total is the one failure the shopper can act on, so it
+// keeps the server's wording — which names both figures — and is flagged so
+// the summary gets repainted before they retry.
+function orderFailure(
+    response
+) {
+
+    const failure =
+        new Error(
+            (response && response.message)
+            || "Failed to place order."
+        );
+
+    failure.isTotalMismatch =
+        Boolean(
+            response
+            &&
+            response.code === TOTAL_MISMATCH_CODE
+        );
+
+    return failure;
+}
 
 if (
     elements.checkoutForm
@@ -631,6 +733,9 @@ if (
             const order = await createOrderPayload();
             const selectedPaymentMethod = order.paymentMethod;
 
+            // Whichever branch runs, the id of the order the server created.
+            let placedOrderId = null;
+
             try {
                 if (selectedPaymentMethod === "card") {
                     // 1. Create Payment Intent
@@ -640,8 +745,10 @@ if (
                     });
 
                     if (!intentRes.success) {
-                        throw new Error(intentRes.message || "Failed to initialize payment");
+                        throw orderFailure(intentRes);
                     }
+
+                    placedOrderId = intentRes.orderId;
 
                     // 2. Confirm Card Payment with Stripe
                     const { error, paymentIntent } = await stripe.confirmCardPayment(intentRes.clientSecret, {
@@ -670,9 +777,11 @@ if (
                     });
 
                     if (!data.success) {
-                        throw new Error(data.message || "Failed to place order");
+                        throw orderFailure(data);
                     }
-                    
+
+                    placedOrderId = data.orderId;
+
                     AppUtils.notify("Order placed successfully! 🎉", "success");
                 }
 
@@ -680,42 +789,33 @@ if (
                 AppUtils.clearCart();
                 AppUtils.removeStorage("appliedCoupon");
 
-                    // update ui
-                    if (
-                        typeof updateCartCount ===
-                        "function"
-                    ) {
+                // update ui
+                if (
+                    typeof updateCartCount ===
+                    "function"
+                ) {
 
-                        updateCartCount();
-                    }
-
-                    if (
-                        typeof renderCartDrawer ===
-                        "function"
-                    ) {
-
-                        renderCartDrawer();
-                    }
-
-                    // redirect
-                    setTimeout(
-                        () => {
-
-                            window.location.href =
-                                `success.html?id=${data.orderId}`;
-
-                        },
-                        1200
-                    );
-
-                } else {
-
-                    AppUtils.notify(
-                        data.message ||
-                        "Failed to place order.",
-                        "error"
-                    );
+                    updateCartCount();
                 }
+
+                if (
+                    typeof renderCartDrawer ===
+                    "function"
+                ) {
+
+                    renderCartDrawer();
+                }
+
+                // redirect
+                setTimeout(
+                    () => {
+
+                        window.location.href =
+                            `success.html?id=${placedOrderId}`;
+
+                    },
+                    1200
+                );
 
             } catch (
                 error
@@ -726,10 +826,25 @@ if (
                     error
                 );
 
-                AppUtils.notify(
-                    "Failed to place order.",
-                    "error"
-                );
+                if (
+                    error.isTotalMismatch
+                ) {
+
+                    await refreshSummary();
+
+                    AppUtils.notify(
+                        `${error.message} The summary has been updated — please review it and try again.`,
+                        "error"
+                    );
+
+                } else {
+
+                    AppUtils.notify(
+                        error.message ||
+                        "Failed to place order.",
+                        "error"
+                    );
+                }
 
             } finally {
 
