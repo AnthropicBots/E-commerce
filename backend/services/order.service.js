@@ -311,9 +311,13 @@ const createOrderService = async (connection, orderData) => {
         const appliedPromoId = appliedPromo ? appliedPromo.id : null;
         const discountAmount = breakdown.discount;
 
+        const crypto = require("crypto");
+        const orderId = crypto.randomUUID();
+
         // create order
         const orderQuery = `
             INSERT INTO orders (
+                id,
                 user_id,
                 customer_name,
                 customer_email,
@@ -322,6 +326,7 @@ const createOrderService = async (connection, orderData) => {
                 state,
                 zip,
                 full_address,
+                shipping_address,
                 payment_method,
                 total,
                 status,
@@ -336,10 +341,11 @@ const createOrderService = async (connection, orderData) => {
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         `;
 
         const [orderResult] = await connection.query(orderQuery, [
+            orderId,
             safeUUID(user_id),
             customer_name,
             customer_email,
@@ -348,6 +354,7 @@ const createOrderService = async (connection, orderData) => {
             state,
             zip,
             full_address,
+            JSON.stringify({ street: full_address, city, state, zip }),
             payment_method,
             breakdown.total,
             "pending",
@@ -361,8 +368,6 @@ const createOrderService = async (connection, orderData) => {
             breakdown.total,
         ]);
 
-        const orderId = orderResult.insertId;
-
         // insert into order_items
         for (const item of validatedItems) {
             const itemQuery = `
@@ -373,8 +378,9 @@ const createOrderService = async (connection, orderData) => {
                     price,
                     qty,
                     color,
-                    size
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    size,
+                    total
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `;
             await connection.query(itemQuery, [
                 orderId,
@@ -384,6 +390,7 @@ const createOrderService = async (connection, orderData) => {
                 item.qty,
                 item.color,
                 item.size,
+                item.price * item.qty,
             ]);
         }
 
@@ -457,7 +464,7 @@ const createOrderService = async (connection, orderData) => {
 
         return {
             success: true,
-            orderId: orderResult.insertId,
+            orderId: orderId,
             subtotal: breakdown.subtotal,
             total: breakdown.total,
             finalAmount: breakdown.total,

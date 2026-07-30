@@ -52,9 +52,13 @@ async function processOrder(orderData) {
 
     const priced = breakdown || quoteOrder({ items });
 
+    const crypto = require("crypto");
+    const orderId = crypto.randomUUID();
+
     const [result] = await db.query(
         `
         INSERT INTO orders (
+            id,
             user_id,
             items,
             shipping_address,
@@ -70,9 +74,10 @@ async function processOrder(orderData) {
             status,
             created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())
         `,
         [
+            orderId,
             userId,
             JSON.stringify(items || []),
             JSON.stringify(shippingAddress || {}),
@@ -89,7 +94,7 @@ async function processOrder(orderData) {
     );
 
     return {
-        id: result.insertId,
+        id: orderId,
         userId,
         breakdown: priced,
         total: priced.total,
