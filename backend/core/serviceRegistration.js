@@ -1,35 +1,86 @@
 // backend/core/serviceRegistration.js
 const { container, LIFETIME } = require('./diContainer');
 
-// Import services
-// Note: These would be your actual service classes
-// For demonstration, we'll show the registration pattern
+// Six of the services registered below do not exist on disk:
+// orderService, userService, authService, paymentService, notificationService
+// and analyticsService. The header of this file has always described it as
+// showing "the registration pattern" for services that "would be your actual
+// service classes", so they are placeholders rather than something that was
+// lost.
+//
+// That was still a live hazard. The requires sit inside `factory` closures, so
+// they do not fire during registration -- they fire the first time something
+// resolves the token, which middleware/diMiddleware.js does per request. The
+// result was a MODULE_NOT_FOUND thrown from inside a request handler, far from
+// the registration that caused it.
+//
+// Rather than inventing six domain services, registration now skips any token
+// whose module cannot be resolved and reports them once at startup. Resolving
+// an unregistered token then fails with the container's own clear error
+// instead of a stack trace pointing at a require deep inside a factory.
+
+/**
+ * Can this module path be resolved from this file?
+ *
+ * @param {string} modulePath
+ * @returns {boolean}
+ */
+function isResolvable(modulePath) {
+    try {
+        require.resolve(modulePath);
+        return true;
+    } catch (error) {
+        if (error.code === 'MODULE_NOT_FOUND') return false;
+        throw error;
+    }
+}
+
+/**
+ * Register a token only when the module backing it is present.
+ *
+ * @param {string[]} missing - Accumulator for skipped tokens.
+ * @param {string} token - Container token.
+ * @param {string} modulePath - Module the factory requires.
+ * @param {object} options - Passed straight through to container.register.
+ * @returns {boolean} Whether the token was registered.
+ */
+function registerIfAvailable(missing, token, modulePath, options) {
+    if (!isResolvable(modulePath)) {
+        missing.push(`${token} -> ${modulePath}`);
+        return false;
+    }
+
+    container.register(token, null, options);
+    return true;
+}
 
 /**
  * Register all services with the DI container
  */
 function registerServices() {
+    // Tokens skipped because their module is absent; reported once below.
+    const missing = [];
     // ============================================
     // REPOSITORY SERVICES
     // ============================================
     
     // Register repositories (singletons)
-    container.register('ProductRepository', null, {
+    registerIfAvailable(missing, 'ProductRepository', '../repositories/productRepository', {
         lifetime: LIFETIME.SINGLETON,
         factory: () => require('../repositories/productRepository')
     });
 
-    container.register('OrderRepository', null, {
+    registerIfAvailable(missing, 'OrderRepository', '../repositories/orderRepository', {
         lifetime: LIFETIME.SINGLETON,
         factory: () => require('../repositories/orderRepository')
     });
 
-    container.register('UserRepository', null, {
+    registerIfAvailable(missing, 'UserRepository', '../repositories/userRepository', {
         lifetime: LIFETIME.SINGLETON,
         factory: () => require('../repositories/userRepository')
     });
 
-    container.register('WishlistRepository', null, {
+    registerIfAvailable(missing, 'WishlistRepository', '../repositories/wishlistRepository', {
         lifetime: LIFETIME.SINGLETON,
         factory: () => require('../repositories/wishlistRepository')
     });
@@ -38,7 +89,7 @@ function registerServices() {
     // SERVICE LAYER
     // ============================================
 
-    container.register('ProductService', null, {
+    registerIfAvailable(missing, 'ProductService', '../services/productService', {
         lifetime: LIFETIME.SINGLETON,
         dependencies: ['ProductRepository'],
         factory: (productRepo) => {
@@ -47,7 +98,7 @@ function registerServices() {
         }
     });
 
-    container.register('OrderService', null, {
+    registerIfAvailable(missing, 'OrderService', '../services/orderService', {
         lifetime: LIFETIME.SINGLETON,
         dependencies: ['OrderRepository', 'ProductRepository'],
         factory: (orderRepo, productRepo) => {
@@ -56,7 +107,7 @@ function registerServices() {
         }
     });
 
-    container.register('UserService', null, {
+    registerIfAvailable(missing, 'UserService', '../services/userService', {
         lifetime: LIFETIME.SINGLETON,
         dependencies: ['UserRepository'],
         factory: (userRepo) => {
@@ -69,7 +120,7 @@ function registerServices() {
     // DOMAIN SERVICES
     // ============================================
 
-    container.register('CatalogService', null, {
+    registerIfAvailable(missing, 'CatalogService', '../modules/catalog', {
         lifetime: LIFETIME.SINGLETON,
         dependencies: ['ProductRepository', 'CategoryRepository'],
         factory: (productRepo, categoryRepo) => {
@@ -78,7 +129,7 @@ function registerServices() {
         }
     });
 
-    container.register('OrderDomainService', null, {
+    registerIfAvailable(missing, 'OrderDomainService', '../modules/orders', {
         lifetime: LIFETIME.SINGLETON,
         dependencies: ['OrderRepository'],
         factory: (orderRepo) => {
@@ -91,22 +142,22 @@ function registerServices() {
     // VALIDATORS
     // ============================================
 
-    container.register('OrderValidator', null, {
+    registerIfAvailable(missing, 'OrderValidator', '../validators/orderValidator', {
         lifetime: LIFETIME.SINGLETON,
         factory: () => require('../validators/orderValidator')
     });
 
-    container.register('ProductValidator', null, {
+    registerIfAvailable(missing, 'ProductValidator', '../validators/productValidator', {
         lifetime: LIFETIME.SINGLETON,
         factory: () => require('../validators/productValidator')
     });
 
-    container.register('UserValidator', null, {
+    registerIfAvailable(missing, 'UserValidator', '../validators/userValidator', {
         lifetime: LIFETIME.SINGLETON,
         factory: () => require('../validators/userValidator')
     });
 
-    container.register('CouponValidator', null, {
+    registerIfAvailable(missing, 'CouponValidator', '../validators/couponValidator', {
         lifetime: LIFETIME.SINGLETON,
         factory: () => require('../validators/couponValidator')
     });
@@ -116,25 +167,25 @@ function registerServices() {
     // ============================================
 
     // Cache service
-    container.register('CacheService', null, {
+    registerIfAvailable(missing, 'CacheService', '../services/cacheService', {
         lifetime: LIFETIME.SINGLETON,
         factory: () => require('../services/cacheService')
     });
 
     // Notification service
-    container.register('NotificationService', null, {
+    registerIfAvailable(missing, 'NotificationService', '../services/notificationService', {
         lifetime: LIFETIME.SINGLETON,
         factory: () => require('../services/notificationService')
     });
 
     // Analytics service
-    container.register('AnalyticsService', null, {
+    registerIfAvailable(missing, 'AnalyticsService', '../services/analyticsService', {
         lifetime: LIFETIME.SINGLETON,
         factory: () => require('../services/analyticsService')
     });
 
     // Recommendation service
-    container.register('RecommendationService', null, {
+    registerIfAvailable(missing, 'RecommendationService', '../services/recommendationService', {
         lifetime: LIFETIME.SINGLETON,
         dependencies: ['ProductService', 'CacheService'],
         factory: (productService, cacheService) => {
@@ -144,19 +195,19 @@ function registerServices() {
     });
 
     // Payment service
-    container.register('PaymentService', null, {
+    registerIfAvailable(missing, 'PaymentService', '../services/paymentService', {
         lifetime: LIFETIME.SINGLETON,
         factory: () => require('../services/paymentService')
     });
 
     // Config service
-    container.register('ConfigService', null, {
+    registerIfAvailable(missing, 'ConfigService', '../services/configService', {
         lifetime: LIFETIME.SINGLETON,
         factory: () => require('../services/configService').configService
     });
 
     // Auth service
-    container.register('AuthService', null, {
+    registerIfAvailable(missing, 'AuthService', '../services/authService', {
         lifetime: LIFETIME.SINGLETON,
         dependencies: ['UserRepository', 'ConfigService'],
         factory: (userRepo, configService) => {
@@ -165,7 +216,23 @@ function registerServices() {
         }
     });
 
-    console.log('✅ All services registered with DI container');
+    if (missing.length > 0) {
+        console.warn(
+            `⚠️  DI container: ${missing.length} service(s) skipped — module not found on disk:`
+        );
+        for (const entry of missing) {
+            console.warn(`     - ${entry}`);
+        }
+        console.warn(
+            '     Resolving these tokens will fail until the modules are added.'
+        );
+    }
+
+    console.log(
+        `✅ DI container: registered services (${missing.length} skipped)`
+    );
+
+    return { missing };
 }
 
 /**

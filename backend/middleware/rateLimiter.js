@@ -1,4 +1,10 @@
 const rateLimit = require("express-rate-limit");
+// `ipKeyGenerator` normalises an address before it is used as a bucket key.
+// For IPv6 it collapses the address to its /64 subnet, so a client cannot walk
+// through the enormous address space it is typically allocated and get a fresh
+// quota on every request. Raw `req.ip` gives every IPv6 address its own bucket,
+// which is an effective bypass of any IP-based limit.
+const { ipKeyGenerator } = require("express-rate-limit");
 
 // ==================== CONSTANTS FROM ENV ====================
 const DEFAULT_WINDOW_MS =
@@ -44,10 +50,11 @@ const customKeyGenerator = (req) => {
         || req.body?.userId
         || "anonymous";
 
-    const ip =
-        req.ip
-        || req.connection.remoteAddress
-        || "unknown";
+    const address = req.ip || req.socket?.remoteAddress;
+
+    // Normalise before bucketing. An IPv6 client is typically handed a whole
+    // /64, so keying on the raw address hands out a fresh quota per request.
+    const ip = address ? ipKeyGenerator(address) : "unknown";
 
     return `${ip}_${userId}`;
 };
@@ -174,10 +181,12 @@ const otpRequestLimiter = createLimiter({
 });
 
 // ==================== SUSPICIOUS IP RATE LIMITER ====================
-const suspiciousIpKeyGenerator = (req) =>
-    req.ip
-    || req.connection.remoteAddress
-    || "unknown";
+const suspiciousIpKeyGenerator = (req) => {
+    const address = req.ip || req.socket?.remoteAddress;
+    // express-rate-limit v8 raises ERR_ERL_KEY_GEN_IPV6 for a custom
+    // keyGenerator that reads req.ip without this helper.
+    return address ? ipKeyGenerator(address) : "unknown";
+};
 
 const suspiciousIpLimiter = createLimiter({
     windowMs: 60 * 60 * 1000, // 1 hour

@@ -54,13 +54,23 @@ describe('server bootstrap', () => {
         expect(res.status).toBe(200);
     });
 
-    test.each(['/api/experiments', '/api/copywriter', '/api/notifications'])(
-        'mounted router %s resolves (not 404)',
-        async (route) => {
-            const res = await request(app).get(route);
-            expect(res.status).not.toBe(404);
-        }
-    );
+    // Each entry is an endpoint the router actually defines.
+    //
+    // This previously probed the mount points themselves -- `/api/copywriter`
+    // and `/api/notifications` -- but neither router declares a `GET /`, so
+    // both returned 404 whether or not they were wired up. The assertion could
+    // not tell "router missing" from "router mounted, no index route", which is
+    // the very thing it exists to check. Probing a route that does exist can:
+    // unauthenticated requests get 401 from authMiddleware, and a 401 is only
+    // reachable if the router is mounted.
+    test.each([
+        ['/api/experiments', 'experimentRoutes'],
+        ['/api/copywriter/analytics', 'copywriterRoutes'],
+        ['/api/notifications/types', 'notificationBrokerRoutes']
+    ])('%s is served by a mounted router (not 404)', async (route) => {
+        const res = await request(app).get(route);
+        expect(res.status).not.toBe(404);
+    });
 });
 
 describe('route require guard', () => {

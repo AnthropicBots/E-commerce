@@ -1,7 +1,7 @@
 // routes/preservationAI.routes.js
 const express = require('express');
 const router = express.Router();
-const PreservationAIService = require('../services/preservationAIService');
+const PreservationAIService = require('../services/preservativeAIService');
 
 let preservationService = null;
 
