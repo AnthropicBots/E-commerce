@@ -196,6 +196,60 @@ const quote = ({ items = [], promo = null, promoCode = null } = {}) => {
     };
 };
 
+/**
+ * Check a client-submitted total against the engine's own figure.
+ *
+ * A total that arrives in a request body is a claim, not a value to trust, so
+ * every order creation path runs it through here. Drift of up to one minor
+ * unit is tolerated because a browser rounding at a different boundary can
+ * legitimately land a paisa away; anything larger means the two sides do not
+ * agree about the price and the order must not proceed.
+ *
+ * @param {any} claimedTotal - whatever the client sent
+ * @param {number} computedTotal - the engine's total
+ * @returns {{ isAcceptable: boolean, claimed: number|null, computed: number, difference: number|null, message: string|null }}
+ */
+const verifyClaimedTotal = (claimedTotal, computedTotal) => {
+    const computed = roundMoney(computedTotal);
+    const symbol = PRICING_CONFIG.CURRENCY.symbol;
+    const parsed = parseFloat(claimedTotal);
+
+    if (!Number.isFinite(parsed)) {
+        return {
+            isAcceptable: false,
+            claimed: null,
+            computed,
+            difference: null,
+            message:
+                "Order total could not be verified: no usable total was " +
+                `submitted, and this order prices at ${symbol}${computed.toFixed(2)}.`,
+        };
+    }
+
+    const claimed = roundMoney(parsed);
+    const difference = roundMoney(Math.abs(claimed - computed));
+
+    if (difference > MINOR_UNIT) {
+        return {
+            isAcceptable: false,
+            claimed,
+            computed,
+            difference,
+            message:
+                `Order total mismatch: submitted ${symbol}${claimed.toFixed(2)}, ` +
+                `computed ${symbol}${computed.toFixed(2)}.`,
+        };
+    }
+
+    return {
+        isAcceptable: true,
+        claimed,
+        computed,
+        difference,
+        message: null,
+    };
+};
+
 module.exports = {
     MINOR_UNIT,
     roundMoney,
@@ -204,4 +258,5 @@ module.exports = {
     calculateTax,
     calculateShipping,
     quote,
+    verifyClaimedTotal,
 };

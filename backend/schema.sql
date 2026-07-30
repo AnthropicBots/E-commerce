@@ -213,8 +213,11 @@ CREATE TABLE IF NOT EXISTS orders (
     tax DECIMAL(10,2) DEFAULT 0,
     discount DECIMAL(10,2) DEFAULT 0,
     discount_code VARCHAR(50),
+    promo_code VARCHAR(50),
+    discount_amount DECIMAL(10,2) DEFAULT 0,
     subtotal DECIMAL(10,2) NOT NULL,
     total DECIMAL(10,2) NOT NULL,
+    final_amount DECIMAL(10,2) DEFAULT 0,
     status ENUM('pending', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded', 'on_hold') DEFAULT 'pending',
     notes TEXT,
     admin_notes TEXT,
@@ -233,9 +236,11 @@ CREATE TABLE IF NOT EXISTS orders (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     CONSTRAINT chk_total CHECK (total >= 0),
+    CONSTRAINT chk_final_amount CHECK (final_amount >= 0),
     CONSTRAINT chk_shipping_cost CHECK (shipping_cost >= 0),
     CONSTRAINT chk_tax CHECK (tax >= 0),
     CONSTRAINT chk_discount CHECK (discount >= 0),
+    CONSTRAINT chk_discount_amount CHECK (discount_amount >= 0),
     
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
     
@@ -248,6 +253,7 @@ CREATE TABLE IF NOT EXISTS orders (
     INDEX idx_orders_deleted_at (deleted_at),
     INDEX idx_orders_tracking (tracking_number),
     INDEX idx_orders_email (customer_email),
+    INDEX idx_orders_promo_code (promo_code),
     
     -- Composite indexes
     INDEX idx_status_created (status, created_at),
