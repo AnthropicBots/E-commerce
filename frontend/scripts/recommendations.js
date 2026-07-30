@@ -376,6 +376,14 @@ const Recommendations = (() => {
     };
 
     /**
+     * Find the recommended product a card was rendered from
+     */
+    const findProduct = (productId) =>
+        (cache.get() || cache.loadFromStorage() || []).find(
+            (product) => String(product.id ?? product.product_id) === String(productId)
+        );
+
+    /**
      * Add to cart
      */
     const addToCart = async (productId) => {
@@ -388,26 +396,32 @@ const Recommendations = (() => {
             
             // Record interaction
             await postInteraction(productId, 'cart_add');
-            
-            // Add to cart via the backend cart API (apiRequest already
-            // prefixes API_BASE, so the path is /cart/add, not /api/cart).
-            const response = await window.AppUtils.apiRequest('/cart/add', {
-                method: 'POST',
-                body: JSON.stringify({ productId, quantity: 1 })
+
+            const product = findProduct(productId) || {};
+
+            // The shared helper is the only path that both reserves stock and
+            // keeps the visible cart in step, so the card goes through it with a
+            // real line instead of posting a bare product id.
+            const countBefore = window.AppUtils.getCartCount();
+
+            const cart = await window.AppUtils.addCartItem({
+                id: productId,
+                name: product.name,
+                price: product.price,
+                image: getProductImage(product),
+                stock: product.stock,
+                qty: 1
             });
-            
-            if (response && response.success) {
-                showToast('✅ Product added to cart!', 'success');
-                // Pull the authoritative cart back into the local mirror so the
-                // navbar count and cart page reflect the new item.
-                if (typeof window.AppUtils.loadUserCollections === 'function') {
-                    await window.AppUtils.loadUserCollections();
-                }
-                if (typeof window.updateCartCount === 'function') {
-                    window.updateCartCount();
-                }
-            } else {
-                showToast('❌ Failed to add to cart', 'error');
+
+            // A refused add has already told the shopper why.
+            if (window.AppUtils.getCartCount(cart) <= countBefore) {
+                return;
+            }
+
+            showToast('✅ Product added to cart!', 'success');
+
+            if (typeof window.updateCartCount === 'function') {
+                window.updateCartCount();
             }
         } catch (error) {
             console.error('❌ Add to cart error:', error);

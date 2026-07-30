@@ -168,29 +168,23 @@ async function addToCartFromWishlist(index) {
         qty: 1
     };
 
-    // ✅ Use fresh cart from localStorage
-    let cart = AppUtils.getCart() || [];
+    // The shared helper matches the line, sums it and reserves the stock.
+    const countBefore = AppUtils.getCartCount();
 
-    // Check for duplicates (including variants)
-    const existingIndex = cart.findIndex((p) => 
-        p.id === item.id && 
-        p.color === item.color && 
-        p.size === item.size
-    );
-
-    if (existingIndex >= 0) {
-        cart[existingIndex].qty = (cart[existingIndex].qty || 1) + 1;
-    } else {
-        cart.push(item);
-    }
-
-    AppUtils.saveCart(cart);
-    AppUtils.notify(`${product.name || "Product"} added to cart 🛍️`, "success");
+    const cart = await AppUtils.addCartItem(item);
 
     // Update cart count
     if (typeof updateCartCount === "function") {
         updateCartCount();
     }
+
+    // A refused add has already told the shopper why, and the item stays on the
+    // wishlist so nothing is lost.
+    if (AppUtils.getCartCount(cart) <= countBefore) {
+        return;
+    }
+
+    AppUtils.notify(`${product.name || "Product"} added to cart 🛍️`, "success");
 
     // ✅ Remove from wishlist after adding to cart
     await removeWishlist(index);

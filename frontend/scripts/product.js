@@ -664,7 +664,9 @@ function addProductToCart(
     // ============================================
     // CART ACTIONS
     // ============================================
-    function addProductToCart(product, redirect = false) {
+    const MAX_LINE_QUANTITY = 10;
+
+    async function addProductToCart(product, redirect = false) {
         if (!product) return;
 
         if (!AppUtils.requireLogin("Please sign in to add items to your cart")) {
@@ -676,26 +678,40 @@ function addProductToCart(
             return;
         }
 
-        let cart = AppUtils.getCart();
-        cart = AppUtils.safeArray(cart);
+        const line = { id: product.id };
 
-        const existing = cart.find((item) => Number(item.id) === Number(product.id));
-        const qty = safeQty(productElements.qtyInput?.value || 1);
+        const existing = AppUtils.getCart().find(
+            (item) => AppUtils.getCartItemKey(item) === AppUtils.getCartItemKey(line)
+        );
 
-        if (existing) {
-            existing.qty = Math.min(10, safeQty(existing.qty) + qty);
-        } else {
-            cart.push({
-                id: product.id,
-                name: product.name,
-                price: product.price,
-                image: product.image,
-                qty,
-                stock: product.stock
-            });
+        // This page has always capped a line at ten units.
+        const qty = Math.min(
+            safeQty(productElements.qtyInput?.value || 1),
+            Math.max(0, MAX_LINE_QUANTITY - safeQty(existing?.qty))
+        );
+
+        // Silently doing nothing would leave the button looking broken.
+        if (qty < 1) {
+            AppUtils.notify(`You can add up to ${MAX_LINE_QUANTITY} of this item`, "info");
+            return;
         }
 
-        AppUtils.saveCart(cart);
+        const countBefore = AppUtils.getCartCount();
+
+        // Routed through the shared helper so the add reserves stock and the
+        // account gets the final say on it.
+        const cart = await AppUtils.addCartItem({
+            id: product.id,
+            name: product.name,
+            price: product.price,
+            image: product.image,
+            qty,
+            stock: product.stock
+        });
+
+        // A refused add has already told the shopper why.
+        if (AppUtils.getCartCount(cart) <= countBefore) return;
+
         AppUtils.notify(`${product.name} added to cart`, "success");
 
         if (typeof loadProductReviews === "function") {

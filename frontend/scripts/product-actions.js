@@ -145,7 +145,7 @@ function buildCartProduct() {
 }
 
 // add to cart
-function addProductToCart() {
+async function addProductToCart() {
     const product =
         buildCartProduct();
 
@@ -157,24 +157,20 @@ function addProductToCart() {
             "Product unavailable",
             "error"
         );
-        return;
+        return false;
     }
 
     const existing =
         AppUtils.getCart().find(
             (item) => {
                 return (
-                    String(item.id)
+                    AppUtils.getCartItemKey(
+                        item
+                    )
                     ===
-                    String(product.id)
-                    &&
-                    item.color
-                    ===
-                    product.color
-                    &&
-                    item.size
-                    ===
-                    product.size
+                    AppUtils.getCartItemKey(
+                        product
+                    )
                 );
             }
         );
@@ -191,18 +187,31 @@ function addProductToCart() {
             nextQty
         )
     ) {
-        return;
+        return false;
     }
 
-    AppUtils.addCartItem(
-        product
-    );
+    const countBefore =
+        AppUtils.getCartCount();
+
+    const cart =
+        await AppUtils.addCartItem(
+            product
+        );
 
     if (
         typeof updateCartCount ===
         "function"
     ) {
         updateCartCount();
+    }
+
+    // A refused add has already told the shopper why.
+    if (
+        AppUtils.getCartCount(cart)
+        <=
+        countBefore
+    ) {
+        return false;
     }
 
     if (
@@ -225,11 +234,22 @@ function addProductToCart() {
         "Added to cart",
         "success"
     );
+
+    return true;
 }
 
 // buy now
-function buyNow() {
-    addProductToCart();
+async function buyNow() {
+    const added =
+        await addProductToCart();
+
+    // Checkout would only show a cart the account does not have.
+    if (
+        !added
+    ) {
+        return;
+    }
+
     setTimeout(
         () => {
             window.location.href =
@@ -469,7 +489,15 @@ document.addEventListener(
                     event
                 ) => {
                     event.preventDefault();
-                    addProductToCart();
+
+                    addProductToCart().catch(
+                        (error) => {
+                            console.error(
+                                "ADD TO CART ERROR:",
+                                error
+                            );
+                        }
+                    );
                 }
             );
         }
@@ -484,7 +512,14 @@ document.addEventListener(
                 ) => {
                     event.preventDefault();
 
-                    buyNow();
+                    buyNow().catch(
+                        (error) => {
+                            console.error(
+                                "BUY NOW ERROR:",
+                                error
+                            );
+                        }
+                    );
                 }
             );
         }

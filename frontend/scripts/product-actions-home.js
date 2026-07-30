@@ -7,12 +7,8 @@ let cart =
 let wishlist =
     AppUtils.getWishlist();
 
-// save cart
-function saveHomeCart() {
-    AppUtils.saveCart(
-        cart
-    );
-
+// refresh shared cart count
+function refreshHomeCartCount() {
     if (
         typeof updateCartCount ===
         "function"
@@ -29,7 +25,7 @@ function saveHomeWishlist() {
 }
 
 // add to cart
-function addToCart(
+async function addToCart(
     product
 ) {
     if (
@@ -40,13 +36,36 @@ function addToCart(
         return;
     }
 
+    // Captured before awaiting: window.event only means anything while the
+    // click is still on the stack.
+    const feedbackBtn =
+        (
+            window.event
+            &&
+            window.event.target
+        )
+            ? window.event.target.closest('.add-cart-btn')
+            : null;
+
+    const countBefore =
+        AppUtils.getCartCount();
+
     cart =
-        AppUtils.addCartItem({
+        await AppUtils.addCartItem({
             ...product,
             qty: 1
         });
 
-    saveHomeCart();
+    refreshHomeCartCount();
+
+    // A refused add has already told the shopper why.
+    if (
+        AppUtils.getCartCount(cart)
+        <=
+        countBefore
+    ) {
+        return;
+    }
 
     if (
         typeof renderCartDrawer ===
@@ -67,18 +86,14 @@ function addToCart(
         "success"
     );
 
-    // Provide visual feedback if event target is available via global event
-    if (window.event && window.event.target) {
-        const btn = window.event.target.closest('.add-cart-btn');
-        if (btn) {
-            btn.classList.add('added-feedback');
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-check"></i> Added';
-            setTimeout(() => {
-                btn.classList.remove('added-feedback');
-                btn.innerHTML = originalText;
-            }, 2000);
-        }
+    if (feedbackBtn) {
+        feedbackBtn.classList.add('added-feedback');
+        const originalText = feedbackBtn.innerHTML;
+        feedbackBtn.innerHTML = '<i class="fas fa-check"></i> Added';
+        setTimeout(() => {
+            feedbackBtn.classList.remove('added-feedback');
+            feedbackBtn.innerHTML = originalText;
+        }, 2000);
     }
 }
 
@@ -227,6 +242,13 @@ document.addEventListener(
             ) {
                 addToCart(
                     product
+                ).catch(
+                    (error) => {
+                        console.error(
+                            "ADD TO CART ERROR:",
+                            error
+                        );
+                    }
                 );
             }
         }

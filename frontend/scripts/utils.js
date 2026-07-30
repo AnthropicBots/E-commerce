@@ -174,6 +174,12 @@ const clearAuthData = () => {
     removeStorage(
         CONFIG.STORAGE_KEYS.USER
     );
+
+    // Signing out must not leave a cart attached to the browser, or the next
+    // shopper on this machine inherits it.
+    discardCartStorage();
+
+    dispatchCartUpdated([]);
 };
 
 const requireAuth = () => {
@@ -737,6 +743,73 @@ const throttle = (
 const CART_UPDATED_EVENT =
     "cartUpdated";
 
+// The stored cart is an envelope rather than a bare array because it has to be
+// possible to tell a genuine guest cart apart from a stale mirror of an account
+// cart and from another account's leftovers.
+const CART_SCHEMA_VERSION = 2;
+
+// Not a valid user id, so it can never collide with one.
+const GUEST_CART_OWNER =
+    "guest";
+
+const CART_SYNC_DEBOUNCE_MS = 600;
+
+// The envelope this tab last wrote, used to arbitrate against another tab's
+// write by timestamp.
+let lastWrittenCart = null;
+
+// The last cart the server confirmed, and therefore what a rejected change is
+// rolled back to.
+let serverAcknowledgedItems = null;
+
+const isAuthenticated = () =>
+    Boolean(getToken() && getUser());
+
+const getCartOwner = () => {
+
+    const user =
+        getUser();
+
+    return (
+        getToken()
+        &&
+        user
+        &&
+        user.id !== undefined
+        &&
+        user.id !== null
+    )
+        ? String(user.id)
+        : GUEST_CART_OWNER;
+};
+
+const dispatchCartUpdated = (
+    cart
+) => {
+
+    window.dispatchEvent(
+        new CustomEvent(
+            CART_UPDATED_EVENT,
+            {
+                detail: {
+                    cart
+                }
+            }
+        )
+    );
+};
+
+const discardCartStorage = () => {
+
+    removeStorage(
+        CONFIG.STORAGE_KEYS.CART
+    );
+
+    lastWrittenCart = null;
+
+    serverAcknowledgedItems = null;
+};
+
 const normalizeCartItem = (
     item
 ) => {
@@ -769,6 +842,13 @@ const normalizeCartItem = (
             )
         );
 
+    const variantId =
+        safeInteger(
+            item.variantId
+            ?? item.variant_id,
+            0
+        );
+
     return {
         ...item,
         id: item.id,
@@ -787,55 +867,94 @@ const normalizeCartItem = (
             item.color || null,
         size:
             item.size || null,
+        variantId:
+            variantId > 0
+                ? variantId
+                : null,
         qty
     };
 };
 
-const getCart = () => {
+// Reads the stored envelope, or a payload handed in from a `storage` event.
+// Returns null when there is nothing usable there.
+const readCartEnvelope = (
+    rawValue
+) => {
 
-    let storedCart = [];
+    const isStoredRead =
+        rawValue === undefined;
+
+    let stored = null;
 
     try {
 
         const value =
-            localStorage.getItem(
-                CONFIG.STORAGE_KEYS.CART
-            );
+            isStoredRead
+                ? localStorage.getItem(
+                    CONFIG.STORAGE_KEYS.CART
+                )
+                : rawValue;
 
-        storedCart =
+        stored =
             value
                 ? JSON.parse(value)
-                : [];
+                : null;
 
     } catch (error) {
 
         console.warn(
-            `getCart error for key "${CONFIG.STORAGE_KEYS.CART}":`,
+            `Unreadable cart payload for key "${CONFIG.STORAGE_KEYS.CART}":`,
             error
         );
 
-        removeStorage(
-            CONFIG.STORAGE_KEYS.CART
-        );
+        if (
+            isStoredRead
+        ) {
 
-        return [];
+            discardCartStorage();
+        }
+
+        return null;
     }
 
+    // A bare array is the pre-envelope payload. It carries no owner, so the
+    // only safe reading of it is "guest cart" — which keeps a returning
+    // shopper's cart instead of dropping it the day this ships.
+    const isLegacyPayload =
+        Array.isArray(
+            stored
+        );
+
     if (
-        !Array.isArray(
-            storedCart
+        !isLegacyPayload
+        &&
+        (
+            !stored
+            ||
+            !Array.isArray(
+                stored.items
+            )
         )
     ) {
 
-        removeStorage(
-            CONFIG.STORAGE_KEYS.CART
-        );
+        if (
+            isStoredRead
+            &&
+            stored
+        ) {
 
-        return [];
+            discardCartStorage();
+        }
+
+        return null;
     }
 
-    const cart =
-        storedCart
+    const items =
+        (
+            isLegacyPayload
+                ? stored
+                : stored.items
+        )
             .map(
                 normalizeCartItem
             )
@@ -843,23 +962,123 @@ const getCart = () => {
                 Boolean
             );
 
-    if (
-        cart.length !==
-        storedCart.length
-    ) {
+    return {
+        version:
+            isLegacyPayload
+                ? CART_SCHEMA_VERSION
+                : safeInteger(
+                    stored.version,
+                    CART_SCHEMA_VERSION
+                ),
 
+        owner:
+            isLegacyPayload
+                ? GUEST_CART_OWNER
+                : String(
+                    stored.owner
+                    || GUEST_CART_OWNER
+                ),
+
+        updatedAt:
+            isLegacyPayload
+                ? 0
+                : safeNumber(
+                    stored.updatedAt,
+                    0
+                ),
+
+        guestCartMerged:
+            !isLegacyPayload
+            &&
+            Boolean(
+                stored.guestCartMerged
+            ),
+
+        items
+    };
+};
+
+const writeCartEnvelope = (
+    envelope
+) => {
+
+    const saved =
         setJSON(
             CONFIG.STORAGE_KEYS.CART,
-            cart
+            envelope
         );
+
+    if (
+        saved
+    ) {
+
+        lastWrittenCart = envelope;
     }
 
-    return cart;
+    return saved;
+};
+
+const getCart = () => {
+
+    const envelope =
+        readCartEnvelope();
+
+    if (
+        !envelope
+    ) {
+
+        return [];
+    }
+
+    if (
+        envelope.owner ===
+        getCartOwner()
+    ) {
+
+        return envelope.items;
+    }
+
+    // A guest cart seen by a signed-in shopper is material for the sign-in
+    // merge, not this account's cart.
+    if (
+        envelope.owner ===
+        GUEST_CART_OWNER
+    ) {
+
+        return [];
+    }
+
+    // The cart belongs to a different account, or to an account nobody is
+    // signed into any more. Discarding it is the point: merging it would hand
+    // one shopper's basket to another.
+    discardCartStorage();
+
+    return [];
+};
+
+// Items from a guest cart that a signed-in shopper brought with them, waiting
+// to be folded into the account exactly once.
+const getGuestCartCandidates = () => {
+
+    const envelope =
+        readCartEnvelope();
+
+    return (
+        envelope
+        &&
+        envelope.owner ===
+        GUEST_CART_OWNER
+    )
+        ? envelope.items
+        : [];
 };
 
 const saveCart = (
     cart,
-    { sync = true } = {}
+    {
+        sync = true,
+        guestCartMerged = false
+    } = {}
 ) => {
 
     const normalizedCart =
@@ -871,32 +1090,52 @@ const saveCart = (
                 Boolean
             );
 
+    const previous =
+        readCartEnvelope();
+
+    const owner =
+        getCartOwner();
+
     const saved =
-        setJSON(
-            CONFIG.STORAGE_KEYS.CART,
-            normalizedCart
-        );
+        writeCartEnvelope({
+            version:
+                CART_SCHEMA_VERSION,
+
+            owner,
+
+            updatedAt:
+                Date.now(),
+
+            // The merge flag belongs to the account, so it only carries over a
+            // write by that same account.
+            guestCartMerged:
+                guestCartMerged
+                ||
+                Boolean(
+                    previous
+                    &&
+                    previous.owner === owner
+                    &&
+                    previous.guestCartMerged
+                ),
+
+            items:
+                normalizedCart
+        });
 
     if (
         saved
     ) {
 
-        window.dispatchEvent(
-            new CustomEvent(
-                CART_UPDATED_EVENT,
-                {
-                    detail: {
-                        cart:
-                            normalizedCart
-                    }
-                }
-            )
+        dispatchCartUpdated(
+            normalizedCart
         );
     }
 
     // Signed-in users: mirror every mutation to the persistent backend cart.
     // `sync: false` is used when the local mirror is being hydrated FROM the
-    // backend, to avoid an echo write.
+    // backend, or when the caller pushes the change itself, to avoid an echo
+    // write.
     if (sync && isAuthenticated()) {
         syncCartWithBackend(normalizedCart);
     }
@@ -904,6 +1143,9 @@ const saveCart = (
     return normalizedCart;
 };
 
+// A line is the product plus the variant the shopper chose, matching what the
+// backend stores. Colour and size are compared case-insensitively so one choice
+// spelled two ways stays one line.
 const getCartItemKey = (
     item
 ) => {
@@ -912,12 +1154,22 @@ const getCartItemKey = (
         String(
             item?.id
         ),
-        item?.color || "",
-        item?.size || ""
+        String(
+            safeInteger(
+                item?.variantId,
+                0
+            )
+        ),
+        String(
+            item?.color || ""
+        ).toLowerCase(),
+        String(
+            item?.size || ""
+        ).toLowerCase()
     ].join("|");
 };
 
-const addCartItem = (
+const addCartItem = async (
     product
 ) => {
 
@@ -935,8 +1187,15 @@ const addCartItem = (
         return getCart();
     }
 
-    const cart =
+    const previousCart =
         getCart();
+
+    const cart =
+        previousCart.map(
+            (cartItem) => ({
+                ...cartItem
+            })
+        );
 
     const existing =
         cart.find(
@@ -963,29 +1222,79 @@ const addCartItem = (
         );
     }
 
-    // Signed-in users: reserve stock through the backend. This is the only
-    // endpoint that creates the 15-minute inventory lock the checkout flow
-    // later validates, so add must route through it (not just /cart/sync).
-    if (isAuthenticated()) {
-        apiRequest(
-            "/cart/add",
-            {
-                method: "POST",
-                body: JSON.stringify({
-                    productId: item.id,
-                    quantity: item.qty
-                })
-            }
-        ).catch((error) => {
-            console.warn(
-                "Cart reservation failed:",
-                error
-            );
-        });
+    // Guests have nothing to reserve against, so the local write is the whole
+    // operation.
+    if (
+        !isAuthenticated()
+    ) {
+
+        return saveCart(
+            cart
+        );
     }
 
+    // /cart/add is the only endpoint that creates the 15-minute inventory lock
+    // the checkout flow later validates, so an add has to route through it. The
+    // local write is not pushed separately because this request carries it.
+    const saved =
+        saveCart(
+            cart,
+            { sync: false }
+        );
+
+    let response = null;
+
+    try {
+
+        response =
+            await apiRequest(
+                "/cart/add",
+                {
+                    method: "POST",
+                    body: JSON.stringify({
+                        productId: item.id,
+                        variantId: item.variantId,
+                        color: item.color,
+                        size: item.size,
+                        quantity: item.qty
+                    })
+                }
+            );
+
+    } catch (error) {
+
+        console.warn(
+            "Cart reservation failed:",
+            error
+        );
+    }
+
+    if (
+        response
+        &&
+        response.success
+    ) {
+
+        serverAcknowledgedItems = saved;
+
+        return saved;
+    }
+
+    // The account does not hold this line, so the browser must stop pretending
+    // it does.
+    notify(
+        (
+            response
+            &&
+            response.message
+        )
+        || "Could not add that to your cart. Please try again.",
+        "error"
+    );
+
     return saveCart(
-        cart
+        previousCart,
+        { sync: false }
     );
 };
 
@@ -1051,58 +1360,105 @@ const clearCart = () => {
 // Guests keep using localStorage only. For signed-in users every cart mutation
 // is mirrored to the persistent backend cart (/api/cart) so carts survive
 // across devices/sessions and the inventory-reservation workflow is exercised.
+// The account is the authority: a change the server refuses does not survive
+// locally.
 
-const isAuthenticated = () =>
-    Boolean(getToken() && getUser());
+// Real lines, one per variant choice. Flattening colour and size away here is
+// what used to make the shopper's choice vanish on the round trip and left
+// stock reserved against the product instead of the variant.
+const cartLinesForBackend = (cart) =>
+    safeArray(cart)
+        .map(normalizeCartItem)
+        .filter(Boolean)
+        .map((item) => ({
+            productId: item.id,
+            variantId: item.variantId,
+            color: item.color,
+            size: item.size,
+            qty: item.qty
+        }));
 
-// Collapse the local cart (which keys lines by id|color|size) into the
-// product-level shape the backend cart stores (one row per product).
-const aggregateCartForBackend = (cart) => {
-    const totals = new Map();
+// Push the whole cart and report whether the account accepted it. /cart/sync is
+// replace-all, so this reconciles the server with the local cart after any
+// mutation — including bulk edits made through saveCart directly.
+const pushCartToBackend = async (cart) => {
+    let response = null;
 
-    safeArray(cart).forEach((item) => {
-        if (item?.id === undefined || item?.id === null) {
-            return;
-        }
-
-        const key = String(item.id);
-        const qty = Math.max(1, safeInteger(item.qty, 1));
-
-        totals.set(key, (totals.get(key) || 0) + qty);
-    });
-
-    return Array.from(
-        totals,
-        ([productId, qty]) => ({ productId, qty })
-    );
-};
-
-// Debounced full-cart push. /cart/sync is replace-all, so it reconciles the
-// server with the authoritative local cart after any mutation — including bulk
-// edits made directly through saveCart outside the helpers above.
-const syncCartWithBackend = debounce((cart) => {
-    if (!isAuthenticated()) {
-        return;
+    try {
+        response = await apiRequest("/cart/sync", {
+            method: "POST",
+            body: JSON.stringify({
+                owner: getCartOwner(),
+                items: cartLinesForBackend(cart)
+            })
+        });
+    } catch (error) {
+        console.warn("Cart backend sync failed:", error);
     }
 
-    apiRequest("/cart/sync", {
-        method: "POST",
-        body: JSON.stringify({
-            items: aggregateCartForBackend(cart)
-        })
-    }).catch((error) => {
-        console.warn("Cart backend sync failed:", error);
-    });
-}, 600);
+    if (response && response.success) {
+        serverAcknowledgedItems = cart;
 
-// Merge two carts by line key, summing quantities. Folds a guest cart into the
-// account cart on login.
-const mergeCarts = (primary, secondary) => {
-    const merged = safeArray(primary)
+        return true;
+    }
+
+    notify(
+        (response && response.message)
+        || "Your cart could not be saved to your account.",
+        "error"
+    );
+
+    // Show what the account actually holds rather than leaving the shopper
+    // looking at a change that was refused.
+    if (serverAcknowledgedItems) {
+        saveCart(serverAcknowledgedItems, { sync: false });
+    }
+
+    return false;
+};
+
+// Debounced so a run of quantity edits costs one request rather than one per
+// keystroke. The returned promise settles once that request has been answered,
+// so a caller that needs to know the outcome can wait for it.
+let pendingCartSync = null;
+
+const syncCartWithBackend = (cart) => {
+    if (!isAuthenticated()) {
+        return Promise.resolve(false);
+    }
+
+    if (pendingCartSync) {
+        clearTimeout(pendingCartSync.timeoutId);
+    } else {
+        let settle;
+
+        pendingCartSync = {
+            promise: new Promise((resolve) => {
+                settle = resolve;
+            }),
+            settle
+        };
+    }
+
+    const scheduled = pendingCartSync;
+
+    scheduled.timeoutId = setTimeout(() => {
+        pendingCartSync = null;
+
+        pushCartToBackend(cart).then(scheduled.settle);
+    }, CART_SYNC_DEBOUNCE_MS);
+
+    return scheduled.promise;
+};
+
+// Combining two carts is the only place quantities are summed, and only for
+// lines that are genuinely the same line.
+const mergeCartLines = (accountCart, guestCart) => {
+    const merged = safeArray(accountCart)
         .map(normalizeCartItem)
         .filter(Boolean);
 
-    safeArray(secondary)
+    safeArray(guestCart)
         .map(normalizeCartItem)
         .filter(Boolean)
         .forEach((item) => {
@@ -1121,41 +1477,84 @@ const mergeCarts = (primary, secondary) => {
     return merged;
 };
 
-// Hydrate the local cart mirror from the persistent backend cart. Called on
-// login and on page load for signed-in users. `retry` is disabled on the fetch
-// so an expired session never force-redirects a browsing user off a public
-// page; a real mutation will trigger the normal refresh/redirect flow instead.
-const loadUserCollections = async () => {
-    if (!isAuthenticated()) {
-        return getCart();
-    }
-
-    let serverCart = [];
-
+// `retry` is disabled on the fetch so an expired session never force-redirects
+// a browsing user off a public page; a real mutation will trigger the normal
+// refresh/redirect flow instead. Returns null when the cart could not be read,
+// which is not the same answer as an empty cart.
+const fetchServerCart = async () => {
     try {
         const data = await apiRequest("/cart", {}, false);
 
         if (data && data.success) {
-            serverCart = safeArray(data.cart);
+            return safeArray(data.cart)
+                .map(normalizeCartItem)
+                .filter(Boolean);
         }
     } catch (error) {
         console.warn("Failed to load backend cart:", error);
+    }
+
+    return null;
+};
+
+// Page-load lifecycle: the account cart REPLACES the local mirror. Nothing is
+// merged here — merging what is only a mirror of the same cart is what made
+// carts inflate on their own with nobody touching them.
+const hydrateCartFromServer = async () => {
+    if (!isAuthenticated()) {
         return getCart();
     }
 
-    const guestCart = getCart();
-    const merged = mergeCarts(serverCart, guestCart);
+    const serverCart = await fetchServerCart();
 
-    // Persist the merged view locally without echoing it straight back.
-    saveCart(merged, { sync: false });
-
-    // If the user brought a guest cart, push the merge so other devices
-    // converge on the combined state.
-    if (guestCart.length) {
-        syncCartWithBackend(merged);
+    if (!serverCart) {
+        return getCart();
     }
 
-    return merged;
+    serverAcknowledgedItems = serverCart;
+
+    return saveCart(serverCart, { sync: false });
+};
+
+// Sign-in lifecycle: fold a guest cart into the account cart. This is the one
+// deliberate combine, and the envelope records that it happened so a reload
+// cannot repeat it.
+const mergeGuestCartIntoAccount = async () => {
+    if (!isAuthenticated()) {
+        return getCart();
+    }
+
+    const envelope = readCartEnvelope();
+    const alreadyMerged =
+        envelope
+        && envelope.owner === getCartOwner()
+        && envelope.guestCartMerged;
+
+    const guestCart = getGuestCartCandidates();
+
+    if (alreadyMerged || !guestCart.length) {
+        return hydrateCartFromServer();
+    }
+
+    const serverCart = await fetchServerCart();
+
+    // Without the account cart there is nothing sound to merge into, so the
+    // guest cart stays a guest cart and the next sign-in can try again.
+    if (!serverCart) {
+        return getCart();
+    }
+
+    serverAcknowledgedItems = serverCart;
+
+    const merged = mergeCartLines(serverCart, guestCart);
+
+    saveCart(merged, { sync: false, guestCartMerged: true });
+
+    // Pushed directly rather than through the debounce: this is a one-shot step
+    // and the shopper is waiting on its outcome.
+    const accepted = await pushCartToBackend(merged);
+
+    return accepted ? merged : getCart();
 };
 
 const getCartCount = (
@@ -1433,7 +1832,9 @@ window.AppUtils = {
     getCartCount,
     isAuthenticated,
     syncCartWithBackend,
-    loadUserCollections,
+    mergeCartLines,
+    hydrateCartFromServer,
+    mergeGuestCartIntoAccount,
     validateCoupon,
     calculateCartTotals,
     fetchCartQuote,
@@ -1463,24 +1864,33 @@ window.handleImageError = handleImageError;
 window.safeForEach = safeForEach;
 window.safeMap = safeMap;
 
-// Global image error capture listener - guarantees automatic fallback for broken images
-if (typeof window !== "undefined") {
-    window.addEventListener(
-        "error",
-        (event) => {
-            if (event.target && event.target.tagName === "IMG") {
-                handleImageError(event.target);
-            }
-        },
-        true
-    );
-}
+// Side-by-side tabs converge instead of competing: whichever envelope carries
+// the later timestamp is the one that stands, and everything listening on
+// CART_UPDATED_EVENT re-reads it.
+window.addEventListener("storage", (event) => {
+    if (event.key !== CONFIG.STORAGE_KEYS.CART) {
+        return;
+    }
+
+    const incoming = readCartEnvelope(event.newValue);
+
+    if (!incoming) {
+        // Another tab dropped the mirror, typically by signing out.
+        lastWrittenCart = null;
+    } else if (lastWrittenCart && lastWrittenCart.updatedAt > incoming.updatedAt) {
+        // This tab holds the newer state. It is written back with its original
+        // timestamp so the other tab adopts it and the exchange settles.
+        writeCartEnvelope(lastWrittenCart);
+    }
+
+    dispatchCartUpdated(getCart());
+});
 
 // Hydrate the persistent backend cart for already–signed-in users on load, so
-// a cart created on another device/session follows them here. Listeners on
-// CART_UPDATED_EVENT (cart page, drawer, navbar count) refresh automatically.
+// a cart created on another device/session follows them here. Combining a guest
+// cart into the account is a separate, deliberate step that belongs to sign-in.
 if (getToken() && getUser()) {
-    loadUserCollections().catch((error) => {
+    hydrateCartFromServer().catch((error) => {
         console.warn("Initial cart hydration failed:", error);
     });
 }

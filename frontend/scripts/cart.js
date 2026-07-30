@@ -345,17 +345,29 @@ function saveForLater(index) {
     AppUtils.notify('Saved for later', 'success');
 }
 
-function moveToCart(index) {
+async function moveToCart(index) {
     const item = savedForLater[index];
     if (!item) return;
-    
-    // Remove from saved
+
+    const countBefore = AppUtils.getCartCount();
+
+    // Adding goes through the shared helper so the line is reserved and the
+    // account has the final say on it.
+    cart = await AppUtils.addCartItem(item);
+
+    // A refused add has already told the shopper why; the item stays in saved
+    // items so nothing is lost.
+    if (AppUtils.getCartCount(cart) <= countBefore) {
+        renderCart();
+        return;
+    }
+
     savedForLater.splice(index, 1);
     saveSavedForLater();
-    
-    // Add to cart
-    cart.push(item);
-    saveAndRender(cart);
+
+    setCartExpiry();
+    renderCart();
+    syncSharedCartUI();
     AppUtils.notify('Moved to cart', 'success');
 }
 
@@ -758,7 +770,9 @@ document.addEventListener("click", (event) => {
     // Move to cart from saved
     if (moveToCartBtn) {
         const index = Number(moveToCartBtn.dataset.savedIndex);
-        moveToCart(index);
+        moveToCart(index).catch((error) => {
+            console.error("MOVE TO CART ERROR:", error);
+        });
         return;
     }
 
