@@ -203,6 +203,9 @@ async function addToCartFromWishlist(index) {
 async function initWishlist() {
     const token = AppUtils.getToken();
     if (token) {
+        if (elements.wishlistContainer) {
+            AppUtils.renderSkeletonState(elements.wishlistContainer, 4);
+        }
         try {
             const response = await AppUtils.apiRequest("/wishlist");
             if (response.success && response.wishlist) {
