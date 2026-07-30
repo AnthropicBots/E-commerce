@@ -1,4 +1,16 @@
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+let stripeInstance = null;
+
+const getStripe = () => {
+    if (!stripeInstance) {
+        const apiKey = process.env.STRIPE_SECRET_KEY;
+        if (!apiKey) {
+            throw new Error("STRIPE_SECRET_KEY is not defined in the environment variables.");
+        }
+        stripeInstance = require('stripe')(apiKey);
+    }
+    return stripeInstance;
+};
+
 const CURRENCY = require('../config/currency');
 
 /**
@@ -25,6 +37,7 @@ const toMinorUnits = (amount, minorUnitExponent = CURRENCY.minorUnitExponent) =>
 
 const createPaymentIntent = async (amount, currency = CURRENCY.code, metadata = {}) => {
     try {
+        const stripe = getStripe();
         const paymentIntent = await stripe.paymentIntents.create({
             amount: toMinorUnits(amount),
             // Stripe wants the ISO code lowercased; the configuration holds it
@@ -49,6 +62,7 @@ const createPaymentIntent = async (amount, currency = CURRENCY.code, metadata = 
 
 const constructWebhookEvent = (rawBody, signature) => {
     try {
+        const stripe = getStripe();
         const event = stripe.webhooks.constructEvent(
             rawBody,
             signature,
