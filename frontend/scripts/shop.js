@@ -271,6 +271,9 @@ async function loadNextProductsPage() {
 
     const isFirstPage = serverPage === 0;
     isFetchingPage = true;
+    if (isFirstPage && elements.productContainer && allProducts.length === 0) {
+        AppUtils.renderSkeletonState(elements.productContainer, 8);
+    }
     renderScrollStatus();
 
     try {
