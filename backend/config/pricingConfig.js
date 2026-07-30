@@ -9,6 +9,8 @@
 // Making it data means a change of policy is a change of this file, and the
 // tests that pin the ordering fail loudly if the engine stops honouring it.
 
+const CURRENCY = require("./currency");
+
 const APPLICATION_ORDER = Object.freeze(["discount", "tax", "shipping"]);
 
 const DISCOUNT_TYPES = Object.freeze({
@@ -25,12 +27,9 @@ const ROUNDING = Object.freeze({
     MODE: "half-up",
 });
 
-const CURRENCY = Object.freeze({
-    code: "INR",
-    symbol: "₹",
-});
-
 const PRICING_CONFIG = Object.freeze({
+    // Re-exported so a breakdown carries the currency it was priced in and
+    // consumers need only one import.
     CURRENCY,
     APPLICATION_ORDER,
     DISCOUNT_TYPES,

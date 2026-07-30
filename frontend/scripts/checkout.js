@@ -283,13 +283,19 @@ function renderTotals(
     totals
 ) {
 
+    // The breakdown states the currency it was priced in; trust that over the
+    // local constant so display can never drift from what is charged.
+    const currency =
+        totals.currency;
+
     if (
         elements.subtotal
     ) {
 
         elements.subtotal.innerText =
             AppUtils.formatPrice(
-                totals.subtotal
+                totals.subtotal,
+                currency
             );
     }
 
@@ -299,7 +305,8 @@ function renderTotals(
 
         elements.tax.innerText =
             AppUtils.formatPrice(
-                totals.tax
+                totals.tax,
+                currency
             );
     }
 
@@ -311,7 +318,8 @@ function renderTotals(
             totals.shipping === 0
                 ? "Free"
                 : AppUtils.formatPrice(
-                    totals.shipping
+                    totals.shipping,
+                    currency
                 );
     }
 
@@ -333,7 +341,7 @@ function renderTotals(
     ) {
 
         elements.discount.innerText =
-            `-${AppUtils.formatPrice(discount)}`;
+            `-${AppUtils.formatPrice(discount, currency)}`;
     }
 
     if (
@@ -342,7 +350,8 @@ function renderTotals(
 
         elements.total.innerText =
             AppUtils.formatPrice(
-                totals.total
+                totals.total,
+                currency
             );
     }
 }

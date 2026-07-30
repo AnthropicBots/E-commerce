@@ -548,11 +548,22 @@ const $$ = (
 };
 
 // price formatter
+//
+// Pass the currency descriptor from a server breakdown to render an amount in
+// the currency it was actually priced in; without one the local configuration
+// is used. The server sends lowercase keys and the local config uppercase, so
+// both are accepted.
 const formatPrice = (
-    price
+    price,
+    currency = CONFIG.CURRENCY_INFO
 ) => {
 
-    return `₹${parseFloat(
+    const symbol =
+        (currency &&
+            (currency.symbol || currency.SYMBOL)) ||
+        CONFIG.CURRENCY;
+
+    return `${symbol}${parseFloat(
         price || 0
     ).toFixed(2)}`;
 };

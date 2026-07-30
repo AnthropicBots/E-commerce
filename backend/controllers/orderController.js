@@ -9,6 +9,7 @@ const {
 );
 
 const paymentService = require("../services/payment.service");
+const CURRENCY = require("../config/currency");
 const { generateInvoicePdf } = require("../services/invoice.service");
 const inventoryReservationService = require("../services/inventoryReservationService");
 
@@ -683,7 +684,7 @@ const createPaymentIntent = async (req, res) => {
         // Charge what the engine priced, never what the browser claimed.
         const chargeableTotal = result.breakdown.total;
 
-        const paymentIntentResult = await paymentService.createPaymentIntent(chargeableTotal, 'usd', { orderId: result.orderId, userId: req.user.id });
+        const paymentIntentResult = await paymentService.createPaymentIntent(chargeableTotal, CURRENCY.code, { orderId: result.orderId, userId: req.user.id });
         if (!paymentIntentResult.success) {
             await connection.rollback();
             return res.status(500).json({ success: false, message: paymentIntentResult.error });
