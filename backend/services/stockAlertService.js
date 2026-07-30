@@ -29,10 +29,6 @@ const ALERT_CHANNELS = ["in_app", "email"];
 
 const VALID_ALERT_TYPES = Object.values(ALERT_TYPES);
 
-// Both back-in-stock and price-drop alerts are worth surfacing in the app and
-// over email, so every dispatch fans out to the same two channels.
-const ALERT_CHANNELS = ["in_app", "email"];
-
 function assertAlertType(alertType) {
     if (!VALID_ALERT_TYPES.includes(alertType)) {
         throw new Error(

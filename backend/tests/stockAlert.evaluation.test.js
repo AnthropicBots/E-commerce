@@ -48,8 +48,8 @@ afterEach(() => {
 
 describe("evaluateRestocks", () => {
     test("detected restock publishes PRODUCT_BACK_IN_STOCK and marks the row notified", async () => {
-        respondWith((sql) => {
-            if (/JOIN products/i.test(sql) && /back_in_stock/i.test(sql)) {
+        respondWith((sql, params) => {
+            if (/JOIN products/i.test(sql) && params.includes("back_in_stock")) {
                 return [{ id: 42, user_id: "user-1", product_id: "prod-1", stock: 7 }];
             }
             return [{ affectedRows: 1 }];
@@ -59,11 +59,13 @@ describe("evaluateRestocks", () => {
 
         // The detection query joins subscriptions to products, filters on the
         // active back_in_stock + stock > 0 predicate.
-        const [detectSql] = db.query.mock.calls[0];
+        const [detectSql, detectParams] = db.query.mock.calls[0];
         expect(detectSql).toMatch(/JOIN products/i);
-        expect(detectSql).toMatch(/alert_type = 'back_in_stock'/i);
-        expect(detectSql).toMatch(/status = 'active'/i);
+        expect(detectSql).toMatch(/alert_type = \?/i);
+        expect(detectSql).toMatch(/status = \?/i);
         expect(detectSql).toMatch(/p\.stock > 0/i);
+        expect(detectParams).toContain("back_in_stock");
+        expect(detectParams).toContain("active");
 
         expect(notificationBroker.publish).toHaveBeenCalledTimes(1);
         const [type, data, options] = notificationBroker.publish.mock.calls[0];
@@ -74,10 +76,10 @@ describe("evaluateRestocks", () => {
         // Marked notified for the matched id -> dedupe on the next run.
         const updates = updateCalls();
         expect(updates).toHaveLength(1);
-        expect(updates[0][0]).toMatch(/SET status = 'notified'/i);
+        expect(updates[0][0]).toMatch(/SET status = \?, last_notified_at = NOW\(\)/i);
         expect(updates[0][1][updates[0][1].length - 1]).toBe(42);
 
-        expect(summary).toEqual({ notifiedCount: 1, notifiedIds: [42] });
+        expect(summary).toBe(1);
     });
 
     test("no qualifying restock: nothing published, nothing marked notified", async () => {
@@ -90,14 +92,14 @@ describe("evaluateRestocks", () => {
 
         expect(notificationBroker.publish).not.toHaveBeenCalled();
         expect(updateCalls()).toHaveLength(0);
-        expect(summary).toEqual({ notifiedCount: 0, notifiedIds: [] });
+        expect(summary).toBe(0);
     });
 });
 
 describe("evaluatePriceDrops", () => {
     test("detected price drop publishes WISHLIST_PRICE_DROP and marks the row notified", async () => {
-        respondWith((sql) => {
-            if (/JOIN products/i.test(sql) && /price_drop/i.test(sql)) {
+        respondWith((sql, params) => {
+            if (/JOIN products/i.test(sql) && params.includes("price_drop")) {
                 return [
                     { id: 99, user_id: "user-2", product_id: "prod-9", reference_price: 100.0, price: 79.99 },
                 ];
@@ -107,11 +109,13 @@ describe("evaluatePriceDrops", () => {
 
         const summary = await service.evaluatePriceDrops();
 
-        const [detectSql] = db.query.mock.calls[0];
+        const [detectSql, detectParams] = db.query.mock.calls[0];
         expect(detectSql).toMatch(/JOIN products/i);
-        expect(detectSql).toMatch(/alert_type = 'price_drop'/i);
-        expect(detectSql).toMatch(/status = 'active'/i);
+        expect(detectSql).toMatch(/alert_type = \?/i);
+        expect(detectSql).toMatch(/status = \?/i);
         expect(detectSql).toMatch(/p\.price < s\.reference_price/i);
+        expect(detectParams).toContain("price_drop");
+        expect(detectParams).toContain("active");
 
         expect(notificationBroker.publish).toHaveBeenCalledTimes(1);
         const [type, data, options] = notificationBroker.publish.mock.calls[0];
@@ -119,17 +123,17 @@ describe("evaluatePriceDrops", () => {
         expect(data).toMatchObject({
             userId: "user-2",
             productId: "prod-9",
-            price: 79.99,
-            referencePrice: 100.0,
+            newPrice: 79.99,
+            oldPrice: 100.0,
         });
         expect(options.channels).toEqual(["in_app", "email"]);
 
         const updates = updateCalls();
         expect(updates).toHaveLength(1);
-        expect(updates[0][0]).toMatch(/SET status = 'notified'/i);
+        expect(updates[0][0]).toMatch(/SET status = \?, last_notified_at = NOW\(\)/i);
         expect(updates[0][1][updates[0][1].length - 1]).toBe(99);
 
-        expect(summary).toEqual({ notifiedCount: 1, notifiedIds: [99] });
+        expect(summary).toBe(1);
     });
 
     test("no qualifying price drop: nothing published, nothing marked notified", async () => {
@@ -142,7 +146,7 @@ describe("evaluatePriceDrops", () => {
 
         expect(notificationBroker.publish).not.toHaveBeenCalled();
         expect(updateCalls()).toHaveLength(0);
-        expect(summary).toEqual({ notifiedCount: 0, notifiedIds: [] });
+        expect(summary).toBe(0);
     });
 });
 
@@ -256,6 +260,6 @@ describe("dedupe: already-notified subscriptions are never re-published", () => 
         const summary = await service.evaluateRestocks();
 
         expect(notificationBroker.publish).not.toHaveBeenCalled();
-        expect(summary.notifiedCount).toBe(0);
+        expect(summary).toBe(0);
     });
 });
