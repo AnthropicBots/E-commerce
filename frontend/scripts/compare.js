@@ -15,6 +15,10 @@ async function renderCompare() {
         return;
     }
 
+    if (compareContainer) {
+        AppUtils.renderSkeletonState(compareContainer, compareProducts.length);
+    }
+
     try {
 
         const results =

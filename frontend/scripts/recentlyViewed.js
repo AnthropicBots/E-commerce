@@ -108,6 +108,10 @@ async function loadRecentlyViewed() {
         `;
         return;
     }
+
+    if (window.AppUtils && typeof window.AppUtils.renderSkeletonState === 'function') {
+        window.AppUtils.renderSkeletonState(container, Math.min(ids.length, 6));
+    }
     
     try {
         // Fetch product details for the IDs (max 6)
