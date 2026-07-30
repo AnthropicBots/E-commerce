@@ -311,6 +311,10 @@ const createOrderService = async (connection, orderData) => {
         const appliedPromoId = appliedPromo ? appliedPromo.id : null;
         const discountAmount = breakdown.discount;
 
+        const appliedPromoCode = breakdown.promoCode;
+        const appliedPromoId = appliedPromo ? appliedPromo.id : null;
+        const discountAmount = breakdown.discount;
+
         // create order
         const orderQuery = `
             INSERT INTO orders (

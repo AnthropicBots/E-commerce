@@ -89,7 +89,7 @@ p{
 
 /* layout helpers */
 .section-p1{
-    padding: 60px 80px;
+    padding: 20px 80px;
 }
 
 .section-m1{
@@ -131,6 +131,22 @@ button.white{
 .btn-hover:hover{
     transform: translateY(-2px);
     box-shadow: var(--shadow-soft);
+}
+
+.filter-buttons {
+    padding: 12px 0;
+}
+
+.filter-btn {
+    padding: 7px;
+    border: 0px;
+    border-radius: 7px;
+    outline: none;
+    cursor: pointer;
+}
+
+.filter-btn:hover{
+    background-color: #ccc;
 }
 
 /* global page styles */
@@ -190,7 +206,7 @@ img{
 /* responsive utilities */
 @media(max-width:1024px){
     .section-p1{
-        padding: 50px 40px;
+        padding: 40px 40px;
     }
 
     h1{

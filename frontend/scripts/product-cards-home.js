@@ -104,6 +104,7 @@ function createProductCard(
     src="${defaultImage(product.image)}"
     alt="${escapeHTML(product.name || 'Product image')}"
     loading="lazy"
+    onerror="handleImageError(this)"
 >
                 ${getStockBadgeHTML(stock)}
                 ${getOutOfStockOverlayHTML(stock)}

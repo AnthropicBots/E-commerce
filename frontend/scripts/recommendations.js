@@ -240,7 +240,7 @@ const Recommendations = (() => {
                             src="${image}" 
                             alt="${name}"
                             loading="lazy"
-                            onerror="this.src='/assets/images/placeholder.png'"
+                            onerror="AppUtils.handleImageError(this)"
                             class="product-image"
                         >
                         ${product.stock !== undefined && product.stock <= 0 ? '<span class="out-of-stock-badge">Out of Stock</span>' : ''}

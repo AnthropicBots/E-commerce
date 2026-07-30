@@ -65,7 +65,7 @@
         try {
             currentPage = page;
             if (elements.productContainer) {
-                elements.productContainer.innerHTML = `<div class="loading-products">Loading Deal's collection...</div>`;
+                AppUtils.renderSkeletonState(elements.productContainer, 8);
             }
 
             // Backend URL parameters create karna
@@ -155,7 +155,7 @@
         
         div.innerHTML = `
             <span class = "bogo-badge">BUY 1<br>GET 1<br>FREE</span>
-            <img src="${AppUtils.escapeHTML(product.image) || 'assets/images/default.jpg'}" alt="${AppUtils.escapeHTML(product.name)}" onerror="this.src='assets/images/default.jpg';">
+            <img src="${AppUtils.defaultImage(product.image)}" alt="${AppUtils.escapeHTML(product.name)}" onerror="AppUtils.handleImageError(this)">
             <div class="des">
                 <span>${AppUtils.escapeHTML(product.brand || 'Adidas')}</span>
                 <h5>${AppUtils.escapeHTML(product.name)}</h5>

@@ -113,20 +113,20 @@ product section
 #product1 .pro .cart,
 #new-arrivals .pro .cart,
 #recently-viewed .pro .cart {
-  width: 48px;
-  height: 48px;
-  line-height: 48px;
+  width: 55px;
+  height: 55px;
+  line-height: 55px;
   border-radius: 50%;
   background-color: #e8f6ea;
   font-weight: 600;
   color: var(--primary-color);
   border: none;
   position: absolute;
-  bottom: 24px;
-  right: 16px;
+  bottom: 15px;
+  right: 12px;
   transition: var(--transition-fast);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  font-size: 18px;
+  font-size: 21px;
   cursor: pointer;
 }
 
@@ -300,8 +300,8 @@ product section
   background: #e0e0e0;
   background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
   background-size: 200% 100%;
-  animation: skeleton-loading 1.5s infinite;
-  border-radius: 4px;
+  animation: skeleton-loading 1.5s infinite ease-in-out;
+  border-radius: 6px;
 }
 
 body.dark-theme .skeleton {
@@ -319,9 +319,15 @@ body.dark-theme .skeleton {
   }
 }
 
+.skeleton-wrapper {
+  pointer-events: none;
+  user-select: none;
+}
+
 .skeleton-img {
   width: 100%;
-  height: 260px;
+  aspect-ratio: 1 / 1;
+  height: auto;
   border-radius: 16px;
   margin-bottom: 15px;
 }
@@ -330,16 +336,32 @@ body.dark-theme .skeleton {
   height: 14px;
   margin-bottom: 10px;
   width: 80%;
+  border-radius: 4px;
 }
 
 .skeleton-text.short {
-  width: 50%;
+  width: 45%;
 }
 
 .skeleton-text.price {
   height: 18px;
-  width: 40%;
-  margin-top: 15px;
+  width: 35%;
+  margin-top: 12px;
+}
+
+.skeleton-btn {
+  height: 38px;
+  width: 100%;
+  border-radius: 20px;
+  margin-top: 10px;
+}
+
+.product-grid-loading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 20px;
+  width: 100%;
 }
 
 /* Carousel specific styles */

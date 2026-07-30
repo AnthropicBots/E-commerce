@@ -51,17 +51,11 @@ const featuredContainer = document.getElementById("featured-products");
 const arrivalsContainer = document.getElementById("new-arrivals-container");
 
 function renderLoadingState() {
-  const loadingHTML = `
-        <div class="loading-products">
-            Loading products...
-        </div>
-    `;
-
   if (featuredContainer) {
-    featuredContainer.innerHTML = loadingHTML;
+    AppUtils.renderSkeletonState(featuredContainer, 4);
   }
   if (arrivalsContainer) {
-    arrivalsContainer.innerHTML = loadingHTML;
+    AppUtils.renderSkeletonState(arrivalsContainer, 4);
   }
 }
 
