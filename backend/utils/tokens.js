@@ -27,9 +27,17 @@ const ACCESS_TOKEN_TTL = process.env.JWT_EXPIRY || process.env.JWT_EXPIRES_IN ||
 // supply it.
 const TWO_FACTOR_TOKEN_TTL = "5m";
 
+// Absolute lifetime of a session. Rotation moves a session forward but never
+// past this, so a session cannot be kept alive indefinitely by refreshing.
+const REFRESH_TOKEN_TTL = process.env.JWT_REFRESH_EXPIRY || "7d";
+
 // ==================== CLAIMS ====================
 
 const SUBJECT_CLAIM = "id";
+
+// Ties an access token back to the session that produced it, so a request can
+// tell which of the account's sessions it belongs to.
+const SESSION_CLAIM = "sid";
 
 // Tokens minted before the subject claim was pinned down carry `userId`. They
 // are still accepted when verifying so an upgrade does not sign everybody out
@@ -193,16 +201,59 @@ function verifyRefreshToken(value) {
     );
 }
 
+/**
+ * Digest stored in place of the token itself, so a copy of the session table
+ * cannot be replayed as a set of live credentials.
+ *
+ * @returns {string} 64-character hex digest.
+ */
+function hashRefreshToken(value) {
+    return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+// ==================== DURATIONS ====================
+
+const DURATION_UNIT_MS = {
+    s: 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000
+};
+
+/**
+ * Convert a `jsonwebtoken`-style duration ("15m", "7d", "3600") to milliseconds,
+ * so a lifetime configured once can also be used as a row expiry.
+ */
+function durationToMs(duration) {
+    const match = /^(\d+)([smhd])?$/.exec(String(duration).trim());
+    if (!match) {
+        throw new Error(
+            `Unsupported duration "${duration}". Use a number of seconds or a value ` +
+            `like 30s, 15m, 12h or 7d.`
+        );
+    }
+
+    const [, amount, unit] = match;
+    return Number(amount) * (unit ? DURATION_UNIT_MS[unit] : DURATION_UNIT_MS.s);
+}
+
+const REFRESH_TOKEN_TTL_MS = durationToMs(REFRESH_TOKEN_TTL);
+
 // ==================== EXPORTS ====================
 
 module.exports = {
     ACCESS_TOKEN_TTL,
     COOKIE_NAMES,
     REFRESH_COOKIE_PATH,
+    REFRESH_TOKEN_TTL,
+    REFRESH_TOKEN_TTL_MS,
+    SESSION_CLAIM,
     SUBJECT_CLAIM,
     assertAccessTokenSecret,
     assertTokenConfiguration,
+    durationToMs,
     hasSubjectClaim,
+    hashRefreshToken,
     isRefreshTokenWellFormed,
     issueAccessToken,
     issueRefreshToken,
