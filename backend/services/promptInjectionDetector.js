@@ -3,6 +3,9 @@ const logger = require('../utils/logger');
 
 const patternCache = new NodeCache({ stdTTL: 3600, checkperiod: 600 });
 
+/** In-memory quarantine registry for agents / users that inject poisoned context */
+const quarantineRegistry = new Map();
+
 const INJECTION_PATTERNS = {
     system_override: [
         /ignore (?:all|previous|above|below|the above|the previous|the system) instructions/i,
@@ -12,7 +15,12 @@ const INJECTION_PATTERNS = {
         /i am your (?:new|real|actual|true) (?:creator|master|owner|user)/i,
         /the (?:admin|system|owner) said/i,
         /(?:fake|false|pretend) (?:employee|supplier|partner|staff)/i,
-        /(?:ceo|cfo|founder|director|executive) (?:approved|authorized|allowed|said)/i
+        /(?:ceo|cfo|founder|director|executive) (?:approved|authorized|allowed|said)/i,
+        /system\s*override\s*:/i,
+        /\[(?:system|admin|developer)\s*(?:override|prompt|message)\]/i,
+        /(?:disregard|discard|skip)\s+(?:all\s+)?(?:safety|prior|earlier)\s+(?:rules|guards|instructions)/i,
+        /approve\s+(?:full|entire|complete)\s+refund/i,
+        /do\s+not\s+follow\s+(?:your|the)\s+(?:system|original)\s+prompt/i
     ],
     authority_impersonation: [
         /i am (?:the|your) (?:ceo|founder|admin|owner|manager|executive)/i,
@@ -40,11 +48,31 @@ const INJECTION_PATTERNS = {
         /(?:fake|false|made-up|imaginary) (?:employee|staff|person)/i,
         /(?:invented|created|made) (?:company|organization|business)/i,
         /(?:fictional|nonexistent) (?:product|service|offer)/i
+    ],
+    /** Indirect / context-poisoning vectors embedded in user-generated fields */
+    context_poisoning: [
+        /<\/?(?:system|assistant|instruction|prompt|policy)[^>]*>/i,
+        /```(?:system|instruction|prompt)/i,
+        /#+\s*(?:system|instructions?|developer)\s*(?:prompt|message)?/i,
+        /(?:BEGIN|END)\s+(?:SYSTEM|INSTRUCTION|PROMPT)\b/i,
+        /(?:untrusted|user)\s*data\s*(?:ends?|starts?)\s*(?:here)?/i,
+        /\[\s*(?:INST|SYS|SYSTEM)\s*\]/i,
+        /(?:act|respond)\s+as\s+(?:if\s+)?(?:you\s+are\s+)?(?:an?\s+)?(?:admin|root|god\s*mode)/i,
+        /hidden\s+(?:instruction|directive|command)/i
     ]
 };
 
-const MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH) || 10000;
-const CACHE_TTL = parseInt(process.env.PATTERN_CACHE_TTL) || 3600;
+const USER_CONTENT_FIELDS = [
+    'review', 'reviews', 'comment', 'message', 'chatMessage', 'address',
+    'shippingAddress', 'billingAddress', 'notes', 'description', 'content',
+    'prompt', 'userText', 'supportMessage', 'feedback'
+];
+
+const MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH, 10) || 10000;
+const CACHE_TTL = parseInt(process.env.PATTERN_CACHE_TTL, 10) || 3600;
+const ENTROPY_THRESHOLD = parseFloat(process.env.PROMPT_ENTROPY_THRESHOLD) || 4.8;
+const QUARANTINE_TTL_MS = parseInt(process.env.AGENT_QUARANTINE_TTL_MS, 10) || 30 * 60 * 1000;
+const QUARANTINE_RISK_LEVELS = new Set(['high', 'critical']);
 
 function compilePatterns() {
     const cacheKey = 'compiled_patterns';
@@ -71,7 +99,7 @@ function validatePrompt(prompt) {
 
 function extractEntities(text) {
     const entities = [];
-    
+
     const namePattern = /\b[A-Z][a-z]+ (?:[A-Z][a-z]+ )*(?:from|at|of) [A-Z][a-z]+/g;
     const matches = text.match(namePattern) || [];
     entities.push(...matches);
@@ -87,16 +115,164 @@ function extractEntities(text) {
     return entities;
 }
 
+/**
+ * Shannon entropy over character distribution — high entropy often flags
+ * obfuscated / encoded adversarial payloads mixed into natural language.
+ */
+function calculateShannonEntropy(text) {
+    if (!text || text.length === 0) return 0;
+    const freq = Object.create(null);
+    for (const ch of text) {
+        freq[ch] = (freq[ch] || 0) + 1;
+    }
+    const len = text.length;
+    let entropy = 0;
+    for (const count of Object.values(freq)) {
+        const p = count / len;
+        entropy -= p * Math.log2(p);
+    }
+    return entropy;
+}
+
+/**
+ * Cheap perplexity-style heuristic: ratio of rare / mixed-case tokens
+ * and non-alphanumeric density vs. plain prose.
+ */
+function estimateTokenPerplexity(text) {
+    const tokens = text.split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) return 0;
+
+    let suspicious = 0;
+    for (const token of tokens) {
+        const hasMixedCase = /[a-z]/.test(token) && /[A-Z]/.test(token) && token.length > 4;
+        const hasSpecials = (token.match(/[^a-zA-Z0-9]/g) || []).length / token.length > 0.3;
+        const looksEncoded = /^[A-Za-z0-9+/=]{20,}$/.test(token);
+        const looksHex = /^[0-9a-fA-F]{16,}$/.test(token);
+        if (hasMixedCase || hasSpecials || looksEncoded || looksHex) {
+            suspicious += 1;
+        }
+    }
+
+    return suspicious / tokens.length;
+}
+
+/**
+ * Wrap untrusted user data in structural delimiters so downstream LLMs
+ * treat it as data, not instructions (instruction–data separation).
+ */
+function wrapWithBoundaryTags(text, fieldName = 'user_content') {
+    const safeField = String(fieldName).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+    return [
+        `<!-- UNTRUSTED_DATA_START:${safeField} -->`,
+        `<untrusted_user_data field="${safeField}" trust="untrusted">`,
+        '```user-data',
+        text,
+        '```',
+        '</untrusted_user_data>',
+        `<!-- UNTRUSTED_DATA_END:${safeField} -->`
+    ].join('\n');
+}
+
+/**
+ * Strip common injection wrappers and neutralize role-play markers
+ * without destroying the original customer message meaning.
+ */
 function sanitizePrompt(prompt) {
     let sanitized = prompt;
     sanitized = sanitized.replace(/```[\s\S]*?```/g, '[CODE_BLOCK_REMOVED]');
     sanitized = sanitized.replace(/`[^`]*`/g, '[INLINE_CODE_REMOVED]');
     sanitized = sanitized.replace(/\/\*[\s\S]*?\*\//g, '[COMMENT_REMOVED]');
+    sanitized = sanitized.replace(/<\/?(?:system|assistant|instruction|prompt|policy)[^>]*>/gi, '[TAG_REMOVED]');
+    sanitized = sanitized.replace(/\[(?:SYSTEM|ADMIN|INST|SYS)\s*(?:OVERRIDE|PROMPT|MESSAGE)?\]/gi, '[MARKER_REMOVED]');
+    sanitized = sanitized.replace(/system\s*override\s*:/gi, '[OVERRIDE_REMOVED]:');
     sanitized = sanitized.replace(/[.!?]{3,}/g, '...');
     sanitized = sanitized.replace(/\s+/g, ' ').trim();
     return sanitized;
 }
 
+function collectUserContentFromPayload(payload, prefix = '') {
+    const collected = [];
+    if (payload == null) return collected;
+
+    if (typeof payload === 'string') {
+        if (payload.trim()) {
+            collected.push({ field: prefix || 'text', text: payload });
+        }
+        return collected;
+    }
+
+    if (Array.isArray(payload)) {
+        payload.forEach((item, index) => {
+            collected.push(...collectUserContentFromPayload(item, `${prefix}[${index}]`));
+        });
+        return collected;
+    }
+
+    if (typeof payload === 'object') {
+        for (const [key, value] of Object.entries(payload)) {
+            const path = prefix ? `${prefix}.${key}` : key;
+            if (USER_CONTENT_FIELDS.includes(key) && typeof value === 'string') {
+                collected.push({ field: path, text: value });
+            } else if (value && typeof value === 'object') {
+                collected.push(...collectUserContentFromPayload(value, path));
+            }
+        }
+    }
+
+    return collected;
+}
+
+function isQuarantined(subjectId) {
+    if (!subjectId) return false;
+    const entry = quarantineRegistry.get(String(subjectId));
+    if (!entry) return false;
+    if (Date.now() > entry.expiresAt) {
+        quarantineRegistry.delete(String(subjectId));
+        return false;
+    }
+    return true;
+}
+
+function quarantineAgent(subjectId, reason, meta = {}) {
+    if (!subjectId) return null;
+    const entry = {
+        subjectId: String(subjectId),
+        reason,
+        meta,
+        quarantinedAt: new Date().toISOString(),
+        expiresAt: Date.now() + QUARANTINE_TTL_MS
+    };
+    quarantineRegistry.set(entry.subjectId, entry);
+    logger.warn('Agent/user quarantined for prompt injection', entry);
+    return entry;
+}
+
+function clearQuarantine(subjectId) {
+    if (!subjectId) {
+        quarantineRegistry.clear();
+        return { success: true, cleared: 'all' };
+    }
+    quarantineRegistry.delete(String(subjectId));
+    return { success: true, cleared: String(subjectId) };
+}
+
+function getQuarantineStatus(subjectId) {
+    if (!subjectId) {
+        return {
+            count: quarantineRegistry.size,
+            entries: [...quarantineRegistry.values()]
+        };
+    }
+    const entry = quarantineRegistry.get(String(subjectId));
+    return {
+        quarantined: isQuarantined(subjectId),
+        entry: entry || null
+    };
+}
+
+/**
+ * Multi-layer scan for direct prompts and indirect context poisoning.
+ */
 async function analyzeUserIntent(prompt, userId, context = {}) {
     const startTime = Date.now();
     const results = {
@@ -105,8 +281,12 @@ async function analyzeUserIntent(prompt, userId, context = {}) {
         riskLevel: 'low',
         detectedPatterns: [],
         sanitizedPrompt: prompt,
+        containedPrompt: null,
         suspiciousEntities: [],
+        entropy: 0,
+        perplexityHeuristic: 0,
         requiresConfirmation: false,
+        quarantineTriggered: false,
         duration: 0
     };
 
@@ -123,7 +303,8 @@ async function analyzeUserIntent(prompt, userId, context = {}) {
                         pattern: pattern.toString(),
                         match: match ? match[0] : 'unknown'
                     });
-                    results.riskScore += 1;
+                    // Context poisoning & system overrides weigh heavier
+                    results.riskScore += (category === 'system_override' || category === 'context_poisoning') ? 2 : 1;
                 }
             }
         }
@@ -132,6 +313,27 @@ async function analyzeUserIntent(prompt, userId, context = {}) {
         results.suspiciousEntities = entities.filter(e =>
             INJECTION_PATTERNS.suspicious_entities.some(p => p.test(e))
         );
+
+        results.entropy = Number(calculateShannonEntropy(validatedPrompt).toFixed(3));
+        results.perplexityHeuristic = Number(estimateTokenPerplexity(validatedPrompt).toFixed(3));
+
+        if (results.entropy >= ENTROPY_THRESHOLD && validatedPrompt.length > 80) {
+            results.detectedPatterns.push({
+                category: 'entropy_anomaly',
+                pattern: 'shannon_entropy',
+                match: `entropy=${results.entropy}`
+            });
+            results.riskScore += 2;
+        }
+
+        if (results.perplexityHeuristic >= 0.35) {
+            results.detectedPatterns.push({
+                category: 'perplexity_anomaly',
+                pattern: 'token_perplexity_heuristic',
+                match: `ratio=${results.perplexityHeuristic}`
+            });
+            results.riskScore += 2;
+        }
 
         if (results.riskScore >= 5) {
             results.riskLevel = 'critical';
@@ -146,8 +348,21 @@ async function analyzeUserIntent(prompt, userId, context = {}) {
             results.requiresConfirmation = true;
         }
 
+        const fieldName = context.fieldName || context.source || 'user_content';
         results.sanitizedPrompt = sanitizePrompt(validatedPrompt);
+        results.containedPrompt = wrapWithBoundaryTags(results.sanitizedPrompt, fieldName);
         results.duration = Date.now() - startTime;
+
+        if (QUARANTINE_RISK_LEVELS.has(results.riskLevel)) {
+            const subject = context.agentId || userId;
+            if (subject) {
+                quarantineAgent(subject, 'prompt_injection_detected', {
+                    riskLevel: results.riskLevel,
+                    patterns: results.detectedPatterns.map(p => p.category)
+                });
+                results.quarantineTriggered = true;
+            }
+        }
 
         await logPromptAnalysis(userId, results, context);
 
@@ -165,6 +380,79 @@ async function analyzeUserIntent(prompt, userId, context = {}) {
             error: error.message,
             duration: Date.now() - startTime
         };
+    }
+}
+
+/**
+ * Scan product reviews, chat, address text, and nested agent payloads
+ * for indirect prompt injection / context poisoning.
+ */
+async function detectContextPoisoning(payload, userId = 'anonymous', context = {}) {
+    const fields = collectUserContentFromPayload(payload);
+    const aggregate = {
+        safe: true,
+        riskLevel: 'low',
+        riskScore: 0,
+        fieldResults: [],
+        quarantined: false,
+        sanitizedPayload: payload
+    };
+
+    if (fields.length === 0) {
+        return aggregate;
+    }
+
+    const sanitizedClone = (payload && typeof payload === 'object')
+        ? JSON.parse(JSON.stringify(payload))
+        : payload;
+
+    for (const { field, text } of fields) {
+        const analysis = await analyzeUserIntent(text, userId, {
+            ...context,
+            fieldName: field,
+            source: 'context_poisoning_scan'
+        });
+
+        aggregate.fieldResults.push({
+            field,
+            riskLevel: analysis.riskLevel,
+            riskScore: analysis.riskScore,
+            safe: analysis.safe,
+            detectedPatterns: analysis.detectedPatterns,
+            sanitized: analysis.sanitizedPrompt,
+            contained: analysis.containedPrompt
+        });
+
+        aggregate.riskScore = Math.max(aggregate.riskScore, analysis.riskScore);
+        if (!analysis.safe) aggregate.safe = false;
+        if (analysis.quarantineTriggered) aggregate.quarantined = true;
+
+        const levelRank = { low: 0, medium: 1, high: 2, critical: 3 };
+        if ((levelRank[analysis.riskLevel] || 0) > (levelRank[aggregate.riskLevel] || 0)) {
+            aggregate.riskLevel = analysis.riskLevel;
+        }
+
+        // Apply sanitized text back onto clone when possible
+        if (sanitizedClone && typeof sanitizedClone === 'object') {
+            applySanitizedField(sanitizedClone, field, analysis.sanitizedPrompt);
+        }
+    }
+
+    aggregate.sanitizedPayload = sanitizedClone;
+    return aggregate;
+}
+
+function applySanitizedField(obj, path, value) {
+    const parts = path.replace(/\[(\d+)\]/g, '.$1').split('.').filter(Boolean);
+    let cursor = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+        const key = parts[i];
+        if (cursor[key] == null) return;
+        cursor = cursor[key];
+    }
+    const last = parts[parts.length - 1];
+    if (cursor && Object.prototype.hasOwnProperty.call(cursor, last)) {
+        cursor[last] = value;
     }
 }
 
@@ -257,7 +545,15 @@ async function logPromptAnalysis(userId, results, context) {
                 JSON.stringify(results.detectedPatterns),
                 JSON.stringify(results.suspiciousEntities),
                 results.sanitizedPrompt,
-                JSON.stringify(context),
+                JSON.stringify({
+                    ...context,
+                    entropy: results.entropy,
+                    perplexityHeuristic: results.perplexityHeuristic,
+                    quarantineTriggered: results.quarantineTriggered,
+                    containedPrompt: results.containedPrompt
+                        ? '[BOUNDARY_WRAPPED]'
+                        : null
+                }),
                 results.duration || 0
             ]
         );
@@ -271,6 +567,42 @@ async function promptInjectionGuard(req, res, next) {
         const { prompt, action, data } = req.body;
         const userId = req.user?.id || 'anonymous';
         const userRole = req.user?.role || 'guest';
+        const agentId = req.body?.agentId || req.headers['x-agent-id'];
+
+        if (isQuarantined(agentId) || isQuarantined(userId)) {
+            return res.status(403).json({
+                success: false,
+                error: 'Subject is quarantined due to prior prompt injection activity',
+                errorCode: 'AGENT_QUARANTINED'
+            });
+        }
+
+        // Indirect poisoning: scan nested user fields even without top-level prompt
+        if (!prompt && data) {
+            const poisonScan = await detectContextPoisoning(data, userId, {
+                action,
+                agentId,
+                ip: req.ip,
+                userAgent: req.headers['user-agent']
+            });
+            req.contextPoisoningScan = poisonScan;
+            if (!poisonScan.safe && QUARANTINE_RISK_LEVELS.has(poisonScan.riskLevel)) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'Context poisoning detected in user-supplied fields',
+                    riskLevel: poisonScan.riskLevel,
+                    fields: poisonScan.fieldResults.map(f => ({
+                        field: f.field,
+                        riskLevel: f.riskLevel,
+                        patterns: f.detectedPatterns
+                    }))
+                });
+            }
+            if (poisonScan.sanitizedPayload) {
+                req.body.data = poisonScan.sanitizedPayload;
+            }
+            return next();
+        }
 
         if (!prompt) {
             return next();
@@ -278,6 +610,7 @@ async function promptInjectionGuard(req, res, next) {
 
         const analysis = await analyzeUserIntent(prompt, userId, {
             action,
+            agentId,
             ip: req.ip,
             userAgent: req.headers['user-agent']
         });
@@ -290,7 +623,7 @@ async function promptInjectionGuard(req, res, next) {
             });
         }
 
-        const rbacCheck = checkRBAC(userRole, action, data);
+        const rbacCheck = checkRBAC(userRole, action, data || {});
         if (!rbacCheck.allowed) {
             logger.warn('RBAC denied', { userId, userRole, action, reason: rbacCheck.reason });
             return res.status(403).json({
@@ -310,7 +643,8 @@ async function promptInjectionGuard(req, res, next) {
                 success: false,
                 error: 'Prompt detected as potentially malicious',
                 riskLevel: analysis.riskLevel,
-                detectedPatterns: analysis.detectedPatterns
+                detectedPatterns: analysis.detectedPatterns,
+                quarantineTriggered: analysis.quarantineTriggered
             });
         }
 
@@ -326,6 +660,7 @@ async function promptInjectionGuard(req, res, next) {
         }
 
         req.sanitizedPrompt = analysis.sanitizedPrompt;
+        req.containedPrompt = analysis.containedPrompt;
         req.promptAnalysis = analysis;
         next();
 
@@ -362,6 +697,7 @@ async function healthCheck() {
             status: 'healthy',
             patternCount,
             cacheSize: patternCache.keys().length,
+            quarantineCount: quarantineRegistry.size,
             timestamp: new Date().toISOString()
         };
     } catch (error) {
@@ -376,9 +712,20 @@ async function healthCheck() {
 module.exports = {
     promptInjectionGuard,
     analyzeUserIntent,
+    detectContextPoisoning,
+    wrapWithBoundaryTags,
+    calculateShannonEntropy,
+    estimateTokenPerplexity,
+    sanitizePrompt,
+    quarantineAgent,
+    clearQuarantine,
+    getQuarantineStatus,
+    isQuarantined,
+    collectUserContentFromPayload,
     confirmAuthorization,
     checkRBAC,
     INJECTION_PATTERNS,
+    USER_CONTENT_FIELDS,
     RBAC_RULES,
     clearCache,
     getCacheStats,
