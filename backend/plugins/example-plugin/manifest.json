@@ -1,0 +1,29 @@
+{
+    "id": "example-plugin",
+    "name": "Example Plugin",
+    "version": "1.0.0",
+    "description": "Example plugin demonstrating the plugin system",
+    "author": "AnthropicBots",
+    "type": "custom",
+    "dependencies": [],
+    "hooks": [
+        {
+            "name": "order.created",
+            "handler": "handleOrderCreated"
+        },
+        {
+            "name": "product.viewed",
+            "handler": "handleProductViewed"
+        }
+    ],
+    "routes": [
+        {
+            "path": "/plugin/example",
+            "method": "GET",
+            "handler": "getExampleData"
+        }
+    ],
+    "services": [
+        "exampleService"
+    ]
+}

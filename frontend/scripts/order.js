@@ -1,334 +1,295 @@
 // current order
-let currentOrder =
-    null;
+let currentOrder = null;
 
 // get order id from url
-const orderId =
-    new URLSearchParams(
-        window.location.search
-    ).get("id");
+const orderId = new URLSearchParams(window.location.search).get("id");
 
-// redirect if missing order id
-if (
-    !orderId
-) {
 
-    window.location.href =
-        "shop.html";
-}
-
-// escape html
-function escapeHTML(
-    value
-) {
-
-    return String(
-        value || ""
-    )
-
-        .replace(
-            /&/g,
-            "&amp;"
-        )
-
-        .replace(
-            /</g,
-            "&lt;"
-        )
-
-        .replace(
-            />/g,
-            "&gt;"
-        )
-
-        .replace(
-            /"/g,
-            "&quot;"
-        )
-
-        .replace(
-            /'/g,
-            "&#039;"
-        );
-}
 
 // elements
 const elements = {
-
-    orderItemsContainer:
-        document.getElementById(
-            "order-items-container"
-        ),
-
-    orderId:
-        document.getElementById(
-            "order-id"
-        ),
-
-    orderDate:
-        document.getElementById(
-            "order-date"
-        ),
-
-    statusBadge:
-        document.getElementById(
-            "status-badge"
-        ),
-
-    processingStep:
-        document.getElementById(
-            "processing-step"
-        ),
-
-    shippedStep:
-        document.getElementById(
-            "shipped-step"
-        ),
-
-    deliveredStep:
-        document.getElementById(
-            "delivered-step"
-        )
+    loadingState: document.getElementById("loading-state"),
+    orderDetails: document.getElementById("order-details"),
+    errorState: document.getElementById("error-state"),
+    orderItemsContainer: document.getElementById("order-items-container"),
+    orderId: document.getElementById("order-id"),
+    orderDate: document.getElementById("order-date"),
+    statusBadge: document.getElementById("status-badge"),
+    estimatedDelivery: document.getElementById("estimated-delivery"),
+    trackingNumber: document.getElementById("tracking-number"),
+    processingStep: document.getElementById("processing-step"),
+    shippedStep: document.getElementById("shipped-step"),
+    deliveredStep: document.getElementById("delivered-step")
 };
 
-// fetch order details
-async function fetchOrder() {
+// escape html
+function escapeHTML(value) {
+    return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
 
+// Helper: format date
+function formatDate(dateString) {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+function renderOrderSearchForm() {
+    if (elements.loadingState) {
+        elements.loadingState.style.display = "none";
+    }
+
+    if (elements.orderDetails) {
+        elements.orderDetails.style.display = "none";
+    }
+
+    if (elements.errorState) {
+        elements.errorState.style.display = "none";
+    }
+
+    const card = document.getElementById("order-card");
+
+    card.innerHTML = `
+        <div class="order-search">
+            <h3>Track Your Order</h3>
+
+            <p>
+                Enter your Order ID below to view your order details.
+            </p>
+
+            <input
+                id="order-id-input"
+                type="text"
+                placeholder="Enter your Order ID"
+            >
+
+            <button id="track-order-btn" class="btn">
+                Track Order
+            </button>
+        </div>
+    `;
+
+    document
+        .getElementById("track-order-btn")
+        .addEventListener("click", () => {
+
+            const id = document
+                .getElementById("order-id-input")
+                .value
+                .trim();
+
+            if (!id) {
+                AppUtils.notify(
+                    "Please enter an Order ID",
+                    "warning"
+                );
+                return;
+            }
+
+            window.location.href =
+                `order.html?id=${encodeURIComponent(id)}`;
+        });
+       
+        document
+    .getElementById("order-id-input")
+    .addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            document.getElementById("track-order-btn").click();
+        }
+    });
+}
+
+// fetch order status
+async function fetchOrderStatus() {
     try {
-
-        const response =
-            await AppUtils.apiRequest(
-                `/orders/${orderId}`
-            );
-
-        if (
-            !response.success
-            ||
-            !response.order
-        ) {
-
-            AppUtils.notify(
-                "Order not found",
-                "error"
-            );
-
-            setTimeout(
-                () => {
-
-                    window.location.href =
-                        "shop.html";
-
-                },
-                1000
-            );
-
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = 'signin.html';
             return;
         }
 
-        currentOrder =
-            response.order;
+        const data = await AppUtils.apiRequest(`/orders/${orderId}/status`);
 
-        renderOrderDetails();
-
-        renderOrderItems();
-
-    } catch (error) {
-
-        console.error(
-            "ORDER FETCH ERROR:",
-            error
-        );
-
-        AppUtils.notify(
-            "Failed to load order",
-            "error"
-        );
-    }
-}
-
-// render order details
-function renderOrderDetails() {
-
-    if (
-        !currentOrder
-    ) {
-        return;
-    }
-
-    if (
-        elements.orderId
-    ) {
-
-        elements.orderId.innerText =
-            currentOrder.id || "N/A";
-    }
-
-    if (
-        elements.orderDate
-    ) {
-
-        const formattedDate =
-            currentOrder.created_at
-                ? new Date(
-                    currentOrder.created_at
-                ).toLocaleDateString()
-                : "N/A";
-
-        elements.orderDate.innerText =
-            formattedDate;
-    }
-
-    // status
-    const status =
-        currentOrder.status ||
-        "pending";
-
-    if (
-        elements.statusBadge
-    ) {
-
-        elements.statusBadge.innerText =
-            status;
-
-        elements.statusBadge.className =
-            "status-badge";
-
-        elements.statusBadge.classList.add(
-            status.toLowerCase()
-        );
-    }
-
-    // timeline
-    if (
-        [
-            "processing",
-            "shipped",
-            "delivered"
-        ].includes(status.toLowerCase())
-    ) {
-
-        elements.processingStep?.classList.add(
-            "active-step"
-        );
-    }
-
-    if (
-        [
-            "shipped",
-            "delivered"
-        ].includes(status.toLowerCase())
-    ) {
-
-        elements.shippedStep?.classList.add(
-            "active-step"
-        );
-    }
-
-    if (
-        status.toLowerCase() === "delivered"
-    ) {
-
-        elements.deliveredStep?.classList.add(
-            "active-step"
-        );
-    }
-}
-// render items
-function renderOrderItems() {
-    if (
-        !elements.orderItemsContainer
-    ) {
-        return;
-    }
-    elements.orderItemsContainer.innerHTML =
-        "";
-
-    const items =
-        currentOrder.items || [];
-
-    if (
-        !Array.isArray(items)
-        ||
-        items.length === 0
-    ) {
-        elements.orderItemsContainer.innerHTML =
-            `
-                <p class="empty-order-items">
-                    No items found.
-                </p>
-            `;
-        return;
-    }
-
-    const fragment =
-        document.createDocumentFragment();
-
-    items.forEach(
-        (item) => {
-            const qty =
-                parseInt(
-                    item.qty,
-                    10
-                ) || 1;
-
-            const price =
-                parseFloat(
-                    item.price
-                ) || 0;
-
-            const total =
-                qty * price;
-
-            const div =
-                document.createElement(
-                    "div"
-                );
-
-            div.classList.add(
-                "order-item"
-            );
-
-            div.innerHTML =
-                `
-                    <div class="order-item-left">
-                        <img
-                            src="${escapeHTML(
-                                AppUtils.defaultImage(
-                                    item.img || item.image
-                                )
-                            )}"
-                            alt="${escapeHTML(item.name || "Product")}"
-                            loading="lazy"
-                        >
-                        <div>
-                            <h4>
-                                ${escapeHTML(item.name || "Product")}
-                            </h4>
-                            <p>
-                                Quantity:
-                                ${qty}
-                            </p>
-                        </div>
-                    </div>
-                    <h4>
-                        ${AppUtils.formatPrice(total)}
-                    </h4>
-                `;
-            fragment.appendChild(
-                div
-            );
+        if (!data.success) {
+            throw new Error(data.message || 'Failed to fetch order');
         }
-    );
-    elements.orderItemsContainer.appendChild(
-        fragment
-    );
+
+        renderOrderDetails(data.data);
+    } catch (error) {
+        console.error('Order tracking error:', error);
+        if (elements.loadingState) elements.loadingState.style.display = 'none';
+        if (elements.errorState) elements.errorState.style.display = 'block';
+        AppUtils.notify('Failed to load order details', 'error');
+    }
 }
 
-// init
-document.addEventListener(
-    "DOMContentLoaded",
-    () => {
+// Delivery Canvas Tracker Instance
+let deliveryCanvasTracker = null;
 
-        fetchOrder();
+class DeliveryRouteCanvas {
+    constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        if (!this.canvas || !this.canvas.getContext) return;
+        this.ctx = this.canvas.getContext("2d");
+        this.animationId = null;
+        this.progress = 0; // 0.0 to 1.0
+        this.targetProgress = 0;
+        this.status = "pending";
+
+        this.waypoints = [
+            { x: 80, y: 110, label: "Warehouse", icon: "🏬" },
+            { x: 280, y: 110, label: "Processing", icon: "📦" },
+            { x: 520, y: 110, label: "In Transit", icon: "🚚" },
+            { x: 720, y: 110, label: "Destination", icon: "🏡" }
+        ];
+
+        this.init();
     }
-);
+
+    init() {
+        if (this.animationId) cancelAnimationFrame(this.animationId);
+        this.animate();
+    }
+
+    setStatus(status) {
+        this.status = String(status || "pending").toLowerCase();
+        const statusMap = {
+            pending: 0.0,
+            processing: 0.33,
+            shipped: 0.66,
+            delivered: 1.0
+        };
+        this.targetProgress = statusMap[this.status] !== undefined ? statusMap[this.status] : 0.0;
+    }
+
+    animate() {
+        const diff = this.targetProgress - this.progress;
+        if (Math.abs(diff) > 0.001) {
+            this.progress += diff * 0.04;
+        } else {
+            this.progress = this.targetProgress;
+        }
+
+        this.draw();
+        this.animationId = requestAnimationFrame(() => this.animate());
+    }
+
+    draw() {
+        const { ctx, canvas, waypoints, progress } = this;
+        if (!ctx || !canvas) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw background grid lines
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+        ctx.lineWidth = 1;
+        for (let x = 0; x < canvas.width; x += 40) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, canvas.height);
+            ctx.stroke();
+        }
+
+        // Draw inactive path polyline
+        ctx.beginPath();
+        ctx.moveTo(waypoints[0].x, waypoints[0].y);
+        for (let i = 1; i < waypoints.length; i++) {
+            ctx.lineTo(waypoints[i].x, waypoints[i].y);
+        }
+        ctx.strokeStyle = "#334155";
+        ctx.lineWidth = 6;
+        ctx.lineCap = "round";
+        ctx.stroke();
+
+        // Draw active path line with progress glow
+        const totalDist = waypoints[waypoints.length - 1].x - waypoints[0].x;
+        const currentX = waypoints[0].x + totalDist * progress;
+
+        ctx.beginPath();
+        ctx.moveTo(waypoints[0].x, waypoints[0].y);
+        ctx.lineTo(currentX, waypoints[0].y);
+        ctx.strokeStyle = "#088178";
+        ctx.lineWidth = 6;
+        ctx.shadowColor = "#34d399";
+        ctx.shadowBlur = 10;
+        ctx.stroke();
+        ctx.shadowBlur = 0; // Reset shadow
+
+        // Draw waypoints
+        waypoints.forEach((wp) => {
+            const isReached = currentX >= wp.x - 5;
+
+            ctx.beginPath();
+            ctx.arc(wp.x, wp.y, 22, 0, Math.PI * 2);
+            ctx.fillStyle = isReached ? "#088178" : "#1e293b";
+            ctx.strokeStyle = isReached ? "#34d399" : "#475569";
+            ctx.lineWidth = 3;
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.font = "16px sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(wp.icon, wp.x, wp.y);
+
+            ctx.font = isReached ? "bold 12px sans-serif" : "12px sans-serif";
+            ctx.fillStyle = isReached ? "#38bdf8" : "#94a3b8";
+            ctx.fillText(wp.label, wp.x, wp.y + 40);
+        });
+
+        // Draw animated truck marker
+        ctx.font = "24px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("🚚", currentX, waypoints[0].y - 28);
+    }
+}
+
+function initSocketOrderTracker(targetOrderId) {
+    if (typeof window.io === "undefined") return;
+    try {
+        const socket = window.io(CONFIG.API_BASE.replace("/api", ""), {
+            transports: ["websocket", "polling"]
+        });
+
+        socket.on("connect", () => {
+            console.log("Socket.IO connected for order tracking:", targetOrderId);
+            socket.emit("join_order_room", { orderId: targetOrderId });
+            const liveText = document.getElementById("live-status-text");
+            if (liveText) liveText.textContent = "Live Socket Sync";
+        });
+
+        socket.on("order_status_updated", (data) => {
+            if (data && (String(data.orderId) === String(targetOrderId) || String(data.id) === String(targetOrderId))) {
+                if (typeof AppUtils !== "undefined" && AppUtils.notify) {
+                    AppUtils.notify(`Order status updated: ${(data.status || "").toUpperCase()}`, "info");
+                }
+                fetchOrderStatus();
+            }
+        });
+    } catch (e) {
+        console.warn("Socket.IO connection warning:", e);
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+
+    if (!orderId) {
+        renderOrderSearchForm();
+        return;
+    }
+
+    fetchOrderStatus();
+    initSocketOrderTracker(orderId);
+});

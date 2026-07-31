@@ -1,10 +1,7 @@
-// backend/config/db.js
-
 const mysql = require("mysql2");
 require("dotenv").config();
 const logger = require("../utils/logger");
 
-// ==================== CONFIGURATION ====================
 const requiredEnvVars = ["DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME"];
 
 requiredEnvVars.forEach((key) => {
@@ -14,7 +11,6 @@ requiredEnvVars.forEach((key) => {
   }
 });
 
-// Enable TLS when DB_SSL=true (required by TiDB Cloud and most managed MySQL hosts)
 const useSSL = process.env.DB_SSL === "true";
 
 const DB_CONFIG = {
@@ -31,7 +27,6 @@ const DB_CONFIG = {
   charset: "utf8mb4",
   supportBigNumbers: true,
   multipleStatements: false,
-  // Additional configs
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
   acquireTimeout: Number(process.env.DB_ACQUIRE_TIMEOUT) || 30000,
@@ -39,17 +34,16 @@ const DB_CONFIG = {
   dateStrings: true,
 };
 
-// ==================== RETRY CONFIGURATION ====================
 const RETRY_CONFIG = {
   maxRetries: Number(process.env.DB_MAX_RETRIES) || 10,
   initialDelay: Number(process.env.DB_INITIAL_DELAY) || 1000,
   maxDelay: Number(process.env.DB_MAX_DELAY) || 30000,
-  factor: 2 // Exponential backoff factor
+  factor: 2
 };
 
-// ==================== POOL STATE ====================
 let pool = null;
 let promisePool = null;
+let originalQuery = null;
 let dbConnected = false;
 let isShuttingDown = false;
 let pendingQueries = 0;
@@ -59,46 +53,39 @@ let lastHealthCheck = null;
 let healthCheckStatus = 'unknown';
 let connectionAttempts = 0;
 
-// ==================== CREATE POOL ====================
 function createPool() {
   pool = mysql.createPool(DB_CONFIG);
   promisePool = pool.promise();
+  promisePool.promise = promisePool;
+  originalQuery = promisePool.query.bind(promisePool);
   return { pool, promisePool };
 }
 
-// Initialize pool
 createPool();
 
-// ==================== POOL EVENTS ====================
 function setupPoolEvents() {
   if (!pool) return;
 
-  // Connection acquisition
   pool.on('acquire', (connection) => {
     logger.debug(`Connection acquired: ${connection.threadId}`);
   });
 
-  // Connection release
   pool.on('release', (connection) => {
     logger.debug(`Connection released: ${connection.threadId}`);
   });
 
-  // Connection creation
   pool.on('connection', (connection) => {
     logger.debug(`New connection created: ${connection.threadId}`);
-    
-    // Set connection timeouts
     connection.query('SET SESSION wait_timeout = 28800');
     connection.query('SET SESSION interactive_timeout = 28800');
   });
 
-  // Connection error
   pool.on('error', (error) => {
     logger.error(`MySQL Pool Error: ${error.message}`);
     logger.error(`Error Code: ${error.code}`);
     logger.error(`Error Number: ${error.errno}`);
 
-    if (error.code === "PROTOCOL_CONNECTION_LOST") {
+    if (["PROTOCOL_CONNECTION_LOST", "ECONNREFUSED", "ETIMEDOUT"].includes(error.code)) {
       logger.error("Database connection lost.");
       dbConnected = false;
       healthCheckStatus = 'unhealthy';
@@ -107,30 +94,15 @@ function setupPoolEvents() {
     if (error.code === "ER_CON_COUNT_ERROR") {
       logger.error("Database has too many connections.");
     }
-    if (error.code === "ECONNREFUSED") {
-      logger.error("Database connection refused.");
-      dbConnected = false;
-      healthCheckStatus = 'unhealthy';
-      reconnectPool();
-    }
-    if (error.code === "ETIMEDOUT") {
-      logger.error("Database connection timeout.");
-      dbConnected = false;
-      healthCheckStatus = 'unhealthy';
-      reconnectPool();
-    }
   });
 
-  // Pool exhausted
   pool.on('enqueue', () => {
     logger.warn('Connection pool exhausted. Request queued.');
   });
 }
 
-// Setup pool events
 setupPoolEvents();
 
-// ==================== RECONNECT LOGIC ====================
 async function reconnectPool() {
   if (isShuttingDown) {
     logger.info('Shutdown in progress. Skipping reconnection.');
@@ -148,7 +120,6 @@ async function reconnectPool() {
       connectionAttempts++;
       logger.info(`Reconnection attempt ${attempts}/${RETRY_CONFIG.maxRetries}`);
       
-      // Close existing pool if exists
       if (pool) {
         try {
           await promisePool.end();
@@ -157,11 +128,9 @@ async function reconnectPool() {
         }
       }
       
-      // Create new pool
       createPool();
       setupPoolEvents();
       
-      // Test connection
       const connection = await promisePool.getConnection();
       await connection.query('SELECT 1');
       connection.release();
@@ -170,12 +139,10 @@ async function reconnectPool() {
       healthCheckStatus = 'healthy';
       lastHealthCheck = new Date();
       
-      // Check database version
       await checkDatabaseVersion();
       
       logger.info('Database pool reconnected successfully');
       
-      // Get pool stats
       const stats = getPoolStats();
       logger.info(`Pool stats after reconnection: ${JSON.stringify(stats)}`);
       
@@ -189,7 +156,6 @@ async function reconnectPool() {
         return false;
       }
       
-      // Exponential backoff with jitter
       const jitter = Math.random() * 0.3 + 0.85;
       const waitTime = Math.min(delay * RETRY_CONFIG.factor, RETRY_CONFIG.maxDelay) * jitter;
       
@@ -202,21 +168,17 @@ async function reconnectPool() {
   return false;
 }
 
-// ==================== SLEEP UTILITY ====================
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ==================== TEST CONNECTION ====================
 async function testConnection(retryInterval = 5000) {
   try {
     const connection = await promisePool.getConnection();
     logger.info("MySQL Connected Successfully");
     
-    // Check database version
     await checkDatabaseVersion();
     
-    // Get pool stats
     const stats = getPoolStats();
     logger.info(`Pool stats: ${JSON.stringify(stats)}`);
     
@@ -234,16 +196,13 @@ async function testConnection(retryInterval = 5000) {
     logger.error(error.message);
     logger.error(`Error Code: ${error.code}`);
     
-    if (error.code === 'PROTOCOL_CONNECTION_LOST' || 
-        error.code === 'ECONNREFUSED' || 
-        error.code === 'ETIMEDOUT') {
+    if (['PROTOCOL_CONNECTION_LOST', 'ECONNREFUSED', 'ETIMEDOUT'].includes(error.code)) {
       logger.error(`Retrying DB connection in ${retryInterval / 1000}s...`);
       setTimeout(
         () => testConnection(Math.min(retryInterval * 2, 30000)),
         retryInterval,
       );
     } else {
-      // For other errors, retry with longer delay
       logger.error(`Will retry in ${(retryInterval * 2) / 1000}s...`);
       setTimeout(
         () => testConnection(Math.min(retryInterval * 2, 30000)),
@@ -255,7 +214,6 @@ async function testConnection(retryInterval = 5000) {
   }
 }
 
-// ==================== DATABASE VERSION CHECK ====================
 async function checkDatabaseVersion() {
   try {
     const [rows] = await promisePool.query('SELECT VERSION() as version, DATABASE() as database_name');
@@ -270,7 +228,6 @@ async function checkDatabaseVersion() {
   }
 }
 
-// ==================== POOL STATS ====================
 function getPoolStats() {
   if (!pool) {
     return {
@@ -315,10 +272,9 @@ function getPoolStats() {
   }
 }
 
-// ==================== QUERY LOGGING ====================
 function logQuery(sql, params, startTime, error = null) {
   const duration = Date.now() - startTime;
-  const isSlow = duration > 1000; // > 1 second
+  const isSlow = duration > 1000;
   
   const queryLog = {
     timestamp: new Date().toISOString(),
@@ -329,7 +285,6 @@ function logQuery(sql, params, startTime, error = null) {
     error: error ? error.message : null
   };
   
-  // Store in history
   queryHistory.push(queryLog);
   if (queryHistory.length > MAX_QUERY_HISTORY) {
     queryHistory.shift();
@@ -344,7 +299,6 @@ function logQuery(sql, params, startTime, error = null) {
   }
 }
 
-// ==================== WRAPPED QUERY FUNCTION ====================
 async function query(sql, params = []) {
   if (!promisePool) {
     throw new Error('Database pool not initialized');
@@ -358,17 +312,14 @@ async function query(sql, params = []) {
   pendingQueries++;
   
   try {
-    const [results] = await promisePool.query(sql, params);
+    const [results] = await originalQuery(sql, params);
     logQuery(sql, params, startTime);
     return [results, null];
   } catch (error) {
     logger.error(`Query error: ${error.message}`);
     logQuery(sql, params, startTime, error);
     
-    // Reconnect on connection errors
-    if (error.code === 'PROTOCOL_CONNECTION_LOST' || 
-        error.code === 'ECONNRESET' || 
-        error.code === 'ETIMEDOUT') {
+    if (['PROTOCOL_CONNECTION_LOST', 'ECONNRESET', 'ETIMEDOUT'].includes(error.code)) {
       logger.warn('Connection lost during query. Attempting to reconnect...');
       dbConnected = false;
       healthCheckStatus = 'unhealthy';
@@ -381,7 +332,6 @@ async function query(sql, params = []) {
   }
 }
 
-// ==================== HEALTH CHECK ====================
 async function checkDatabaseHealth() {
   try {
     if (!promisePool) {
@@ -419,7 +369,6 @@ async function checkDatabaseHealth() {
     dbConnected = false;
     logger.error(`Health check failed: ${error.message}`);
     
-    // Attempt to reconnect if unhealthy
     if (pool) {
       await reconnectPool();
     }
@@ -433,11 +382,9 @@ async function checkDatabaseHealth() {
   }
 }
 
-// ==================== GET HEALTH STATUS ====================
 async function getHealthStatus() {
   const poolStats = getPoolStats();
   
-  // Check if database is actually healthy
   let healthy = dbConnected;
   if (healthy) {
     try {
@@ -456,7 +403,7 @@ async function getHealthStatus() {
     healthy: healthy,
     timestamp: new Date().toISOString(),
     poolStats: poolStats,
-    queryHistory: queryHistory.slice(-10), // Last 10 queries
+    queryHistory: queryHistory.slice(-10),
     serverInfo: {
       uptime: process.uptime(),
       nodeEnv: process.env.NODE_ENV || 'development',
@@ -467,17 +414,14 @@ async function getHealthStatus() {
   };
 }
 
-// ==================== GET QUERY HISTORY ====================
 function getQueryHistory(limit = 10) {
   return queryHistory.slice(-limit);
 }
 
-// ==================== GET SLOW QUERIES ====================
 function getSlowQueries(threshold = 1000) {
   return queryHistory.filter(q => q.duration > threshold);
 }
 
-// ==================== GRACEFUL SHUTDOWN ====================
 async function shutdown() {
   if (isShuttingDown) {
     logger.warn('Shutdown already in progress');
@@ -488,19 +432,16 @@ async function shutdown() {
   logger.info('\nInitiating graceful database shutdown...');
   
   try {
-    // Wait for pending queries to complete
     if (pendingQueries > 0) {
       logger.info(`Waiting for ${pendingQueries} pending queries to complete...`);
       await sleep(2000);
     }
     
-    // Close the pool
     if (promisePool) {
       await promisePool.end();
       logger.info('MySQL pool closed successfully');
     }
     
-    // Clear resources
     pool = null;
     promisePool = null;
     dbConnected = false;
@@ -514,7 +455,6 @@ async function shutdown() {
   }
 }
 
-// ==================== TRANSACTION HELPERS ====================
 async function beginTransaction(connection) {
   await connection.query('START TRANSACTION');
   logger.debug('Transaction started');
@@ -530,7 +470,6 @@ async function rollbackTransaction(connection) {
   logger.debug('Transaction rolled back');
 }
 
-// ==================== INITIALIZE DATABASE ====================
 async function initializeDatabase() {
   logger.info('Initializing database connection...');
   const result = await testConnection();
@@ -544,12 +483,10 @@ async function initializeDatabase() {
   return result;
 }
 
-// ==================== EXPORTS ====================
 module.exports = promisePool;
+module.exports.promise = promisePool;
 module.exports.rawPool = pool;
 module.exports.isConnected = () => dbConnected;
-
-// Additional exports for enhanced features
 module.exports.query = query;
 module.exports.getPoolStats = getPoolStats;
 module.exports.checkDatabaseHealth = checkDatabaseHealth;
@@ -565,25 +502,22 @@ module.exports.rollbackTransaction = rollbackTransaction;
 module.exports.DB_CONFIG = DB_CONFIG;
 module.exports.RETRY_CONFIG = RETRY_CONFIG;
 
-// ==================== PROCESS EVENT HANDLERS ====================
-// SIGINT and SIGTERM already handled above
-
-// Handle uncaught exceptions
 process.on('uncaughtException', async (error) => {
   logger.error(`Uncaught exception: ${error.message}`);
   logger.error(error.stack);
-  await shutdown();
+  if (process.env.NODE_ENV === 'production') {
+    await shutdown();
+  }
 });
 
-// Handle unhandled rejections
 process.on('unhandledRejection', async (reason, promise) => {
   logger.error('Unhandled rejection:');
   logger.error(reason);
-  await shutdown();
+  if (process.env.NODE_ENV === 'production') {
+    await shutdown();
+  }
 });
 
-// ==================== AUTO-INITIALIZATION ====================
-// Initialize database connection on import if not in test mode
 if (process.env.NODE_ENV !== 'test') {
   initializeDatabase()
     .then((success) => {

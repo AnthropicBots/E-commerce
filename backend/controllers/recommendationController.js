@@ -1,17 +1,18 @@
 const { asyncHandler, safeInteger, sanitizeString } = require("../utils/helpers");
 const interactionService = require("../services/interactionService");
 const recommendationService = require("../services/recommendationService");
-const {INTERACTION_TYPES} = require("../constants/interactionTypes");
+const { INTERACTION_TYPES } = require("../constants/interactionTypes");
 
 const recordInteraction = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { productId, type } = req.body;
+  const { productId } = req.body;
+  const normalizedType = sanitizeString(req.body.type || "").trim().toLowerCase();
 
-  if (!Object.values(INTERACTION_TYPES).includes(type)) {
+  if (!Object.values(INTERACTION_TYPES).includes(normalizedType)) {
     return res.status(400).json({
       success: false,
-      message: "Invalid interaction type"
-    })
+      message: "Invalid interaction type",
+    });
   }
 
   if (!productId) {
@@ -21,7 +22,7 @@ const recordInteraction = asyncHandler(async (req, res) => {
     });
   }
 
-  await interactionService.recordInteraction(userId, productId, type);
+  await interactionService.recordInteraction(userId, productId, normalizedType);
 
   return res.status(200).json({
     success: true,

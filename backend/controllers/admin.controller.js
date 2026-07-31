@@ -2,11 +2,15 @@ const adminService = require("../services/admin.service");
 const {
     safeArray,
     safeNumber,
+    safeUUID,
     sanitizeString,
     getPagination,
     buildPaginationMeta
 } = require("../utils/helpers");
 const logger = require("../utils/logger");
+const { validateUserStatus } = require("../utils/userStatusValidator");
+
+const { validateDateRange } = require("../utils/dateRangeValidator");
 
 // =====================
 // DASHBOARD STATS
@@ -55,8 +59,8 @@ const getUsers = async (req, res) => {
             search: sanitizeString(req.query.search),
             status: sanitizeString(req.query.status),
             role: sanitizeString(req.query.role),
-            emailVerified: req.query.emailVerified === 'true' ? true : 
-                          req.query.emailVerified === 'false' ? false : undefined
+            emailVerified: req.query.emailVerified === 'true' ? true :
+                req.query.emailVerified === 'false' ? false : undefined
         };
 
         const result = await adminService.getUsers(filters, page, limit);
@@ -86,14 +90,24 @@ const getUsers = async (req, res) => {
 // =====================
 const updateUserStatus = async (req, res) => {
     try {
-        const targetId = safeNumber(req.params.id);
+        const targetId = safeUUID(req.params.id);
         const status = sanitizeString(req.body.status);
 
         // validation
-        if (!targetId || !["active", "blocked", "inactive"].includes(status)) {
+        // validation using helper
+        if (!targetId) {
             return res.status(400).json({
                 success: false,
-                message: "Invalid payload. Status must be: active, blocked, or inactive"
+                message: "Invalid payload. Target user ID is required."
+            });
+        }
+
+        try {
+            validateUserStatus(status);
+        } catch (validationError) {
+            return res.status(400).json({
+                success: false,
+                message: validationError.message
             });
         }
 
@@ -138,16 +152,29 @@ const updateUserStatus = async (req, res) => {
 // =====================
 const bulkUpdateUserStatus = async (req, res) => {
     try {
-        const targetIds = safeArray(req.body.userIds)
-            .map(id => safeNumber(id))
-            .filter(id => id > 0 && id !== req.user.id);
+        const targetIds = [
+            ...new Set(
+                safeArray(req.body.userIds)
+                    .map(id => safeUUID(id))
+                    .filter(id => id && id !== req.user.id)
+            )
+        ];
 
         const status = sanitizeString(req.body.status);
 
-        if (!targetIds.length || !["active", "blocked", "inactive"].includes(status)) {
+        if (!targetIds.length) {
             return res.status(400).json({
                 success: false,
-                message: "Invalid payload. Provide at least one valid user ID and valid status"
+                message: "Invalid payload. Provide at least one valid user ID."
+            });
+        }
+
+        try {
+            validateUserStatus(status);
+        } catch (validationError) {
+            return res.status(400).json({
+                success: false,
+                message: validationError.message
             });
         }
 
@@ -196,7 +223,7 @@ const bulkUpdateUserStatus = async (req, res) => {
 // =====================
 const updateUserRole = async (req, res) => {
     try {
-        const targetId = safeNumber(req.params.id);
+        const targetId = safeUUID(req.params.id);
         const role = sanitizeString(req.body.role);
 
         if (!targetId || !["user", "admin", "moderator"].includes(role)) {
@@ -257,8 +284,8 @@ const updateUserRole = async (req, res) => {
 const bulkUpdateUserRole = async (req, res) => {
     try {
         const targetIds = safeArray(req.body.userIds)
-            .map(id => safeNumber(id))
-            .filter(id => id > 0 && id !== req.user.id);
+            .map(id => safeUUID(id))
+            .filter(id => id && id !== req.user.id);
 
         const role = sanitizeString(req.body.role);
 
@@ -310,7 +337,7 @@ const bulkUpdateUserRole = async (req, res) => {
 // =====================
 const deleteUser = async (req, res) => {
     try {
-        const targetId = safeNumber(req.params.id);
+        const targetId = safeUUID(req.params.id);
         const permanent = req.body.permanent === true;
         const reason = sanitizeString(req.body.reason) || "No reason provided";
 
@@ -382,7 +409,7 @@ const verifyUserEmail = async (req, res) => {
 
         const result = await adminService.verifyUserEmail(
             req.user.id,
-            { email: sanitizeString(email), userId: userId ? safeNumber(userId) : undefined },
+            { email: sanitizeString(email), userId: userId ? safeUUID(userId) : undefined },
             req.ip,
             req.headers["user-agent"]
         );
@@ -427,11 +454,22 @@ const getAdminLogs = async (req, res) => {
             50
         );
 
+        let startDate = req.query.startDate;
+        let endDate = req.query.endDate;
+        try {
+            validateDateRange(startDate, endDate, { maxRangeDays: 365 });
+        } catch (validationError) {
+            return res.status(400).json({
+                success: false,
+                message: validationError.message
+            });
+        }
+
         const filters = {
             action: sanitizeString(req.query.action),
-            userId: req.query.userId ? safeNumber(req.query.userId) : undefined,
-            startDate: req.query.startDate,
-            endDate: req.query.endDate
+            userId: req.query.userId ? safeUUID(req.query.userId) : undefined,
+            startDate: startDate,
+            endDate: endDate
         };
 
         const result = await adminService.getAdminLogs(
@@ -440,7 +478,6 @@ const getAdminLogs = async (req, res) => {
             page,
             limit
         );
-
         return res.status(200).json({
             success: true,
             logs: result.logs,

@@ -1,22 +1,106 @@
-// backend/services/aiPromptService.js
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('../config/db').promise;
-
-// ============================================
-// CONFIGURATION
-// ============================================
 
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// Pricing (Claude 3 Sonnet)
-const COST_PER_INPUT_TOKEN = 0.00003;   // $0.00003 per input token
-const COST_PER_OUTPUT_TOKEN = 0.00015;  // $0.00015 per output token
+const COST_PER_INPUT_TOKEN = 0.00003;
+const COST_PER_OUTPUT_TOKEN = 0.00015;
 
-// ============================================
-// STATIC SYSTEM PROMPT (CACHED)
-// ============================================
+const config = {
+    model: process.env.AI_MODEL || 'claude-3-sonnet-20241022',
+    maxTokens: parseInt(process.env.AI_MAX_TOKENS) || 1024,
+    temperature: parseFloat(process.env.AI_TEMPERATURE) || 0.7,
+    timeout: parseInt(process.env.AI_TIMEOUT) || 30000,
+    maxQueryLength: parseInt(process.env.AI_MAX_QUERY_LENGTH) || 5000,
+    rateLimitWindow: parseInt(process.env.AI_RATE_LIMIT_WINDOW) || 60000,
+    maxRequestsPerUser: parseInt(process.env.AI_MAX_REQUESTS_PER_USER) || 10,
+    maxRetries: parseInt(process.env.AI_MAX_RETRIES) || 3,
+    retryDelay: parseInt(process.env.AI_RETRY_DELAY) || 1000
+};
+
+const rateLimiter = new Map();
+
+function checkRateLimit(userId) {
+    const now = Date.now();
+    const key = `ai_${userId}`;
+
+    if (!rateLimiter.has(key)) {
+        rateLimiter.set(key, [now]);
+        return true;
+    }
+
+    const requests = rateLimiter.get(key).filter(
+        time => now - time < config.rateLimitWindow
+    );
+
+    if (requests.length >= config.maxRequestsPerUser) {
+        return false;
+    }
+
+    requests.push(now);
+    rateLimiter.set(key, requests);
+    return true;
+}
+
+function validateQuery(query) {
+    if (!query || typeof query !== 'string') {
+        throw new Error('Query must be a non-empty string');
+    }
+
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+        throw new Error('Query cannot be empty');
+    }
+
+    if (trimmed.length > config.maxQueryLength) {
+        throw new Error(`Query exceeds maximum length of ${config.maxQueryLength} characters`);
+    }
+
+    return trimmed;
+}
+
+function validateContext(context) {
+    if (context && typeof context !== 'object') {
+        throw new Error('Context must be an object');
+    }
+
+    const contextStr = JSON.stringify(context || {});
+    if (contextStr.length > 10000) {
+        throw new Error('Context too large (max 10KB)');
+    }
+
+    return context || {};
+}
+
+async function withRetry(fn, retries = config.maxRetries) {
+    let lastError;
+
+    for (let i = 0; i < retries; i++) {
+        try {
+            return await fn();
+        } catch (error) {
+            lastError = error;
+
+            if (error.message && error.message.includes('Query')) {
+                throw error;
+            }
+
+            if (error.status === 429) {
+                throw error;
+            }
+
+            if (i < retries - 1) {
+                const delay = config.retryDelay * Math.pow(2, i);
+                console.warn(`Retry ${i + 1}/${retries} after ${delay}ms`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+
+    throw lastError;
+}
 
 const STATIC_SYSTEM_PROMPT = {
     type: "text",
@@ -41,17 +125,13 @@ Response Guidelines:
 - Always include product names and prices
 - Suggest alternatives when available
 - Ask follow-up questions to understand user needs`,
-    cache_control: { type: "ephemeral" }  // ✅ Enables caching!
+    cache_control: { type: "ephemeral" }
 };
-
-// ============================================
-// DYNAMIC CONTEXT (NOT CACHED)
-// ============================================
 
 function buildDynamicContext(req) {
     const user = req.user || {};
     const session = req.session || {};
-    
+
     return {
         type: "text",
         text: `Current User Context:
@@ -65,67 +145,117 @@ function buildDynamicContext(req) {
     };
 }
 
-// ============================================
-// AI RESPONSE FUNCTIONS
-// ============================================
-
-/**
- * Get AI recommendation with prompt caching
- */
 async function getAIRecommendation(userQuery, contextData = {}) {
+    const startTime = Date.now();
+    const requestId = Math.random().toString(36).substring(7);
+
     try {
-        const response = await anthropic.messages.create({
-            model: "claude-3-sonnet-20241022",
-            system: [
-                STATIC_SYSTEM_PROMPT,  // ✅ Cached after first request
-                {
-                    type: "text",
-                    text: `Additional Context:
-${JSON.stringify(contextData, null, 2)}`  // ❌ Not cached
-                }
-            ],
-            messages: [
-                {
-                    role: "user",
-                    content: userQuery  // ❌ Not cached
-                }
-            ],
-            max_tokens: 1024,
-            temperature: 0.7,
-            // ✅ Enable prompt caching
-            headers: {
-                'anthropic-version': '2023-06-01'
+        const query = validateQuery(userQuery);
+        const context = validateContext(contextData);
+
+        const userId = contextData.userId || 'anonymous';
+        if (!checkRateLimit(userId)) {
+            return {
+                success: false,
+                error: 'Rate limit exceeded. Please try again later.',
+                requestId
+            };
+        }
+
+        const systemPrompt = [
+            STATIC_SYSTEM_PROMPT,
+            {
+                type: "text",
+                text: `Additional Context:
+Timestamp: ${new Date().toISOString()}
+User ID: ${userId}
+${Object.entries(context).map(([key, value]) => `${key}: ${value}`).join('\n')}`
             }
+        ];
+
+        const result = await withRetry(async () => {
+            const timeout = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Request timeout')), config.timeout);
+            });
+
+            const apiCall = anthropic.messages.create({
+                model: config.model,
+                system: systemPrompt,
+                messages: [
+                    {
+                        role: "user",
+                        content: query
+                    }
+                ],
+                max_tokens: config.maxTokens,
+                temperature: config.temperature,
+                headers: {
+                    'anthropic-version': '2023-06-01'
+                }
+            });
+
+            return await Promise.race([apiCall, timeout]);
         });
 
-        // Calculate cost savings
-        const savings = calculateCostSavings(response);
-        
-        // Log for analytics
+        const savings = calculateCostSavings(result);
+
         await logAICostSavings({
-            userId: contextData.userId || 'anonymous',
+            userId,
             endpoint: 'getAIRecommendation',
-            ...savings
+            ...savings,
+            requestId
         });
 
         return {
             success: true,
-            data: response.content[0].text,
-            usage: response.usage,
-            savings
+            data: result.content[0].text,
+            usage: result.usage,
+            savings,
+            requestId,
+            duration: Date.now() - startTime
         };
+
     } catch (error) {
-        console.error('❌ AI Recommendation Error:', error);
-        throw error;
+        console.error('AI Recommendation Error:', {
+            requestId,
+            userId: contextData.userId || 'anonymous',
+            error: error.message
+        });
+
+        return {
+            success: false,
+            error: error.message === 'Request timeout'
+                ? 'AI service is taking too long. Please try again.'
+                : error.message.includes('Rate limit')
+                    ? 'Too many requests. Please try again later.'
+                    : 'Failed to get AI recommendation. Please try again.',
+            requestId,
+            fallback: true
+        };
     }
 }
 
-/**
- * Get AI product recommendation with caching
- */
 async function getAIProductRecommendation(userId, productId, userQuery) {
+    const startTime = Date.now();
+    const requestId = Math.random().toString(36).substring(7);
+
     try {
-        // Get user context
+        if (!userId) {
+            throw new Error('User ID is required');
+        }
+        if (!productId) {
+            throw new Error('Product ID is required');
+        }
+        const query = validateQuery(userQuery);
+
+        if (!checkRateLimit(userId)) {
+            return {
+                success: false,
+                error: 'Rate limit exceeded. Please try again later.',
+                requestId
+            };
+        }
+
         const [user] = await db.query(
             'SELECT * FROM users WHERE id = ?',
             [userId]
@@ -135,7 +265,7 @@ async function getAIProductRecommendation(userId, productId, userQuery) {
             userId: userId,
             userEmail: user[0]?.email || 'unknown',
             productId: productId,
-            query: userQuery,
+            query: query,
             timestamp: new Date().toISOString()
         };
 
@@ -153,57 +283,91 @@ Recommendation Guidelines:
 3. Provide personalized recommendations
 4. Include pricing information
 5. Highlight key features`,
-            cache_control: { type: "ephemeral" }  // ✅ Cached
+            cache_control: { type: "ephemeral" }
         };
 
-        const response = await anthropic.messages.create({
-            model: "claude-3-sonnet-20241022",
-            system: [
-                systemPrompt,  // ✅ Cached
-                {
-                    type: "text",
-                    text: `Current Request Context:
-${JSON.stringify(contextData, null, 2)}`  // ❌ Not cached
+        const result = await withRetry(async () => {
+            const timeout = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Request timeout')), config.timeout);
+            });
+
+            const apiCall = anthropic.messages.create({
+                model: config.model,
+                system: [
+                    systemPrompt,
+                    {
+                        type: "text",
+                        text: `Current Request Context:
+${JSON.stringify(contextData, null, 2)}`
+                    }
+                ],
+                messages: [
+                    {
+                        role: "user",
+                        content: `Recommend products similar to product ID ${productId}. User query: ${query}`
+                    }
+                ],
+                max_tokens: config.maxTokens,
+                temperature: 0.8,
+                headers: {
+                    'anthropic-version': '2023-06-01'
                 }
-            ],
-            messages: [
-                {
-                    role: "user",
-                    content: `Recommend products similar to product ID ${productId}. User query: ${userQuery}`
-                }
-            ],
-            max_tokens: 1024,
-            temperature: 0.8,
-            headers: {
-                'anthropic-version': '2023-06-01'
-            }
+            });
+
+            return await Promise.race([apiCall, timeout]);
         });
 
-        const savings = calculateCostSavings(response);
-        
+        const savings = calculateCostSavings(result);
+
         await logAICostSavings({
             userId,
             endpoint: 'getAIProductRecommendation',
-            ...savings
+            ...savings,
+            requestId
         });
 
         return {
             success: true,
-            data: response.content[0].text,
-            usage: response.usage,
-            savings
+            data: result.content[0].text,
+            usage: result.usage,
+            savings,
+            requestId,
+            duration: Date.now() - startTime
         };
+
     } catch (error) {
-        console.error('❌ Product Recommendation Error:', error);
-        throw error;
+        console.error('Product Recommendation Error:', {
+            requestId,
+            userId,
+            error: error.message
+        });
+
+        return {
+            success: false,
+            error: error.message === 'Request timeout'
+                ? 'AI service is taking too long. Please try again.'
+                : 'Failed to get product recommendation. Please try again.',
+            requestId,
+            fallback: true
+        };
     }
 }
 
-/**
- * Get AI product description generator with caching
- */
 async function getAIProductDescription(productData, keywords) {
+    const startTime = Date.now();
+    const requestId = Math.random().toString(36).substring(7);
+
     try {
+        if (!productData || typeof productData !== 'object') {
+            throw new Error('Product data is required');
+        }
+        if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
+            throw new Error('Keywords are required');
+        }
+        if (keywords.length > 10) {
+            throw new Error('Maximum 10 keywords allowed');
+        }
+
         const systemPrompt = {
             type: "text",
             text: `You are a professional e-commerce copywriter.
@@ -221,68 +385,113 @@ Style Guide:
 - Use active voice
 - Include emotional benefits
 - Address customer pain points`,
-            cache_control: { type: "ephemeral" }  // ✅ Cached
+            cache_control: { type: "ephemeral" }
         };
 
-        const response = await anthropic.messages.create({
-            model: "claude-3-haiku-20240307",  // Cheaper model for copywriting
-            system: [
-                systemPrompt,  // ✅ Cached
-                {
-                    type: "text",
-                    text: `Product Data:
+        const result = await withRetry(async () => {
+            const timeout = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Request timeout')), config.timeout);
+            });
+
+            const apiCall = anthropic.messages.create({
+                model: "claude-3-haiku-20240307",
+                system: [
+                    systemPrompt,
+                    {
+                        type: "text",
+                        text: `Product Data:
 ${JSON.stringify(productData, null, 2)}
 
 Keywords: ${keywords.join(', ')}`
+                    }
+                ],
+                messages: [
+                    {
+                        role: "user",
+                        content: `Write a product description for the above product using these keywords: ${keywords.join(', ')}`
+                    }
+                ],
+                max_tokens: 500,
+                temperature: 0.8,
+                headers: {
+                    'anthropic-version': '2023-06-01'
                 }
-            ],
-            messages: [
-                {
-                    role: "user",
-                    content: `Write a product description for the above product using these keywords: ${keywords.join(', ')}`
-                }
-            ],
-            max_tokens: 500,
-            temperature: 0.8,
-            headers: {
-                'anthropic-version': '2023-06-01'
-            }
+            });
+
+            return await Promise.race([apiCall, timeout]);
         });
 
-        const savings = calculateCostSavings(response);
-        
+        const savings = calculateCostSavings(result);
+
         return {
             success: true,
-            data: response.content[0].text,
-            usage: response.usage,
-            savings
+            data: result.content[0].text,
+            usage: result.usage,
+            savings,
+            requestId,
+            duration: Date.now() - startTime
         };
+
     } catch (error) {
-        console.error('❌ Product Description Error:', error);
-        throw error;
+        console.error('Product Description Error:', {
+            requestId,
+            error: error.message
+        });
+
+        return {
+            success: false,
+            error: error.message === 'Request timeout'
+                ? 'AI service is taking too long. Please try again.'
+                : 'Failed to generate product description. Please try again.',
+            requestId,
+            fallback: true
+        };
     }
 }
 
-// ============================================
-// COST CALCULATION
-// ============================================
+async function healthCheck() {
+    try {
+        const timeout = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Health check timeout')), 5000);
+        });
+
+        const apiCall = anthropic.messages.create({
+            model: "claude-3-haiku-20240307",
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 10
+        });
+
+        await Promise.race([apiCall, timeout]);
+
+        return {
+            status: 'healthy',
+            timestamp: new Date().toISOString(),
+            model: config.model,
+            version: '1.0.0'
+        };
+    } catch (error) {
+        return {
+            status: 'unhealthy',
+            error: error.message,
+            timestamp: new Date().toISOString()
+        };
+    }
+}
 
 function calculateCostSavings(response) {
     const totalTokens = response.usage.input_tokens || 0;
     const cachedTokens = response.usage.cache_creation_input_tokens || 0;
     const outputTokens = response.usage.output_tokens || 0;
-    
-    // Calculate original cost (without caching)
-    const originalCost = (totalTokens * COST_PER_INPUT_TOKEN) + 
-                        (outputTokens * COST_PER_OUTPUT_TOKEN);
-    
-    // Calculate actual cost (with caching)
+
+    const originalCost = (totalTokens * COST_PER_INPUT_TOKEN) +
+        (outputTokens * COST_PER_OUTPUT_TOKEN);
+
     const nonCachedTokens = totalTokens - cachedTokens;
-    const actualCost = (nonCachedTokens * COST_PER_INPUT_TOKEN) + 
-                       (outputTokens * COST_PER_OUTPUT_TOKEN);
-    
+    const actualCost = (nonCachedTokens * COST_PER_INPUT_TOKEN) +
+        (outputTokens * COST_PER_OUTPUT_TOKEN);
+
     const savingsAmount = originalCost - actualCost;
-    const savingsPercentage = originalCost > 0 ? 
+    const savingsPercentage = originalCost > 0 ?
         ((savingsAmount / originalCost) * 100) : 0;
 
     const result = {
@@ -296,24 +505,27 @@ function calculateCostSavings(response) {
         savingsPercentage: parseFloat(savingsPercentage.toFixed(2))
     };
 
-    console.log(`💸 Cost Savings: ${result.savingsPercentage}%`);
-    console.log(`💰 Original: $${result.originalCost} → Actual: $${result.actualCost}`);
-    console.log(`📊 Cached Tokens: ${result.cachedTokens}/${result.totalTokens} (${((result.cachedTokens/result.totalTokens)*100).toFixed(1)}%)`);
+    const cachedTokenPercentage =
+        result.totalTokens > 0
+            ? (result.cachedTokens / result.totalTokens) * 100
+            : 0;
+
+    console.log(`Cost Savings: ${result.savingsPercentage}%`);
+    console.log(`Original: $${result.originalCost} -> Actual: $${result.actualCost}`);
+    console.log(
+        `📊 Cached Tokens: ${result.cachedTokens}/${result.totalTokens} (${cachedTokenPercentage.toFixed(1)}%)`
+    );
 
     return result;
 }
 
-// ============================================
-// DATABASE LOGGING
-// ============================================
-
-async function logAICostSavings({ userId, endpoint, originalCost, actualCost, savingsPercentage, totalTokens, outputTokens, cachedTokens }) {
+async function logAICostSavings({ userId, endpoint, originalCost, actualCost, savingsPercentage, totalTokens, outputTokens, cachedTokens, requestId }) {
     try {
         await db.query(
             `INSERT INTO ai_cost_analytics 
              (user_id, endpoint, original_cost, actual_cost, 
-              savings_percentage, input_tokens, output_tokens, cached_tokens, timestamp)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+              savings_percentage, input_tokens, output_tokens, cached_tokens, request_id, timestamp)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
             [
                 userId,
                 endpoint,
@@ -322,24 +534,21 @@ async function logAICostSavings({ userId, endpoint, originalCost, actualCost, sa
                 savingsPercentage,
                 totalTokens,
                 outputTokens,
-                cachedTokens
+                cachedTokens,
+                requestId
             ]
         );
-        
-        console.log(`✅ Cost savings logged for user ${userId}: ${savingsPercentage}% savings`);
+
+        console.log(`Cost savings logged for user ${userId}: ${savingsPercentage}% savings`);
     } catch (error) {
         console.error('Error logging cost savings:', error);
     }
 }
 
-// ============================================
-// ANALYTICS FUNCTIONS
-// ============================================
-
 async function getCostSavingsAnalytics(timeRange = '30d') {
     try {
         let dateCondition;
-        switch(timeRange) {
+        switch (timeRange) {
             case '7d': dateCondition = "INTERVAL 7 DAY"; break;
             case '30d': dateCondition = "INTERVAL 30 DAY"; break;
             case '90d': dateCondition = "INTERVAL 90 DAY"; break;
@@ -379,9 +588,10 @@ async function getCostSavingsAnalytics(timeRange = '30d') {
     }
 }
 
-// ============================================
-// EXPORTS
-// ============================================
+function cleanup() {
+    rateLimiter.clear();
+    console.log('AI service cleanup completed');
+}
 
 module.exports = {
     getAIRecommendation,
@@ -390,5 +600,8 @@ module.exports = {
     calculateCostSavings,
     logAICostSavings,
     getCostSavingsAnalytics,
-    STATIC_SYSTEM_PROMPT
+    healthCheck,
+    cleanup,
+    STATIC_SYSTEM_PROMPT,
+    config
 };

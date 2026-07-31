@@ -211,7 +211,7 @@ const bulkUpdateUserStatus = async (adminId, targetIds, status, ip, userAgent) =
         }
 
         await connection.commit();
-        return { updatedCount: targetIds.length };
+        return { requestedCount: targetIds.length, updatedCount: result.affectedRows };
     } catch (e) {
         await connection.rollback();
         throw e;

@@ -76,6 +76,14 @@ async function loadHomeProducts() {
             );
         }
 
+        // ===== LOAD RECENTLY VIEWED (Issue #1126) =====
+        if (
+            typeof loadRecentlyViewed ===
+            "function"
+        ) {
+            loadRecentlyViewed();
+        }
+
         // apply filters
         if (
             typeof applyShopFilters ===

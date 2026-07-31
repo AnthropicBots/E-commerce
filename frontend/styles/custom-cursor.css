@@ -7,7 +7,7 @@
     body.cursor-enhanced .pro,
     body.cursor-enhanced .fe-box,
     body.cursor-enhanced .banner-link {
-        cursor: none;
+        cursor: auto;
     }
 
     body.cursor-enhanced input,

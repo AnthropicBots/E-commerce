@@ -10,7 +10,11 @@ const chatRoutes = require("./chatRoutes");
 const wishlistRoutes = require("./wishlistRoutes");
 const recommendationRoutes = require("./recommendationRoutes");
 const cartRoutes = require("./cartRoutes");
+const checkoutRoutes = require("./checkoutRoutes");
 const pincodeRoutes = require("./pincodeRoutes");
+const subscriptionRoutes = require("./subscriptionRoutes");
+const courierWebhookRoutes = require("./courierWebhookRoutes");
+const refundRoutes = require("./refundRoutes");
 
 router.use("/products", productRoutes);
 router.use("/auth", authRoutes);
@@ -21,6 +25,10 @@ router.use("/chat", chatRoutes);
 router.use("/wishlist", wishlistRoutes);
 router.use("/recommendations", recommendationRoutes);
 router.use("/cart", cartRoutes);
+router.use("/checkout", checkoutRoutes);
 router.use("/pincode", pincodeRoutes);
+router.use("/subscriptions", subscriptionRoutes);
+router.use("/courier-webhooks", courierWebhookRoutes);
+router.use("/refunds", refundRoutes);
 
 module.exports = router;

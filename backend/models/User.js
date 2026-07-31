@@ -57,6 +57,10 @@ class User {
         this.deletedAt = user.deletedAt || null;
         this.deleteReason = user.deleteReason || null;
         
+        // 2FA fields
+        this.totpSecret = user.totpSecret || null;
+        this.is2faEnabled = user.is2faEnabled !== undefined ? user.is2faEnabled : false;
+        
         this.createdAt = user.createdAt || new Date();
         this.updatedAt = user.updatedAt || new Date();
     }
@@ -265,6 +269,7 @@ class User {
             isActive: this.isActive,
             isVerified: this.isVerified,
             isEmailVerified: this.isEmailVerified,
+            is2faEnabled: this.is2faEnabled,
             lastLogin: this.lastLogin,
             createdAt: this.createdAt,
             updatedAt: this.updatedAt
