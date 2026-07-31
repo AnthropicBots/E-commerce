@@ -217,8 +217,68 @@ const requireAuth = () => {
     return user;
 };
 
+// Endpoints that establish or renew a session themselves. A 401 from one of
+// these is the answer, not a signal that the session needs renewing, so they are
+// never retried behind a refresh.
+const SESSION_ENDPOINTS = [
+    "/auth/login",
+    "/auth/signup",
+    "/auth/verify-signup",
+    "/auth/refresh-token",
+    "/auth/forgot-password",
+    "/auth/reset-password"
+];
+
+const isRenewable = (
+    url
+) => {
+
+    return !SESSION_ENDPOINTS.some(
+        (endpoint) => url.startsWith(endpoint)
+    );
+};
+
+// The renewal currently in flight, if any, and whether the shopper has already
+// been told their session ended.
+let pendingRefresh = null;
+
+let hasSignedOut = false;
+
+// Ends the session once however many requests discovered it was over.
+const signOutOnce = (
+    message
+) => {
+
+    if (
+        hasSignedOut
+    ) {
+
+        return;
+    }
+
+    hasSignedOut = true;
+
+    clearAuthData();
+
+    notify(
+        message
+        || "Session expired. Please login again.",
+        "error"
+    );
+
+    setTimeout(
+        () => {
+
+            window.location.href =
+                "signin.html";
+
+        },
+        1000
+    );
+};
+
 // refresh token
-const refreshAccessToken =
+const performRefresh =
     async () => {
 
         try {
@@ -229,8 +289,6 @@ const refreshAccessToken =
             if (
                 !refreshToken
             ) {
-
-                clearAuthData();
 
                 return null;
             }
@@ -266,8 +324,6 @@ const refreshAccessToken =
                 ||
                 !data.accessToken
             ) {
-
-                clearAuthData();
 
                 return null;
             }
@@ -308,11 +364,30 @@ const refreshAccessToken =
                 error
             );
 
-            clearAuthData();
-
             return null;
         }
     };
+
+// Requests that hit an expired session at the same moment share one renewal and
+// then continue, rather than each starting their own and racing one another into
+// a sign-out.
+const refreshAccessToken = () => {
+
+    if (
+        !pendingRefresh
+    ) {
+
+        pendingRefresh =
+            performRefresh().finally(
+                () => {
+
+                    pendingRefresh = null;
+                }
+            );
+    }
+
+    return pendingRefresh;
+};
 
 // api request
 const apiRequest =
@@ -387,11 +462,15 @@ const apiRequest =
                 response.status === 401
                 &&
                 retry
+                &&
+                isRenewable(url)
             ) {
 
                 const newToken =
                     await refreshAccessToken();
 
+                // Replayed with `retry` off, so a request is only ever tried a
+                // second time -- never a third.
                 if (
                     newToken
                 ) {
@@ -403,22 +482,7 @@ const apiRequest =
                     );
                 }
 
-                clearAuthData();
-
-                notify(
-                    "Session expired. Please login again.",
-                    "error"
-                );
-
-                setTimeout(
-                    () => {
-
-                        window.location.href =
-                            "signin.html";
-
-                    },
-                    1000
-                );
+                signOutOnce();
 
                 return {
 

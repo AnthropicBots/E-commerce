@@ -1,5 +1,7 @@
 // backend/config/cookieConfig.js
 
+const { COOKIE_NAMES, REFRESH_COOKIE_PATH } = require('../utils/tokens');
+
 /**
  * ============================================
  * COOKIE CONFIGURATION
@@ -216,10 +218,11 @@ validateSecureConfig(cookieConfig.secure, cookieConfig.sameSite);
 const cookieNames = {
     // Session cookies
     session: process.env.COOKIE_SESSION_NAME || 'session',
-    refreshToken: process.env.COOKIE_REFRESH_NAME || 'refresh_token',
-    
-    // Auth cookies
-    accessToken: process.env.COOKIE_ACCESS_NAME || 'access_token',
+
+    // Auth cookie names come from the token contract so that the side writing
+    // them and the side reading them cannot disagree.
+    refreshToken: COOKIE_NAMES.refreshToken,
+    accessToken: COOKIE_NAMES.accessToken,
     auth: process.env.COOKIE_AUTH_NAME || 'auth_token',
     
     // User preferences
@@ -291,7 +294,7 @@ function getRefreshTokenOptions(customOptions = {}) {
         secure: isProduction,
         sameSite: 'strict',
         maxAge: TIME.ONE_MONTH,
-        path: '/api/auth/refresh',
+        path: REFRESH_COOKIE_PATH,
         ...customOptions,
     };
 }
