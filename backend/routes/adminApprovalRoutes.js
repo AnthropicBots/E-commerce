@@ -1,84 +1,12 @@
-// backend/routes/adminApprovalRoutes.js
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/authMiddleware');
-const db = require('../config/db').promise;
+const adminApprovalController = require('../controllers/adminApprovalController');
 
-// Get pending approval requests
-router.get('/approvals/pending', authMiddleware, async (req, res) => {
-    try {
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({
-                success: false,
-                error: 'Admin access required'
-            });
-        }
+// Get pending approval requests (Admin only)
+router.get('/approvals/pending', authMiddleware, adminApprovalController.getPendingApprovals);
 
-        const [requests] = await db.query(`
-            SELECT a.*, u.name as user_name, u.email as user_email
-            FROM admin_approval_requests a
-            JOIN users u ON a.user_id = u.id
-            WHERE a.status = 'pending'
-            ORDER BY a.created_at DESC
-        `);
-
-        res.json({
-            success: true,
-            data: requests
-        });
-    } catch (error) {
-        console.error('Error fetching approvals:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to fetch approvals'
-        });
-    }
-});
-
-// Approve or reject discount
-router.post('/approvals/:id/decide', authMiddleware, async (req, res) => {
-    try {
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({
-                success: false,
-                error: 'Admin access required'
-            });
-        }
-
-        const { id } = req.params;
-        const { action, notes } = req.body;
-
-        if (!['approve', 'reject'].includes(action)) {
-            return res.status(400).json({
-                success: false,
-                error: 'Invalid action'
-            });
-        }
-
-        await db.query(
-            `UPDATE admin_approval_requests 
-             SET status = ?, admin_id = ?, admin_notes = ?
-             WHERE id = ?`,
-            [action === 'approve' ? 'approved' : 'rejected', req.user.id, notes, id]
-        );
-
-        // If approved, proceed with order
-        if (action === 'approve') {
-            // Process the order with approved discount
-            // ... order processing logic
-        }
-
-        res.json({
-            success: true,
-            message: `Request ${action}d successfully`
-        });
-    } catch (error) {
-        console.error('Error updating approval:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to update approval'
-        });
-    }
-});
+// Approve or reject discount (Admin only)
+router.post('/approvals/:id/decide', authMiddleware, adminApprovalController.decideApproval);
 
 module.exports = router;

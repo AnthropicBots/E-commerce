@@ -12,7 +12,7 @@
 
     <!-- SEO -->
 
-    <link rel="canonical" href="https://www.bhuvansh.xyz/shop.html">
+    <link rel="canonical" href="https://e-commerce-git-main-bhuvanshs-projects.vercel.app/shop.html">
     <meta
         name="description"
         content="Browse trending fashion collections, t-shirts, hoodies, jackets, and premium apparel at AnthropicBots E-Commerce."
@@ -115,265 +115,95 @@
 
     </section>
 
-    <section class="fashion-categories">
-
-    <div class="category-grid">
-
-        <div class="fashion-card">
-            <img src="assets/images/tshirt.png" alt="T-Shirts">
-            <div class="fashion-overlay">
-                <h3>T-SHIRTS</h3>
-            </div>
-        </div>
-
-        <div class="fashion-card">
-            <img src="assets/images/hoodie.png" alt="Hoodies">
-            <div class="fashion-overlay">
-                <h3>HOODIES</h3>
-            </div>
-        </div>
-
-        <div class="fashion-card">
-            <img src="assets/images/jacket.png" alt="Jackets">
-            <div class="fashion-overlay">
-                <h3>JACKETS</h3>
-            </div>
-        </div>
-
-        <div class="fashion-card">
-            <img src="assets/images/denim.png" alt="Denim">
-            <div class="fashion-overlay">
-                <h3>DENIM</h3>
-            </div>
-        </div>
-
+<!-- Shop Controls -->
+<section id="shop-controls" class="section-p1">
+    <!-- Search -->
+    <div class="search-box">
+        <input type="text" id="search-input" placeholder="Search products...">
+        <i class="fas fa-search"></i>
+        <div id="search-suggestions" class="search-suggestions" hidden></div>
     </div>
 
+    <!-- Category Filters -->
+    <div class="filter-buttons">
+        <button class="filter-btn active-filter" data-category="all">All</button>
+        <button class="filter-btn" data-category="tshirt">T-Shirts</button>
+        <button class="filter-btn" data-category="hoodie">Hoodies</button>
+        <button class="filter-btn" data-category="jacket">Jackets</button>
+    </div>
+
+    <!-- Sort -->
+    <div class="sort-box">
+        <select id="sort-select">
+            <option value="default">Sort Products</option>
+            <option value="low-high">Price Low → High</option>
+            <option value="high-low">Price High → Low</option>
+        </select>
+    </div>
+
+    <!-- ===== CLEAR FILTERS BUTTON (NEW) ===== -->
+    <div class="clear-filters-wrapper">
+        <button id="clear-filters-btn" class="clear-filters-btn" style="display: none;">
+            <i class="fas fa-times-circle"></i>
+            Clear Filters
+        </button>
+    </div>
 </section>
 
-    <search
-        id="shop-controls"
-        class="section-p1 shop-search"
-        aria-label="Search and filter products"
+    <!-- Products -->
+
+    <section
+        id="product1"
+        class="section-p1"
     >
 
-        <form
-            id="shop-search-form"
-            class="shop-search__form"
-            autocomplete="off"
-        >
+        <h2>
 
-            <div class="search-box">
+            Featured Products
 
-                <label
-                    class="visually-hidden"
-                    for="search-input"
-                >
-                    Search products
-                </label>
+        </h2>
 
-                <input
-                    type="search"
-                    id="search-input"
-                    name="search"
-                    placeholder="Search products, categories, brands..."
-                    aria-autocomplete="list"
-                    aria-controls="search-suggestions"
-                    aria-expanded="false"
-                >
+        <p>
 
-                <i
-                    class="fas fa-search search-icon"
-                    aria-hidden="true"
-                ></i>
+            Summer Collection New Modern Design
 
-                <div
-                    id="search-suggestions"
-                    class="search-suggestions"
-                    hidden
-                ></div>
+        </p>
 
-            </div>
+        <!-- Dynamic Product Container -->
 
-            <button
-                type="button"
-                id="mobile-filter-toggle"
-                class="mobile-filter-toggle"
-                aria-controls="filter-sidebar"
-                aria-expanded="false"
-            >
-                <i
-                    class="fas fa-sliders-h"
-                    aria-hidden="true"
-                ></i>
-                Filters
-            </button>
+        <div
+            class="pro-container"
+            id="product-container"
+        ></div>
 
-            <div class="sort-box">
+    </section>
 
-                <label for="sort-select">
-                    Sort
-                </label>
+    <!-- Pagination -->
 
-                <select id="sort-select" name="sort">
-                    <option value="newest">Newest</option>
-                    <option value="price-low-high">Price Low → High</option>
-                    <option value="price-high-low">Price High → Low</option>
-                    <option value="popularity">Popularity</option>
-                    <option value="highest-rated">Highest Rated</option>
-                    <option value="alphabetical-az">Alphabetical A-Z</option>
-                </select>
+    <section
+        id="pagination"
+        class="section-p1"
+    >
 
-            </div>
+        <a href="#">
 
-        </form>
+            1
 
-    </search>
+        </a>
 
-    <div
-        id="filter-backdrop"
-        class="filter-backdrop"
-        hidden
-    ></div>
+        <a href="#">
 
-    <div class="shop-workspace section-p1">
+            2
 
-        <aside
-            id="filter-sidebar"
-            class="filter-sidebar"
-            aria-labelledby="filter-sidebar-title"
-        >
+        </a>
 
-            <div class="filter-sidebar__header">
-                <h2 id="filter-sidebar-title">Filters</h2>
-                <button
-                    type="button"
-                    id="close-filter-sidebar"
-                    class="filter-close"
-                    aria-label="Close filters"
-                >
-                    <i
-                        class="fas fa-times"
-                        aria-hidden="true"
-                    ></i>
-                </button>
-            </div>
+        <a href="#">
 
-            <fieldset class="filter-group">
-                <legend>Category</legend>
-                <div
-                    id="category-filter-list"
-                    class="filter-options"
-                ></div>
-            </fieldset>
+            <i class="fal fa-long-arrow-alt-right"></i>
 
-            <fieldset class="filter-group">
-                <legend>Price</legend>
-                <div class="price-filter">
-                    <label for="min-price-range">Minimum price</label>
-                    <input
-                        type="range"
-                        id="min-price-range"
-                        name="min-price"
-                    >
-                    <label for="max-price-range">Maximum price</label>
-                    <input
-                        type="range"
-                        id="max-price-range"
-                        name="max-price"
-                    >
-                    <p
-                        id="price-range-output"
-                        class="price-range-output"
-                        aria-live="polite"
-                    ></p>
-                </div>
-            </fieldset>
+        </a>
 
-            <fieldset class="filter-group">
-                <legend>Rating</legend>
-                <div class="filter-options">
-                    <label>
-                        <input type="radio" name="rating-filter" value="0" checked>
-                        All ratings
-                    </label>
-                    <label>
-                        <input type="radio" name="rating-filter" value="4">
-                        4★ & above
-                    </label>
-                    <label>
-                        <input type="radio" name="rating-filter" value="3">
-                        3★ & above
-                    </label>
-                    <label>
-                        <input type="radio" name="rating-filter" value="2">
-                        2★ & above
-                    </label>
-                </div>
-            </fieldset>
-
-            <fieldset class="filter-group">
-                <legend>Availability</legend>
-                <div class="filter-options">
-                    <label>
-                        <input type="checkbox" name="availability-filter" value="in-stock">
-                        In Stock
-                    </label>
-                    <label>
-                        <input type="checkbox" name="availability-filter" value="out-of-stock">
-                        Out of Stock
-                    </label>
-                </div>
-            </fieldset>
-
-            <button
-                type="button"
-                id="clear-filters"
-                class="clear-filters-btn"
-            >
-                Clear Filters
-            </button>
-
-        </aside>
-
-        <div class="shop-results">
-
-            <!-- Products -->
-
-            <section id="product1">
-
-                <div class="shop-results__header">
-                    <div>
-                        <h2>
-                            Featured Products
-                        </h2>
-
-                        <p id="results-summary">
-                            Summer Collection New Modern Design
-                        </p>
-                    </div>
-                </div>
-
-                <!-- Dynamic Product Container -->
-
-                <div
-                    class="pro-container"
-                    id="product-container"
-                ></div>
-
-            </section>
-
-            <!-- Pagination -->
-
-            <section
-                id="pagination"
-                class="section-p1"
-                aria-label="Product pagination"
-            ></section>
-
-        </div>
-
-    </div>
+    </section>
 
     <!-- Footer -->
 
@@ -417,16 +247,28 @@
     ></script>
 
     <!-- Shop Scripts -->
+<script
+    defer
+    src="scripts/shop-filter-utils.js"
+></script>
 
-    <script
-        defer
-        src="scripts/shop-filter-utils.js"
-    ></script>
+<script
+    defer
+    src="scripts/shop-controls.js"
+></script>
+<script
+    defer
+    src="scripts/product-cards-home.js"
+></script>
 
-    <script
-        defer
-        src="scripts/shop.js"
-    ></script>
+<script
+    defer
+    src="scripts/product-actions-home.js"
+></script>
+<script
+    defer
+    src="scripts/shop.js"
+></script>
 
     <script defer src="scripts/ui.js"></script>
 

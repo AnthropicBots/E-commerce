@@ -117,7 +117,9 @@ function initializeRippleEffect() {
                 );
 
             if (
-                !btn
+                !btn ||
+                btn.id === 'share-btn' ||
+                btn.classList.contains('share-option')
             ) {
                 return;
             }
@@ -231,6 +233,7 @@ function initializeUI() {
     updateCartCount();
     updateWishlistCount();
     initializeThemeToggle();
+    initializeNewsletter();
     uiInitialized = true;
 }
 
@@ -281,5 +284,55 @@ function initializeThemeToggle() {
 
         themeIcon.textContent =
             isDark ? '☀️' : '🌙';
+    });
+}
+
+function initializeNewsletter() {
+    const form = document.getElementById('newsletter-form');
+    if (!form) return;
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const emailInput = document.getElementById('newsletter-email');
+        const feedback = document.getElementById('newsletter-feedback');
+        const btnText = form.querySelector('.btn-text');
+        const btnLoader = form.querySelector('.btn-loader');
+        const btn = document.getElementById('newsletter-btn');
+        
+        const email = emailInput.value.trim();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        
+        feedback.style.display = 'block';
+        
+        if (!email) {
+            feedback.innerHTML = '<span style="color: #e74c3c;"><i class="fas fa-exclamation-circle"></i> Email is required.</span>';
+            return;
+        }
+        
+        if (!emailRegex.test(email)) {
+            feedback.innerHTML = '<span style="color: #e74c3c;"><i class="fas fa-exclamation-circle"></i> Please enter a valid email address.</span>';
+            return;
+        }
+        
+        // Simulate API call
+        btnText.style.display = 'none';
+        btnLoader.style.display = 'inline-block';
+        btn.disabled = true;
+        feedback.style.display = 'none';
+        
+        setTimeout(() => {
+            btnText.style.display = 'inline-block';
+            btnLoader.style.display = 'none';
+            btn.disabled = false;
+            
+            emailInput.value = '';
+            feedback.style.display = 'block';
+            feedback.innerHTML = '<span style="color: #2ecc71;"><i class="fas fa-check-circle"></i> Thanks for subscribing! Check your inbox.</span>';
+            
+            setTimeout(() => {
+                feedback.style.display = 'none';
+            }, 5000);
+        }, 1500);
     });
 }

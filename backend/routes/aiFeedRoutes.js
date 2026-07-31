@@ -1,7 +1,11 @@
 // backend/routes/aiFeedRoutes.js
 const express = require('express');
 const router = express.Router();
+
 const aiProductFeed = require('../services/aiProductFeedService');
+
+const aiFeedController = require('../controllers/aiFeedController');
+
 
 /**
  * GET /api/ai-feed/products
@@ -152,6 +156,21 @@ router.get('/sitemap/json', async (req, res) => {
     }
 });
 
+router.get('/products', aiFeedController.getProducts);
+
+/**
+ * GET /api/ai-feed/product/:id
+ * Get single product for AI agents
+ */
+router.get('/product/:id', aiFeedController.getProduct);
+
+/**
+ * GET /api/ai-feed/sitemap
+ * Get sitemap for AI agents
+ */
+router.get('/sitemap', aiFeedController.getSitemap);
+
+
 /**
  * GET /api/ai-feed/categories
  * Get categories for AI agents
@@ -261,5 +280,8 @@ router.get('/health', (req, res) => {
         timestamp: new Date().toISOString()
     });
 });
+
+router.get('/categories', aiFeedController.getCategories);
+
 
 module.exports = router;

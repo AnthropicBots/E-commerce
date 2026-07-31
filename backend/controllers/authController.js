@@ -8,9 +8,15 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const db = require("../config/db");
 const { sanitizeString, safeArray } = require("../utils/helpers");
+const { getClearCookieOptions } = require("../config/cookieConfig");
 
 // Appwrite SDK
 const { Client, Account, ID, Databases } = require('node-appwrite');
+
+// 2FA dependencies
+const { authenticator } = require('otplib');
+const qrcode = require('qrcode');
+const { encrypt, decrypt } = require('../utils/encryption');
 
 // ==================== CONSTANTS ====================
 const OTP_EXPIRY_MINUTES = parseInt(process.env.OTP_EXPIRY_MINUTES) || 10;
@@ -19,6 +25,9 @@ const OTP_RATE_LIMIT_MAX = 3; // Max 3 OTP requests per window
 const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
+// Window in which the failed attempts must accumulate to trip the lockout.
+// Failures older than this roll off so isolated mistakes never reach the threshold.
+const LOGIN_ATTEMPT_WINDOW = 15 * 60 * 1000; // 15 minutes
 
 // ==================== VALIDATION PATTERNS ====================
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -115,25 +124,41 @@ function isOTPRateLimited(email) {
 function isLoginLocked(email) {
     const now = Date.now();
     const record = loginAttempts.get(email);
-    
+
     if (!record) return false;
-    if (now > record.lockoutUntil) {
-        loginAttempts.delete(email);
-        return false;
+
+    // Only an active lockout blocks login. Counting failures within the
+    // window is not itself a lock — that is what let a single mistyped
+    // password lock the account before.
+    if (record.lockoutUntil && now < record.lockoutUntil) {
+        return true;
     }
-    return true;
+
+    // No active lockout: drop the record once the lockout has expired or the
+    // rolling attempt window has elapsed, so the counter restarts cleanly.
+    if ((record.lockoutUntil && now >= record.lockoutUntil) || now > record.windowExpires) {
+        loginAttempts.delete(email);
+    }
+    return false;
 }
 
 function recordLoginFailure(email) {
     const now = Date.now();
     const record = loginAttempts.get(email);
-    
-    if (!record) {
-        loginAttempts.set(email, { attempts: 1, lockoutUntil: now + LOGIN_LOCKOUT_DURATION });
+
+    // Start a fresh window on the first failure or after the previous window
+    // rolled off without reaching the threshold.
+    if (!record || now > record.windowExpires) {
+        loginAttempts.set(email, {
+            attempts: 1,
+            windowExpires: now + LOGIN_ATTEMPT_WINDOW,
+            lockoutUntil: null
+        });
         return;
     }
-    
+
     record.attempts++;
+    // The lockout only starts once the threshold is reached within the window.
     if (record.attempts >= MAX_LOGIN_ATTEMPTS) {
         record.lockoutUntil = now + LOGIN_LOCKOUT_DURATION;
     }
@@ -141,6 +166,11 @@ function recordLoginFailure(email) {
 
 function resetLoginAttempts(email) {
     loginAttempts.delete(email);
+}
+
+// Test-only: drop all tracked attempts so cases start from a clean slate.
+function clearLoginAttempts() {
+    loginAttempts.clear();
 }
 
 // ==================== 1. SIGNUP (Send OTP) ====================
@@ -260,9 +290,10 @@ const verifySignup = async (req, res) => {
         }
 
         // Save to MySQL with email_verified flag
+        const userId = crypto.randomUUID();
         await db.query(
-            `INSERT INTO users (name, email, password, role, email_verified) VALUES (?, ?, ?, ?, ?)`,
-            [pendingUser.name, cleanEmail, pendingUser.hashedPassword, "user", 1]
+            `INSERT INTO users (id, name, email, password, role, is_verified) VALUES (?, ?, ?, ?, ?, ?)`,
+            [userId, pendingUser.name, cleanEmail, pendingUser.hashedPassword, "user", 1]
         );
 
         // Cleanup Appwrite session
@@ -319,6 +350,21 @@ const login = async (req, res) => {
         // Reset login attempts on success
         resetLoginAttempts(cleanEmail);
 
+        // Check if 2FA is enabled
+        if (user.is_2fa_enabled === 1) {
+            const tempToken = jwt.sign(
+                { id: user.id, email: user.email, role: user.role, is2FA: true },
+                process.env.JWT_SECRET,
+                { expiresIn: "5m" }
+            );
+            return res.status(200).json({
+                success: true,
+                requires2FA: true,
+                tempToken,
+                message: "2FA verification required"
+            });
+        }
+
         const accessToken = generateAccessToken(user);
         const refreshToken = generateRefreshToken();
 
@@ -344,22 +390,30 @@ const login = async (req, res) => {
 const logout = async (req, res) => {
     try {
         const userId = req.user?.id;
-        
         if (userId) {
-            // Clear refresh token from database
-            await db.query(`UPDATE users SET refresh_token = NULL WHERE id = ?`, [userId]);
+            // Clear refresh token AND update last logout time
+            await db.query(
+                `UPDATE users SET refresh_token = NULL, last_logout = NOW() WHERE id = ?`,
+                [userId]
+            );
         }
 
-        return res.status(200).json({ 
-            success: true, 
-            message: "Logged out successfully" 
+        // Clear cookies using shared cookie options
+        res.clearCookie('accessToken', getClearCookieOptions());
+        res.clearCookie('refreshToken', getClearCookieOptions('/api/auth/refresh'));
+
+        console.log(`🔓 User ${userId} logged out successfully`);
+
+        return res.status(200).json({
+            success: true,
+            message: "Logged out successfully",
+            timestamp: new Date().toISOString()
         });
     } catch (error) {
-        console.error("LOGOUT ERROR:", error);
-        return res.status(500).json({ success: false, message: "Server error" });
+        console.error("❌ LOGOUT ERROR:", error);
+        return res.status(500).json({ success: false, message: "Logout failed. Please try again." });
     }
 };
-
 // ==================== 5. FORGOT PASSWORD ====================
 const forgotPassword = async (req, res) => {
     try {
@@ -378,7 +432,7 @@ const forgotPassword = async (req, res) => {
             });
         }
 
-        const [users] = await db.query(`SELECT id, email_verified FROM users WHERE email = ? LIMIT 1`, [cleanEmail]);
+        const [users] = await db.query(`SELECT id, is_verified AS email_verified FROM users WHERE email = ? LIMIT 1`, [cleanEmail]);
         if (!safeArray(users).length) {
             // Security: Don't reveal if email exists
             return res.status(200).json({ 
@@ -564,6 +618,147 @@ const refreshAccessToken = async (req, res) => {
     }
 };
 
+
+
+// ==================== 9. GET API STATUS ====================
+const getStatus = (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: "Auth API running",
+        timestamp: new Date().toISOString(),
+        version: "2.1.0",
+        security: {
+            behavioralCaptcha: process.env.ENABLE_BEHAVIORAL_CAPTCHA === 'true',
+            syntheticFraudDetection: true,
+            rateLimiting: true
+        }
+    });
+};
+
+// ==================== 10. VALIDATE TOKEN ====================
+const validateToken = (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: "Token is valid",
+        user: {
+            id: req.user.id,
+            email: req.user.email,
+            role: req.user.role,
+            isTrustedAgent: req.isTrustedAgent || false
+        }
+    });
+};
+
+// ==================== 11. SECURITY AUDIT (Admin Only) ====================
+const getSecurityAudit = async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: "Admin access required"
+            });
+        }
+
+        const [logs] = await db.query(
+            `SELECT * FROM security_logs ORDER BY timestamp DESC LIMIT 100`
+        );
+
+        return res.status(200).json({
+            success: true,
+            data: logs,
+            count: logs.length,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("❌ SECURITY AUDIT ERROR:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch security logs"
+        });
+    }
+};
+
+// ==================== 12. FRAUD STATUS (Authenticated) ====================
+const getFraudStatus = async (req, res) => {
+    try {
+        const [detection] = await db.query(
+            `SELECT risk_level, risk_score, confidence, timestamp 
+             FROM synthetic_identity_detections 
+             WHERE user_id = ? 
+             ORDER BY timestamp DESC 
+             LIMIT 1`,
+            [req.user.id]
+        );
+
+        if (detection.length === 0) {
+            return res.status(200).json({
+                success: true,
+                message: "No fraud detection records found",
+                status: "clean"
+            });
+        }
+
+        const isFlagged = detection[0].risk_level === 'critical' ||
+            detection[0].risk_level === 'high';
+
+        return res.status(200).json({
+            success: true,
+            data: detection[0],
+            isFlagged,
+            status: isFlagged ? 'flagged' : 'clean',
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("❌ FRAUD STATUS ERROR:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch fraud status"
+        });
+    }
+};
+
+const getMe = async (req, res) => {
+    try {
+        const [users] = await db.query(
+            "SELECT id, name, email, role, is_active FROM users WHERE id = ? LIMIT 1",
+            [req.user.id]
+        );
+
+        if (!users || !users.length) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        const user = users[0];
+
+        if (user.is_active === 0) {
+            return res.status(403).json({
+                success: false,
+                message: "Account has been deactivated"
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role
+            }
+        });
+    } catch (error) {
+        console.error("GET ME ERROR:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Server error"
+        });
+    }
+};
+
+
 // ==================== EXPORTS ====================
 module.exports = {
     signup,
@@ -573,5 +768,22 @@ module.exports = {
     forgotPassword,
     resetPassword,
     changePassword,
-    refreshAccessToken
+    refreshAccessToken,
+    getStatus,      
+    validateToken,  
+    getSecurityAudit, 
+    getFraudStatus,
+    getMe
+};
+
+// Internal login-guard helpers exposed for unit testing only. Not part of the
+// HTTP surface; runtime behavior is unchanged.
+module.exports._loginGuard = {
+    isLoginLocked,
+    recordLoginFailure,
+    resetLoginAttempts,
+    clearLoginAttempts,
+    MAX_LOGIN_ATTEMPTS,
+    LOGIN_LOCKOUT_DURATION,
+    LOGIN_ATTEMPT_WINDOW
 };

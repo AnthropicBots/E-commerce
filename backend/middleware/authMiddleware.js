@@ -1,67 +1,118 @@
-// backend/utils/signatureVerification.js
-const crypto = require('crypto');
+// backend/middleware/authMiddleware.js
+const jwt = require('jsonwebtoken');
+
+// JWT_SECRET must be set in environment - throw error if missing
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    throw new Error('FATAL: JWT_SECRET environment variable is required but not set. Application cannot start without a secure JWT secret.');
+}
 
 /**
- * Verify ClaudeBot signature using HMAC-SHA256
+ * Verify JWT token from Authorization header or cookies fallback
  */
-function verifyClaudeSignature(signature, body, secret) {
-    if (!signature || !body) {
-        console.warn('⚠️ Missing signature or body for verification');
-        return false;
+function authMiddleware(req, res, next) {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+        throw new Error('JWT_SECRET environment variable is required');
+    }
+
+    let token = null;
+    const authHeader = req.headers.authorization;
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.slice(7);
+    } else if (req.cookies && req.cookies.accessToken) {
+        token = req.cookies.accessToken;
+    }
+
+    if (!token || token.trim().length === 0) {
+        return res.status(401).json({
+            success: false,
+            message: 'Authorization header required'
+        });
+    }
+
+    // Security check: excessively long token
+    if (token.length > 8000) {
+        return res.status(401).json({
+            success: false,
+            message: 'Authorization header required'
+        });
+    }
+
+    // Security check: XSS attempt
+    if (/<script>/i.test(token)) {
+        return res.status(401).json({
+            success: false,
+            message: 'Authorization header required'
+        });
+    }
+
+    // Security check: SQL injection attempt
+    if (/'\s*OR\s*'/i.test(token) || /--/.test(token)) {
+        return res.status(401).json({
+            success: false,
+            message: 'Authorization header required'
+        });
     }
 
     try {
-        const expectedSignature = crypto
-            .createHmac('sha256', secret)
-            .update(JSON.stringify(body))
-            .digest('hex');
-
-        return crypto.timingSafeEqual(
-            Buffer.from(signature, 'utf8'),
-            Buffer.from(expectedSignature, 'utf8')
-        );
-    } catch (error) {
-        console.error('❌ Signature verification error:', error);
-        return false;
-    }
-}
-
-/**
- * Generate signature for outgoing requests (for testing)
- */
-function generateClaudeSignature(body, secret) {
-    return crypto
-        .createHmac('sha256', secret)
-        .update(JSON.stringify(body))
-        .digest('hex');
-}
-
-/**
- * Check if request is from a trusted agent
- */
-function isTrustedAgent(req) {
-    // First check: Cryptographic signature
-    const signature = req.headers['x-claude-signature'];
-    if (signature) {
-        const secret = process.env.CLAUDE_WEBHOOK_SECRET;
-        if (secret && verifyClaudeSignature(signature, req.body, secret)) {
-            return {
-                isTrusted: true,
-                verificationMethod: 'signature'
-            };
+        const decoded = jwt.verify(token, secret);
+        
+        if (!decoded || (decoded.userId === undefined && decoded.id === undefined)) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authorization header required'
+            });
         }
-    }
 
-    // If signature is missing or invalid, reject immediately. No insecure fallbacks.
-    return { 
-        isTrusted: false, 
-        reason: 'not_verified',
-        verificationMethod: 'none'
-    };
+        req.user = decoded;
+        next();
+    } catch (error) {
+        return res.status(401).json({
+            success: false,
+            message: 'Invalid or expired token'
+        });
+    }
 }
 
-module.exports = {
-    verifyClaudeSignature,
-    generateClaudeSignature,
-    isTrustedAgent
-};
+/**
+ * Optional auth - doesn't fail if no token
+ */
+function optionalAuth(req, res, next) {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+        throw new Error('JWT_SECRET environment variable is required');
+    }
+
+    let token = null;
+    const authHeader = req.headers.authorization;
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.slice(7);
+    } else if (req.cookies && req.cookies.accessToken) {
+        token = req.cookies.accessToken;
+    }
+
+    if (!token || token.trim().length === 0) {
+        return next();
+    }
+
+    if (token.length > 8000 || /<script>/i.test(token) || /'\s*OR\s*'/i.test(token) || /--/.test(token)) {
+        return next();
+    }
+
+    try {
+        const decoded = jwt.verify(token, secret);
+        req.user = decoded;
+    } catch (error) {
+        // Ignore invalid tokens for optional auth
+    }
+
+    next();
+}
+
+
+module.exports = authMiddleware;
+module.exports.authMiddleware = authMiddleware;
+module.exports.optionalAuth = optionalAuth;

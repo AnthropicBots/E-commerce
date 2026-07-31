@@ -1,0 +1,50 @@
+{
+    "app": {
+        "name": "E-Commerce API",
+        "maintenance": false,
+        "maintenanceMessage": "We're currently upgrading our systems. Please check back later."
+    },
+    "features": {
+        "recommendations": true,
+        "analytics": true,
+        "notifications": true,
+        "wishlist": true,
+        "reviews": true,
+        "chat": false,
+        "aiRecommendations": true
+    },
+    "server": {
+        "rateLimit": {
+            "enabled": true,
+            "windowMs": 60000,
+            "max": 100
+        },
+        "compression": {
+            "enabled": true,
+            "level": 6
+        }
+    },
+    "payment": {
+        "gateway": "stripe",
+        "testMode": true,
+        "supportedMethods": ["card", "upi", "netbanking"],
+        "currency": "INR"
+    },
+    "cache": {
+        "enabled": true,
+        "ttl": 300,
+        "maxItems": 1000,
+        "invalidation": {
+            "enabled": true,
+            "strategy": "tag"
+        }
+    },
+    "email": {
+        "enabled": true,
+        "templates": {
+            "welcome": "welcome-email",
+            "orderConfirmation": "order-confirmation",
+            "passwordReset": "password-reset"
+        }
+    }
+}

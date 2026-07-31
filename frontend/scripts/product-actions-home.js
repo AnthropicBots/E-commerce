@@ -7,12 +7,8 @@ let cart =
 let wishlist =
     AppUtils.getWishlist();
 
-// save cart
-function saveHomeCart() {
-    AppUtils.saveCart(
-        cart
-    );
-
+// refresh shared cart count
+function refreshHomeCartCount() {
     if (
         typeof updateCartCount ===
         "function"
@@ -29,7 +25,7 @@ function saveHomeWishlist() {
 }
 
 // add to cart
-function addToCart(
+async function addToCart(
     product
 ) {
     if (
@@ -40,13 +36,36 @@ function addToCart(
         return;
     }
 
+    // Captured before awaiting: window.event only means anything while the
+    // click is still on the stack.
+    const feedbackBtn =
+        (
+            window.event
+            &&
+            window.event.target
+        )
+            ? window.event.target.closest('.add-cart-btn')
+            : null;
+
+    const countBefore =
+        AppUtils.getCartCount();
+
     cart =
-        AppUtils.addCartItem({
+        await AppUtils.addCartItem({
             ...product,
             qty: 1
         });
 
-    saveHomeCart();
+    refreshHomeCartCount();
+
+    // A refused add has already told the shopper why.
+    if (
+        AppUtils.getCartCount(cart)
+        <=
+        countBefore
+    ) {
+        return;
+    }
 
     if (
         typeof renderCartDrawer ===
@@ -66,6 +85,16 @@ function addToCart(
         `${product.name} added to cart`,
         "success"
     );
+
+    if (feedbackBtn) {
+        feedbackBtn.classList.add('added-feedback');
+        const originalText = feedbackBtn.innerHTML;
+        feedbackBtn.innerHTML = '<i class="fas fa-check"></i> Added';
+        setTimeout(() => {
+            feedbackBtn.classList.remove('added-feedback');
+            feedbackBtn.innerHTML = originalText;
+        }, 2000);
+    }
 }
 
 // add to wishlist
@@ -145,9 +174,12 @@ async function toggleWishlist(
             if (exists) {
                 icon.classList.remove("fas");
                 icon.classList.add("far");
+                btn.classList.remove("wishlisted-feedback");
             } else {
                 icon.classList.remove("far");
                 icon.classList.add("fas");
+                btn.classList.add("wishlisted-feedback");
+                setTimeout(() => btn.classList.remove("wishlisted-feedback"), 800);
             }
         }
     });
@@ -210,6 +242,13 @@ document.addEventListener(
             ) {
                 addToCart(
                     product
+                ).catch(
+                    (error) => {
+                        console.error(
+                            "ADD TO CART ERROR:",
+                            error
+                        );
+                    }
                 );
             }
         }
@@ -246,7 +285,7 @@ document.addEventListener(
 
         // product page
         if (
-            viewBtn
+            viewBtn && !event.target.closest('.quick-view-btn')
         ) {
             event.preventDefault();
 
@@ -262,6 +301,21 @@ document.addEventListener(
             window.location.href =
                 `product.html?id=${id}`;
         }
+        
+        // Quick view
+        const quickViewBtn = event.target.closest(".quick-view-btn");
+        if (quickViewBtn) {
+            event.preventDefault();
+            event.stopPropagation();
+            
+            const id = quickViewBtn.dataset.id;
+            if (id) {
+                // In a real app, this would open a modal.
+                // For now, we can redirect or show a toast if modal isn't implemented.
+                window.location.href = `product.html?id=${id}`;
+            }
+        }
+        
         const compareBtn =
     event.target.closest(".compare-btn");
 
