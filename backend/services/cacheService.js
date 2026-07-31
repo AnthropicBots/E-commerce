@@ -552,6 +552,96 @@ class CacheService {
 
         console.log(`✅ Cache warmup completed in ${Date.now() - start}ms`);
     }
+
+    // ============================================
+    // REDLOCK-STYLE DISTRIBUTED LOCKS (#1260)
+    // ============================================
+
+    /**
+     * Acquire a Redis mutex (SET key token NX PX ttl).
+     * @returns {Promise<{ ok: boolean, token: string|null, resource: string }>}
+     */
+    async acquireLock(resource, ttlMs = CACHE_CONFIG.lockTtlMs) {
+        const key = `redlock:${resource}`;
+        const token = crypto.randomBytes(16).toString('hex');
+
+        if (!this.redisReady) {
+            // Process-local fallback mutex
+            const localKey = `local:${key}`;
+            if (this.inFlight.has(localKey)) {
+                return { ok: false, token: null, resource };
+            }
+            this.inFlight.set(localKey, Promise.resolve(token));
+            setTimeout(() => this.inFlight.delete(localKey), ttlMs).unref?.();
+            return { ok: true, token, resource, local: true };
+        }
+
+        try {
+            const result = await this.redis.set(key, token, 'PX', ttlMs, 'NX');
+            return { ok: result === 'OK', token: result === 'OK' ? token : null, resource };
+        } catch (err) {
+            console.warn('Redlock acquire failed:', err.message);
+            return { ok: false, token: null, resource, error: err.message };
+        }
+    }
+
+    /**
+     * Release lock only if we still own the token (safe compare-and-del).
+     */
+    async releaseLock(resource, token) {
+        if (!token) return false;
+        const key = `redlock:${resource}`;
+
+        if (!this.redisReady) {
+            const localKey = `local:${key}`;
+            this.inFlight.delete(localKey);
+            return true;
+        }
+
+        try {
+            const script = `
+                if redis.call("get", KEYS[1]) == ARGV[1] then
+                    return redis.call("del", KEYS[1])
+                else
+                    return 0
+                end`;
+            const result = await this.redis.eval(script, 1, key, token);
+            return result === 1;
+        } catch (err) {
+            console.warn('Redlock release failed:', err.message);
+            return false;
+        }
+    }
+
+    /**
+     * Run fn while holding a distributed lock; always releases afterward.
+     */
+    async withLock(resource, fn, options = {}) {
+        const ttlMs = options.ttlMs || CACHE_CONFIG.lockTtlMs;
+        const retries = options.retries ?? 3;
+        const retryDelayMs = options.retryDelayMs ?? 25;
+
+        let lock = { ok: false };
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            lock = await this.acquireLock(resource, ttlMs);
+            if (lock.ok) break;
+            if (attempt < retries) {
+                await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
+            }
+        }
+
+        if (!lock.ok) {
+            const err = new Error(`Could not acquire lock for ${resource}`);
+            err.code = 'LOCK_NOT_ACQUIRED';
+            throw err;
+        }
+
+        try {
+            return await fn();
+        } finally {
+            await this.releaseLock(resource, lock.token);
+        }
+    }
 }
 
 // ============================================

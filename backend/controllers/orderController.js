@@ -128,6 +128,24 @@ const createOrder =
             // begin transaction
             await connection.beginTransaction();
 
+            // Validate inventory locks with structured 409 on conflict (#1260)
+            const lockCheck = await inventoryReservationService.validateCartLocksDetailed(
+                req.user.id,
+                items,
+                connection
+            );
+            if (!lockCheck.ok) {
+                await connection.rollback();
+                return res.status(409).json({
+                    success: false,
+                    code: lockCheck.code || "INVENTORY_CONFLICT",
+                    message: lockCheck.message || "Inventory locks expired or insufficient stock",
+                    productId: lockCheck.productId,
+                    availableStock: lockCheck.availableStock,
+                    requested: lockCheck.requested
+                });
+            }
+
             // create order via service
             const result =
                 await createOrderService(
@@ -148,14 +166,7 @@ const createOrder =
                     }
                 );
             
-            // Validate inventory locks
-            const locksValid = await inventoryReservationService.validateCartLocks(req.user.id, items, connection);
-            if (!locksValid) {
-                await connection.rollback();
-                return res.status(400).json({ success: false, message: "Inventory locks expired or insufficient stock" });
-            }
-            
-            // Consume inventory locks
+            // Consume inventory locks after successful stock deduction
             await inventoryReservationService.consumeLocks(req.user.id, items, connection);
 
             // commit transaction
@@ -177,6 +188,13 @@ const createOrder =
                 await connection.rollback();
             }
 
+            // Release reservation locks if the transaction failed mid-checkout
+            try {
+                if (req.user?.id) {
+                    await inventoryReservationService.releaseUserLocks(req.user.id);
+                }
+            } catch (_) { /* ignore */ }
+
             if (error.code === TOTAL_MISMATCH_CODE) {
                 return res.status(409)
                     .json({
@@ -186,6 +204,20 @@ const createOrder =
                         submittedTotal: error.submittedTotal,
                         computedTotal: error.computedTotal
                     });
+            }
+
+            if (
+                error.code === "INVENTORY_CONFLICT"
+                || /insufficient stock/i.test(error.message || "")
+            ) {
+                return res.status(409).json({
+                    success: false,
+                    code: "INVENTORY_CONFLICT",
+                    message: error.message || "Insufficient stock",
+                    productId: error.productId,
+                    availableStock: error.availableStock ?? null,
+                    requested: error.requested ?? null
+                });
             }
 
             console.error(
@@ -658,6 +690,23 @@ const createPaymentIntent = async (req, res) => {
 
         await connection.beginTransaction();
 
+        const lockCheck = await inventoryReservationService.validateCartLocksDetailed(
+            req.user.id,
+            items,
+            connection
+        );
+        if (!lockCheck.ok) {
+            await connection.rollback();
+            return res.status(409).json({
+                success: false,
+                code: lockCheck.code || "INVENTORY_CONFLICT",
+                message: lockCheck.message || "Inventory locks expired or insufficient stock",
+                productId: lockCheck.productId,
+                availableStock: lockCheck.availableStock,
+                requested: lockCheck.requested
+            });
+        }
+
         const result = await createOrderService(connection, {
             user_id: req.user.id,
             customer_name: sanitizeString(customer.name),
@@ -673,12 +722,6 @@ const createPaymentIntent = async (req, res) => {
             promo_code: promoCode ? sanitizeString(promoCode) : null
         });
 
-        const locksValid = await inventoryReservationService.validateCartLocks(req.user.id, items, connection);
-        if (!locksValid) {
-            await connection.rollback();
-            return res.status(400).json({ success: false, message: "Inventory locks expired or insufficient stock" });
-        }
-        
         await inventoryReservationService.consumeLocks(req.user.id, items, connection);
 
         // Charge what the engine priced, never what the browser claimed.
@@ -706,6 +749,12 @@ const createPaymentIntent = async (req, res) => {
             await connection.rollback();
         }
 
+        try {
+            if (req.user?.id) {
+                await inventoryReservationService.releaseUserLocks(req.user.id);
+            }
+        } catch (_) { /* ignore */ }
+
         if (error.code === TOTAL_MISMATCH_CODE) {
             return res.status(409).json({
                 success: false,
@@ -713,6 +762,20 @@ const createPaymentIntent = async (req, res) => {
                 message: error.message,
                 submittedTotal: error.submittedTotal,
                 computedTotal: error.computedTotal
+            });
+        }
+
+        if (
+            error.code === "INVENTORY_CONFLICT"
+            || /insufficient stock/i.test(error.message || "")
+        ) {
+            return res.status(409).json({
+                success: false,
+                code: "INVENTORY_CONFLICT",
+                message: error.message || "Insufficient stock",
+                productId: error.productId,
+                availableStock: error.availableStock ?? null,
+                requested: error.requested ?? null
             });
         }
 
