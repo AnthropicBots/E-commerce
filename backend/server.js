@@ -17,10 +17,23 @@ const morgan = require("morgan");
 const timeout = require("connect-timeout");
 const fs = require("fs");
 const path = require("path");
+// Add with other imports
+const multiAgentRoutes = require('./routes/multiAgentRoutes');
+const { multiAgentCoordinationService } = require('./services/multiAgentCoordinationService');
+
+// Initialize service
+await multiAgentCoordinationService.initialize();
+
+// Add routes
+app.use('/api/multi-agent', multiAgentRoutes);
+const dotenv = require("dotenv");
+const rateLimit = require("express-rate-limit");
+
 const setupProcessEventHandlers = require('./utils/processEventHandlers');
 const setupGracefulShutdown = require('./utils/gracefulShutdown');
 
 const { apiLimiter, adminLimiter, mcpLimiter } = require('./config/rateLimiters');
+
 const helmet = require("helmet");
 const corsMiddleware = require("./middleware/corsMiddleware");
 
