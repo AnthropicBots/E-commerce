@@ -11,6 +11,13 @@ const {
     generateUUID
 } = require("../utils/helpers");
 
+const productService = require("../services/productService");
+const {
+    cacheService,
+    CACHE_TARGETS,
+    CACHE_CONFIG
+} = require("../services/cacheService");
+
 const MAX_PRODUCT_LIMIT = 50;
 const NORMALIZED_CATEGORY_SQL =
     "LOWER(REPLACE(REPLACE(c.name, '-', ''), ' ', ''))";
@@ -300,23 +307,43 @@ const getProducts = async (req, res) => {
 
         const shouldUseFulltext = Boolean(rawSearch) && booleanSearch.length > 0;
 
-        let queryResult;
-        if (shouldUseFulltext) {
-            try {
-                queryResult = await runProductQuery(true);
-            } catch (error) {
-                if (isFulltextUnavailable(error)) {
-                    console.warn(
-                        `FULLTEXT search unavailable (${error.code}); falling back to LIKE`
-                    );
-                    queryResult = await runProductQuery(false);
-                } else {
-                    throw error;
+        // Stampede-protected list cache (XFetch + Singleflight) — Issue #1262
+        const listCacheKey = cacheService.buildProductListKey(
+            {
+                search: rawSearch || null,
+                category: req.query.category ? sanitizeString(req.query.category) : null,
+                featured: req.query.featured === "true",
+                minPrice,
+                maxPrice,
+                sort: sanitizeString(req.query.sort) || "newest"
+            },
+            { page, limit }
+        );
+
+        const queryResult = await cacheService.rememberWithStampedeProtection(
+            listCacheKey,
+            async () => {
+                if (shouldUseFulltext) {
+                    try {
+                        return await runProductQuery(true);
+                    } catch (error) {
+                        if (isFulltextUnavailable(error)) {
+                            console.warn(
+                                `FULLTEXT search unavailable (${error.code}); falling back to LIKE`
+                            );
+                            return runProductQuery(false);
+                        }
+                        throw error;
+                    }
                 }
+                return runProductQuery(false);
+            },
+            {
+                target: CACHE_TARGETS.PRODUCT,
+                ttl: Math.min(CACHE_CONFIG.productTTL, 120),
+                tags: ["product:list", "product:controller"]
             }
-        } else {
-            queryResult = await runProductQuery(false);
-        }
+        );
 
         const { total, results } = queryResult;
 
@@ -408,9 +435,21 @@ const getSingleProduct = async (req, res) => {
     `;
 
     try {
-        const [results] = await db.query(query, [id]);
+        // High-traffic single-product path: XFetch + Singleflight — Issue #1262
+        const product = await cacheService.rememberWithStampedeProtection(
+            `detail:${id}`,
+            async () => {
+                const [results] = await db.query(query, [id]);
+                return results.length > 0 ? results[0] : null;
+            },
+            {
+                target: CACHE_TARGETS.PRODUCT,
+                ttl: CACHE_CONFIG.productTTL,
+                tags: [`product:${id}`, "product:detail"]
+            }
+        );
 
-        if (results.length === 0) {
+        if (!product) {
             return res.status(404).json({
                 success: false,
                 message: "Product not found"
@@ -419,7 +458,7 @@ const getSingleProduct = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            product: results[0]
+            product
         });
     } catch (error) {
         console.error(error);
@@ -510,6 +549,8 @@ const createProduct = async (req, res) => {
                     : 0
             ]
         );
+
+        await productService.invalidateProductCaches(productId);
 
         res.status(201).json({
             success: true,
@@ -613,6 +654,8 @@ const updateProduct = async (req, res) => {
             });
         }
 
+        await productService.invalidateProductCaches(id);
+
         res.status(200).json({
             success: true,
             message: "Product updated successfully"
@@ -654,6 +697,8 @@ const deleteProduct = async (req, res) => {
                 message: "Product not found"
             });
         }
+
+        await productService.invalidateProductCaches(id);
 
         res.status(200).json({
             success: true,
