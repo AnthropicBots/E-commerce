@@ -28,7 +28,6 @@
         shareDropdown: document.getElementById("share-dropdown"), // 🔥 NEW
         shareToast: document.getElementById("share-toast") // 🔥 NEW
     };
-}
 
 // loading state
 function showLoadingState() {
@@ -357,21 +356,20 @@ async function fetchProduct() {
 }
 
 // add to cart
-function addProductToCart(
-    product,
-    redirect = false
-) {
-
-    if (
-        !product
-    ) {
-
-        return;
+function addProductToCart(product, redirect = false) {
+    if (!product) return;
+    if (typeof AppUtils !== 'undefined' && AppUtils.addToCart) {
+        AppUtils.addToCart(product, typeof getSelectedQty === 'function' ? getSelectedQty() : 1);
+        if (typeof AppUtils.notify === 'function') AppUtils.notify("Product added to cart!", "success");
     }
-
-    function cacheProduct(product) {
-        AppUtils.setJSON(`product-${productId}`, product);
+    if (redirect) {
+        window.location.href = "cart.html";
     }
+}
+
+function cacheProduct(product) {
+    AppUtils.setJSON(`product-${productId}`, product);
+}
 
     // ============================================
     // BREADCRUMB
@@ -736,6 +734,12 @@ function addProductToCart(
     // ============================================
     function renderProduct(product) {
         if (!product) return;
+        if (productElements.productName) productElements.productName.innerText = product.name || 'Product';
+        if (productElements.productPrice) productElements.productPrice.innerText = typeof AppUtils !== 'undefined' ? AppUtils.formatPrice(product.price) : `$${product.price}`;
+        if (productElements.productCategory) productElements.productCategory.innerText = product.category || 'Fashion';
+        if (productElements.productDescription) productElements.productDescription.innerText = product.description || '';
+        if (productElements.mainImage && (product.image || product.img)) productElements.mainImage.src = product.image || product.img;
+    }
 
 // ========================================
 // IMAGE ZOOM / LENS EFFECT (Issue #779)
@@ -966,14 +970,6 @@ function initializeProductGallery(
         const cap = getStockCap();
         const qty = Math.max(1, Math.min(cap, safeQty(productElements.qtyInput.value)));
 
-// ========================================
-// QUANTITY CONTROLS
-// ========================================
-
-if (
-    productElements.plusBtn
-) {
-
         if (productElements.plusBtn) {
             productElements.plusBtn.disabled = qty >= cap;
         }
@@ -983,41 +979,25 @@ if (
         }
     }
 
-// ========================================
-// KEYBOARD ACCESSIBILITY
-// ========================================
-
-document.addEventListener(
-    "keydown",
-    (
-        event
-    ) => {
-
-        const activeTag =
-            document.activeElement
-                ?.tagName;
-
-        if (
-            [
-                "INPUT",
-                "TEXTAREA"
-            ].includes(
-                activeTag
-            )
-        ) {
+    if (productElements.plusBtn) {
+        productElements.plusBtn.addEventListener("click", () => {
+            if (!productElements.qtyInput) return;
+            productElements.qtyInput.value = safeQty(productElements.qtyInput.value) + 1;
+            syncQtyControls();
+        });
+    }
 
     if (productElements.minusBtn) {
         productElements.minusBtn.addEventListener("click", () => {
-            productElements.qtyInput.value = safeQty(productElements.qtyInput.value) - 1;
+            if (!productElements.qtyInput) return;
+            productElements.qtyInput.value = Math.max(1, safeQty(productElements.qtyInput.value) - 1);
             syncQtyControls();
         });
     }
 
     window.syncProductQtyControls = syncQtyControls;
 
-    // ============================================
     // KEYBOARD ACCESSIBILITY
-    // ============================================
     document.addEventListener("keydown", (event) => {
         const activeTag = document.activeElement?.tagName;
         if (["INPUT", "TEXTAREA"].includes(activeTag)) return;
@@ -1053,50 +1033,297 @@ document.addEventListener(
         });
     }
 
-// ========================================
-// BACK TO TOP BUTTON (Issue #345)
-// ========================================
+class Product360Viewer {
+    constructor(config = {}) {
+        this.container = document.getElementById("product-360-container");
+        this.canvas = document.getElementById("product-360-canvas");
+        this.preloader = document.getElementById("360-preloader");
+        this.progressBar = document.getElementById("360-progress-bar");
+        this.toggleBtn = document.getElementById("toggle-360-view-btn");
+        this.closeBtn = document.getElementById("close-360-view-btn");
 
-function initBackToTop() {
-    const backToTopBtn = document.getElementById('back-to-top-btn');
-    if (!backToTopBtn) return;
+        this.btnRotate = document.getElementById("btn-360-rotate");
+        this.btnZoomIn = document.getElementById("btn-360-zoom-in");
+        this.btnZoomOut = document.getElementById("btn-360-zoom-out");
+        this.btnReset = document.getElementById("btn-360-reset");
+        this.btnFullscreen = document.getElementById("btn-360-fullscreen");
 
-    // Show/hide button based on scroll position
-    window.addEventListener('scroll', () => {
-        if (window.scrollY > 300) {
-            backToTopBtn.classList.add('show');
-            backToTopBtn.style.display = 'flex';
-        } else {
-            backToTopBtn.classList.remove('show');
-            backToTopBtn.style.display = 'none';
+        if (!this.container || !this.canvas) return;
+
+        this.ctx = this.canvas.getContext("2d");
+        this.totalFrames = config.totalFrames || 36;
+        this.images = [];
+        this.loadedCount = 0;
+        this.currentFrame = 0;
+        this.isLoaded = false;
+        this.isDragging = false;
+        this.startX = 0;
+        this.autoRotate = false;
+        this.autoRotateRaf = null;
+
+        // Zoom & Pan state
+        this.scale = 1.0;
+        this.panX = 0;
+        this.panY = 0;
+
+        // Inertia physics
+        this.velocity = 0;
+        this.lastX = 0;
+        this.lastTime = 0;
+        this.inertiaRaf = null;
+
+        this.bindEvents();
+    }
+
+    bindEvents() {
+        if (this.toggleBtn) {
+            this.toggleBtn.addEventListener("click", () => this.show());
         }
-    });
+        if (this.closeBtn) {
+            this.closeBtn.addEventListener("click", () => this.hide());
+        }
 
-    // Smooth scroll to top on click
-    backToTopBtn.addEventListener('click', () => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
+        // Gesture Drag & Swipe Scrubbing 
+        const options = { passive: true };
+        this.canvas.addEventListener("mousedown", (e) => this.onDragStart(e));
+        window.addEventListener("mousemove", (e) => this.onDragMove(e));
+        window.addEventListener("mouseup", () => this.onDragEnd());
+
+        this.canvas.addEventListener("touchstart", (e) => this.onDragStart(e.touches[0]), options);
+        window.addEventListener("touchmove", (e) => this.onDragMove(e.touches ? e.touches[0] : e), options);
+        window.addEventListener("touchend", () => this.onDragEnd());
+
+        // Controls
+        if (this.btnRotate) {
+            this.btnRotate.addEventListener("click", () => this.toggleAutoRotate());
+        }
+        if (this.btnZoomIn) {
+            this.btnZoomIn.addEventListener("click", () => this.zoom(1.2));
+        }
+        if (this.btnZoomOut) {
+            this.btnZoomOut.addEventListener("click", () => this.zoom(0.8));
+        }
+        if (this.btnReset) {
+            this.btnReset.addEventListener("click", () => this.resetView());
+        }
+        if (this.btnFullscreen) {
+            this.btnFullscreen.addEventListener("click", () => this.toggleFullscreen());
+        }
+
+        window.addEventListener("resize", () => {
+            if (this.container && this.container.style.display !== "none") {
+                this.resizeCanvas();
+            }
+        });
+    }
+
+    show() {
+        this.container.style.display = "block";
+        this.container.setAttribute("aria-hidden", "false");
+        this.resizeCanvas();
+        if (!this.isLoaded) {
+            this.preloadFrames();
+        } else {
+            this.render();
+        }
+    }
+
+    hide() {
+        this.container.style.display = "none";
+        this.container.setAttribute("aria-hidden", "true");
+        this.stopAutoRotate();
+        if (this.container.classList.contains("is-fullscreen")) {
+            this.toggleFullscreen();
+        }
+    }
+
+    preloadFrames() {
+        if (this.preloader) this.preloader.style.display = "flex";
+        this.loadedCount = 0;
+        this.images = [];
+
+        const mainImg = document.getElementById("main-product-image");
+        const baseSrc = mainImg ? mainImg.src : "";
+
+        for (let i = 0; i < this.totalFrames; i++) {
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.onload = () => {
+                this.loadedCount++;
+                const progress = Math.round((this.loadedCount / this.totalFrames) * 100);
+                if (this.progressBar) this.progressBar.style.width = `${progress}%`;
+
+                if (this.loadedCount === this.totalFrames) {
+                    this.isLoaded = true;
+                    if (this.preloader) this.preloader.style.display = "none";
+                    this.render();
+                }
+            };
+            img.onerror = () => {
+                this.loadedCount++;
+                if (this.loadedCount === this.totalFrames) {
+                    this.isLoaded = true;
+                    if (this.preloader) this.preloader.style.display = "none";
+                    this.render();
+                }
+            };
+            img.src = baseSrc;
+            this.images.push(img);
+        }
+    }
+
+    resizeCanvas() {
+        if (!this.canvas || !this.canvas.parentElement) return;
+        const rect = this.canvas.parentElement.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        this.canvas.width = rect.width * dpr;
+        this.canvas.height = rect.height * dpr;
+        this.ctx.scale(dpr, dpr);
+        this.render();
+    }
+
+    render() {
+        if (!this.ctx || !this.images.length || !this.canvas.parentElement) return;
+
+        const rect = this.canvas.parentElement.getBoundingClientRect();
+        const width = rect.width;
+        const height = rect.height;
+
+        this.ctx.clearRect(0, 0, width, height);
+
+        const img = this.images[this.currentFrame] || this.images[0];
+        if (!img || !img.complete) return;
+
+        this.ctx.save();
+        this.ctx.translate(width / 2 + this.panX, height / 2 + this.panY);
+        this.ctx.scale(this.scale, this.scale);
+
+        // Frame scrubbing tilt angle effect on HTML5 Canvas
+        const angle = (this.currentFrame / this.totalFrames) * Math.PI * 2;
+        const scaleX = Math.cos(angle);
+        this.ctx.scale(scaleX, 1);
+
+        this.ctx.drawImage(img, -width / 3, -height / 3, (width * 2) / 3, (height * 2) / 3);
+        this.ctx.restore();
+    }
+
+    onDragStart(point) {
+        if (!this.container || this.container.style.display === "none") return;
+        this.isDragging = true;
+        this.startX = point.clientX;
+        this.lastX = point.clientX;
+        this.lastTime = performance.now();
+        this.velocity = 0;
+        this.stopAutoRotate();
+        if (this.inertiaRaf) cancelAnimationFrame(this.inertiaRaf);
+        this.canvas.classList.add("is-grabbing");
+    }
+
+    onDragMove(point) {
+        if (!this.isDragging) return;
+        const now = performance.now();
+        const deltaX = point.clientX - this.lastX;
+        const deltaTime = Math.max(1, now - this.lastTime);
+
+        this.velocity = deltaX / deltaTime;
+        this.lastX = point.clientX;
+        this.lastTime = now;
+
+        const sensitivity = 0.15;
+        const frameOffset = Math.round(deltaX * sensitivity);
+        if (frameOffset !== 0) {
+            this.currentFrame = (this.currentFrame - frameOffset + this.totalFrames * 10) % this.totalFrames;
+            requestAnimationFrame(() => this.render());
+        }
+    }
+
+    onDragEnd() {
+        if (!this.isDragging) return;
+        this.isDragging = false;
+        this.canvas.classList.remove("is-grabbing");
+        this.applyInertia();
+    }
+
+    applyInertia() {
+        if (Math.abs(this.velocity) < 0.05) return;
+
+        const step = () => {
+            if (Math.abs(this.velocity) < 0.05 || this.isDragging) {
+                this.inertiaRaf = null;
+                return;
+            }
+
+            const frameDelta = this.velocity > 0 ? -1 : 1;
+            this.currentFrame = (this.currentFrame + frameDelta + this.totalFrames) % this.totalFrames;
+            this.velocity *= 0.92;
+            this.render();
+
+            this.inertiaRaf = requestAnimationFrame(step);
+        };
+
+        if (this.inertiaRaf) cancelAnimationFrame(this.inertiaRaf);
+        this.inertiaRaf = requestAnimationFrame(step);
+    }
+
+    toggleAutoRotate() {
+        if (this.autoRotate) {
+            this.stopAutoRotate();
+        } else {
+            this.autoRotate = true;
+            if (this.btnRotate) this.btnRotate.classList.add("is-active");
+            const loop = () => {
+                if (!this.autoRotate) return;
+                this.currentFrame = (this.currentFrame + 1) % this.totalFrames;
+                this.render();
+                this.autoRotateRaf = setTimeout(() => requestAnimationFrame(loop), 80);
+            };
+            loop();
+        }
+    }
+
+    stopAutoRotate() {
+        this.autoRotate = false;
+        if (this.btnRotate) this.btnRotate.classList.remove("is-active");
+        if (this.autoRotateRaf) {
+            clearTimeout(this.autoRotateRaf);
+            this.autoRotateRaf = null;
+        }
+    }
+
+    zoom(factor) {
+        this.scale = Math.min(3.0, Math.max(0.5, this.scale * factor));
+        this.render();
+    }
+
+    resetView() {
+        this.scale = 1.0;
+        this.panX = 0;
+        this.panY = 0;
+        this.currentFrame = 0;
+        this.stopAutoRotate();
+        this.render();
+    }
+
+    toggleFullscreen() {
+        if (!this.container) return;
+        this.container.classList.toggle("is-fullscreen");
+        this.resizeCanvas();
+    }
+}
 
 // ========================================
 // INITIALIZATION
 // ========================================
 
-document.addEventListener(
-    "DOMContentLoaded",
-    () => {
+document.addEventListener("DOMContentLoaded", () => {
+    fetchProduct();
 
-        fetchProduct();
-
-        if (
-            typeof updateCartCount ===
-            "function"
-        ) {
-
-            updateCartCount();
-        }
-
-        initBackToTop();
+    if (typeof updateCartCount === "function") {
+        updateCartCount();
     }
-);
+
+    initBackToTop();
+    new Product360Viewer();
+});
 
 })();
