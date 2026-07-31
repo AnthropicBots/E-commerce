@@ -4,12 +4,28 @@ const logger = require("../utils/logger");
 
 const requiredEnvVars = ["DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME"];
 
-requiredEnvVars.forEach((key) => {
-  if (!process.env[key]) {
-    logger.error(`Missing environment variable: ${key}`);
-    process.exit(1);
-  }
-});
+// Throw rather than `process.exit(1)`.
+//
+// A library module that kills the process on import gives its host no chance to
+// log, drain or report -- and inside a Jest worker it is fatal in a way that
+// looks like unrelated infrastructure flakiness:
+//
+//     Jest worker encountered 4 child process exceptions, exceeding retry limit
+//
+// Three suites (promo, aiAuditTrailService, loyaltyRoutes) died exactly that
+// way, with no usable diagnostic, because their import graphs reach this file
+// (#1341). server.js owns the exit policy; this module's job is to report the
+// problem accurately. All missing keys are collected so a fresh clone hears
+// about every one of them at once rather than one per restart.
+const missingEnvVars = requiredEnvVars.filter((key) => !process.env[key]);
+
+if (missingEnvVars.length > 0) {
+  const message =
+    `Missing required database environment variable(s): ${missingEnvVars.join(", ")}. ` +
+    "Copy .env.example to .env and fill them in.";
+  logger.error(message);
+  throw new Error(message);
+}
 
 const useSSL = process.env.DB_SSL === "true";
 

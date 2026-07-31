@@ -13,20 +13,16 @@ const logger = require("../utils/logger");
 const { verifyClaudeSignature } = require("../utils/signatureVerification");
 const { safeArray, sanitizeString } = require("../utils/helpers");
 const CircuitBreaker = require("opossum");
-const Redis = require("ioredis");
 const { promisify } = require("util");
 
 // ============================================
 // REDIS CONNECTION FOR DLQ & STATE MANAGEMENT
 // ============================================
 
-const redis = new Redis({
-    host: process.env.REDIS_HOST || "localhost",
-    port: process.env.REDIS_PORT || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
-    retryStrategy: (times) => Math.min(times * 50, 2000),
-    maxRetriesPerRequest: 3
-});
+// Shared client -- see config/redis.js. This module used to construct its own
+// `new Redis({ ... })`, which meant an extra connection per module and made
+// the module impossible to load without a live Redis (#1341).
+const redis = require("../config/redis");
 
 // ============================================
 // CIRCUIT BREAKER CONFIGURATION
@@ -455,6 +451,14 @@ class DeadLetterQueueService {
 // MAIN COURIER WEBHOOK SERVICE
 // ============================================
 
+// Upper bound on the in-process dedupe cache. Every distinct webhook event
+// adds one entry and nothing ever removed them, so a long-lived process
+// accumulated one Map entry per courier event forever -- an unbounded leak on
+// the hottest path in the service. Oldest-first eviction is enough here: the
+// cache is only a fast path in front of `findWebhookByDedupeKey`, so an evicted
+// key costs one extra SELECT, never a double-process.
+const PROCESSED_CACHE_LIMIT = Number(process.env.COURIER_PROCESSED_CACHE_LIMIT) || 10000;
+
 class CourierWebhookService {
     constructor() {
         this.circuitBreakers = new Map();
@@ -462,6 +466,27 @@ class CourierWebhookService {
         this.processedCache = new Map();
         this.initialized = false;
         this.processingLocks = new Map();
+    }
+
+    /**
+     * Record a processed event, evicting the oldest entry once the cache is
+     * full. Map preserves insertion order, so the first key is the oldest.
+     */
+    rememberProcessed(dedupeKey, value) {
+        if (this.processedCache.size >= PROCESSED_CACHE_LIMIT) {
+            const oldest = this.processedCache.keys().next().value;
+            this.processedCache.delete(oldest);
+        }
+        this.processedCache.set(dedupeKey, value);
+    }
+
+    /**
+     * Drop the dedupe cache. Used by tests, which share this singleton across
+     * cases and would otherwise see one case's event treated as another's
+     * duplicate.
+     */
+    clearProcessedCache() {
+        this.processedCache.clear();
     }
 
     async initialize() {
@@ -663,9 +688,9 @@ class CourierWebhookService {
         const existing = await this.findWebhookByDedupeKey(dedupeKey);
         if (existing && existing.processed) {
             // Cache for future duplicates
-            this.processedCache.set(dedupeKey, { 
-                processed: true, 
-                webhookId: existing.id 
+            this.rememberProcessed(dedupeKey, {
+                processed: true,
+                webhookId: existing.id
             });
             logger.info(`Duplicate courier webhook ignored (dedupeKey=${dedupeKey})`);
             return { duplicate: true, processed: true, webhookId: existing.id };
@@ -695,10 +720,10 @@ class CourierWebhookService {
 
         try {
             const shipmentId = await this.processEvent(webhookId, event);
-            this.processedCache.set(dedupeKey, { 
-                processed: true, 
+            this.rememberProcessed(dedupeKey, {
+                processed: true,
                 webhookId,
-                shipmentId 
+                shipmentId
             });
             return {
                 duplicate: false,
@@ -1100,3 +1125,33 @@ module.exports = {
     DLQ_CONFIG,
     CIRCUIT_BREAKER_CONFIG
 };
+
+// Flat, singleton-bound surface.
+//
+// #1157 shipped this module as a bag of functions:
+// `require('./courierWebhookService').ingestWebhook(...)`. The circuit-breaker
+// and DLQ rework in #1268 turned it into a class and exported only the named
+// bag above, which silently turned every one of those call sites into
+// "is not a function" -- including all eleven tests in
+// tests/courierWebhook.test.js (#1341).
+//
+// Both shapes are supported now. The methods are bound to the singleton, so
+// destructuring (`const { ingestWebhook } = require(...)`) keeps working too.
+[
+    'ingestWebhook',
+    'processPendingWebhooks',
+    'processDLQ',
+    'normalizeEvent',
+    'mapCourierStatus',
+    'isSupportedProvider',
+    'verifySignature',
+    'getCircuitBreakerStatus',
+    'getDLQStats',
+    'manualRetryDLQ',
+    'getCircuitBreaker',
+    'initialize'
+].forEach((method) => {
+    if (typeof courierWebhookService[method] === 'function') {
+        module.exports[method] = courierWebhookService[method].bind(courierWebhookService);
+    }
+});

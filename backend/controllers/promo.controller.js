@@ -2,16 +2,12 @@
 const { validatePromo, calculateDiscount, getPromoByCode, applyPromoTransaction } = require("../services/promo.service");
 const { safeNumber, sanitizeString } = require("../utils/helpers");
 const NodeCache = require('node-cache');
-const Redis = require('ioredis');
 const crypto = require('crypto');
 
-const redis = new Redis({
-    host: process.env.REDIS_HOST || "localhost",
-    port: process.env.REDIS_PORT || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
-    retryStrategy: (times) => Math.min(times * 50, 2000),
-    maxRetriesPerRequest: 3
-});
+// Shared client -- see config/redis.js. This module used to construct its own
+// `new Redis({ ... })`, which meant an extra connection per module and made
+// the module impossible to load without a live Redis (#1341).
+const redis = require("../config/redis");
 
 const config = {
     rateLimitWindow: parseInt(process.env.PROMO_RATE_LIMIT_WINDOW) || 60000,

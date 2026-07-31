@@ -33,9 +33,38 @@ const request = require('supertest');
 const BACKEND_DIR = path.resolve(__dirname, '..');
 const SERVER_PATH = path.join(BACKEND_DIR, 'server.js');
 
-describe('server bootstrap', () => {
-    let app;
+// The app under test, assigned by the first case below and shared by the rest.
+let app;
 
+// Transport-level errors are not routing failures.
+//
+// Requiring ../server binds a listener and kicks off several async service
+// initialisations that keep touching the (absent) database in the background.
+// Supertest raises a fresh ephemeral server per request, and occasionally one
+// of those background rejections lands between the connect and the response,
+// which surfaces as `ECONNRESET` / "socket hang up" rather than an HTTP status.
+// That made this suite fail roughly four runs in five (#1341) -- a flaky check
+// is worse than no check, because contributors learn to re-run it.
+//
+// Retrying distinguishes the two cases: a route that is genuinely missing
+// returns 404 deterministically on every attempt, while a dropped connection
+// does not recur. The assertion still requires a real HTTP response, so a
+// genuinely unmounted router still fails.
+async function getWithRetry(route, attempts = 3) {
+    let lastError;
+
+    for (let i = 0; i < attempts; i++) {
+        try {
+            return await request(app).get(route);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw lastError;
+}
+
+describe('server bootstrap', () => {
     test('loads the app without throwing', () => {
         expect(() => {
             app = require('../server');
@@ -45,12 +74,12 @@ describe('server bootstrap', () => {
     });
 
     test('GET / returns 200', async () => {
-        const res = await request(app).get('/');
+        const res = await getWithRetry('/');
         expect(res.status).toBe(200);
     });
 
     test('GET /health returns 200', async () => {
-        const res = await request(app).get('/health');
+        const res = await getWithRetry('/health');
         expect(res.status).toBe(200);
     });
 
@@ -68,7 +97,7 @@ describe('server bootstrap', () => {
         ['/api/copywriter/analytics', 'copywriterRoutes'],
         ['/api/notifications/types', 'notificationBrokerRoutes']
     ])('%s is served by a mounted router (not 404)', async (route) => {
-        const res = await request(app).get(route);
+        const res = await getWithRetry(route);
         expect(res.status).not.toBe(404);
     });
 });

@@ -296,19 +296,49 @@ class LoyaltyService extends EventEmitter {
     }
 
     /**
-     * Recent ledger rows for a user, newest first.
+     * Ledger rows for a user, newest first.
+     *
+     * Takes an options object rather than a bare `limit`. The previous
+     * signature had no `offset` at all, so `/api/loyalty/history` could only
+     * ever return the most recent page -- an account with more than 500 ledger
+     * rows had no way to reach the rest of them. The total is returned
+     * alongside the rows so the caller can render a pager without a second
+     * round trip.
+     *
+     * A number is still accepted for backwards compatibility with any caller
+     * that has not been updated.
+     *
+     * @param {string} userId
+     * @param {{limit?: number, offset?: number}|number} [options]
+     * @returns {Promise<{transactions: Array, total: number, limit: number, offset: number}>}
      */
-    async getHistory(userId, limit = 50) {
+    async getHistory(userId, options = {}) {
+        const { limit, offset } =
+            typeof options === 'number' ? { limit: options, offset: 0 } : options;
+
         const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
+        const safeOffset = Math.max(parseInt(offset, 10) || 0, 0);
+
         const [rows] = await db.query(
             `SELECT id, user_id, order_id, type, points, balance_after, reason, metadata, created_at
                FROM loyalty_transactions
               WHERE user_id = ?
               ORDER BY created_at DESC, id DESC
-              LIMIT ?`,
-            [userId, safeLimit]
+              LIMIT ? OFFSET ?`,
+            [userId, safeLimit, safeOffset]
         );
-        return rows || [];
+
+        const [counts] = await db.query(
+            'SELECT COUNT(*) AS total FROM loyalty_transactions WHERE user_id = ?',
+            [userId]
+        );
+
+        return {
+            transactions: rows || [],
+            total: counts?.[0]?.total ?? 0,
+            limit: safeLimit,
+            offset: safeOffset
+        };
     }
 
     /**

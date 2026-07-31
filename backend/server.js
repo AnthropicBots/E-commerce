@@ -17,17 +17,14 @@ const morgan = require("morgan");
 const timeout = require("connect-timeout");
 const fs = require("fs");
 const path = require("path");
-
-// Add with other imports
-const aiFeedRoutes = require('./routes/aiFeedRoutes');
-// Add with other imports
-const claudeRoutes = require('./routes/claudeRoutes');
-
-// Add Claude routes
-app.use('/api/claude', claudeRoutes);
-// Add AI feed routes
-app.use('/api/ai-feed', aiFeedRoutes);
-const dotenv = require("dotenv");
+const identityRoutes = require('./routes/identityRoutes');
+const { verifyIdentityClaims } = require('./services/aiIdentityVerificationService');
+// `dotenv` is already required on line 3; a second `const` declaration here was
+// a SyntaxError that took the whole module down. The identity middleware and
+// router that used to sit between the two declarations referenced `app` before
+// `const app = express()` ran, so even with the duplicate removed this file
+// threw `ReferenceError: Cannot access 'app' before initialization`. Both are
+// now mounted alongside the other routers, below.
 const rateLimit = require("express-rate-limit");
 
 const setupProcessEventHandlers = require('./utils/processEventHandlers');
@@ -314,7 +311,15 @@ initSocket(server, [
     "https://e-commerce-production-d546.up.railway.app"
 ]);
 
+// AI identity-claim verification. This ran as a global middleware pair that had
+// been pasted above `const app = express()`, so it never executed and
+// `/api/identity` was never reachable. It belongs with the other request-scoped
+// guards, after the body parsers (it inspects the parsed body) and before the
+// routers it protects.
+app.use(verifyIdentityClaims);
+
 // 9. Application Routes Setup
+app.use('/api/identity', identityRoutes);
 app.use('/api/response-example', responseExampleRoutes);
 app.use('/api/ai-legal', aiLegalRoutes);
 app.use('/api/legal', legalRoutes);
