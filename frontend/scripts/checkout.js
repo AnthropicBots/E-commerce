@@ -866,4 +866,10 @@ if (
     );
 }
 
+window.addEventListener("currencyUpdated", () => {
+    if (typeof renderCheckout === "function") {
+        renderCheckout();
+    }
+});
+
 
