@@ -1,6 +1,17 @@
-const { validatePromo, calculateDiscount, getPromoByCode } = require("../services/promo.service");
+
+const { validatePromo, calculateDiscount, getPromoByCode, applyPromoTransaction } = require("../services/promo.service");
 const { safeNumber, sanitizeString } = require("../utils/helpers");
 const NodeCache = require('node-cache');
+const Redis = require('ioredis');
+const crypto = require('crypto');
+
+const redis = new Redis({
+    host: process.env.REDIS_HOST || "localhost",
+    port: process.env.REDIS_PORT || 6379,
+    password: process.env.REDIS_PASSWORD || undefined,
+    retryStrategy: (times) => Math.min(times * 50, 2000),
+    maxRetriesPerRequest: 3
+});
 
 const config = {
     rateLimitWindow: parseInt(process.env.PROMO_RATE_LIMIT_WINDOW) || 60000,
@@ -8,7 +19,10 @@ const config = {
     cacheTTL: parseInt(process.env.PROMO_CACHE_TTL) || 300000,
     maxDiscountPercent: parseFloat(process.env.PROMO_MAX_DISCOUNT_PERCENT) || 90,
     maxStackable: parseInt(process.env.PROMO_MAX_STACKABLE) || 3,
-    caseInsensitive: process.env.PROMO_CASE_INSENSITIVE !== 'false'
+    caseInsensitive: process.env.PROMO_CASE_INSENSITIVE !== 'false',
+    lockTTL: parseInt(process.env.PROMO_LOCK_TTL) || 30000, // 30 seconds
+    lockRetryDelay: parseInt(process.env.PROMO_LOCK_RETRY_DELAY) || 100,
+    lockMaxRetries: parseInt(process.env.PROMO_LOCK_MAX_RETRIES) || 50
 };
 
 const rateLimiter = new Map();
@@ -41,13 +55,119 @@ function calculateMaxDiscount(cartTotal, discountType, discountValue) {
     return Math.min(discountValue, cartTotal * (config.maxDiscountPercent / 100));
 }
 
+function getCartLockKey(userId, sessionId) {
+    return `lock:cart:${userId}:${sessionId || 'default'}`;
+}
+
+function getPromoUsageKey(promoCode) {
+    return `promo:usage:${promoCode}`;
+}
+
+async function acquireLock(lockKey, ttl = config.lockTTL) {
+    const lockValue = crypto.randomBytes(16).toString('hex');
+    try {
+        const result = await redis.set(lockKey, lockValue, 'NX', 'PX', ttl);
+        if (result === 'OK') {
+            return lockValue;
+        }
+        return null;
+    } catch (error) {
+        console.error('Lock acquire error:', error);
+        return null;
+    }
+}
+
+async function releaseLock(lockKey, lockValue) {
+    try {
+        const script = `
+            if redis.call("get", KEYS[1]) == ARGV[1] then
+                return redis.call("del", KEYS[1])
+            else
+                return 0
+            end
+        `;
+        const result = await redis.eval(script, 1, lockKey, lockValue);
+        return result === 1;
+    } catch (error) {
+        console.error('Lock release error:', error);
+        return false;
+    }
+}
+
+async function withLock(lockKey, fn, maxRetries = config.lockMaxRetries) {
+    let retries = 0;
+    let lockValue = null;
+
+    while (retries < maxRetries) {
+        lockValue = await acquireLock(lockKey);
+        if (lockValue) {
+            try {
+                const result = await fn();
+                return result;
+            } finally {
+                await releaseLock(lockKey, lockValue);
+            }
+        }
+
+        retries++;
+        const delay = Math.min(config.lockRetryDelay * Math.pow(2, retries), 5000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+    }
+
+    throw new Error(`Failed to acquire lock after ${maxRetries} attempts`);
+}
+
+async function checkStackableConflicts(promoCode, existingPromoCodes) {
+    const promo = await getPromoByCode(promoCode);
+    if (!promo) return { stackable: false, reason: 'Promo not found' };
+
+    // Check if promo is stackable
+    if (promo.is_stackable === false) {
+        return { stackable: false, reason: `${promoCode} is not stackable with other promos` };
+    }
+
+    // Check exclusivity conflicts
+    if (promo.exclusive_category) {
+        for (const existing of existingPromoCodes) {
+            const existingPromo = await getPromoByCode(existing);
+            if (existingPromo && existingPromo.exclusive_category === promo.exclusive_category) {
+                return { 
+                    stackable: false, 
+                    reason: `${promoCode} conflicts with ${existing} (same exclusive category)` 
+                };
+            }
+        }
+    }
+
+    // Check promotional campaign conflicts
+    if (promo.campaign_id) {
+        for (const existing of existingPromoCodes) {
+            const existingPromo = await getPromoByCode(existing);
+            if (existingPromo && existingPromo.campaign_id === promo.campaign_id) {
+                return { 
+                    stackable: false, 
+                    reason: `${promoCode} conflicts with ${existing} (same campaign)` 
+                };
+            }
+        }
+    }
+
+    // Check max stack limit
+    if (existingPromoCodes.length >= config.maxStackable) {
+        return { stackable: false, reason: `Maximum ${config.maxStackable} promos can be stacked` };
+    }
+
+    return { stackable: true };
+}
+
 const validatePromoCode = async (req, res) => {
     try {
         let promoCode = sanitizeString(req.body.promoCode);
         const cartTotal = safeNumber(req.body.cartTotal);
         const userId = req.user ? req.user.id : 'guest';
+        const sessionId = req.body.sessionId || req.headers['x-session-id'] || 'default';
 
-        const rateKey = `promo_${userId}`;
+        const rateKey = `promo_rate_${userId}`;
         const now = Date.now();
         if (!rateLimiter.has(rateKey)) {
             rateLimiter.set(rateKey, [now]);
@@ -83,6 +203,7 @@ const validatePromoCode = async (req, res) => {
             });
         }
 
+        // Check cache
         const cacheKey = `promo_${promoCode}`;
         let promo = promoCache.get(cacheKey);
         let fromCache = true;
@@ -91,20 +212,17 @@ const validatePromoCode = async (req, res) => {
             fromCache = false;
             promo = await getPromoByCode(promoCode);
             if (!promo) {
-                // Do NOT cache negative results - only cache successful validations
                 return res.status(404).json({ success: false, message: "Promo code not found" });
             }
 
             if (!validateDiscount(Number(promo.discount_value), promo.discount_type)) {
-                // Do NOT cache negative results
                 return res.status(400).json({ success: false, message: "Invalid discount value" });
             }
 
-            // Cache the raw promo code DB row if valid format/discount
             promoCache.set(cacheKey, promo);
         }
 
-        // Perform validations dynamically on the cached/fetched promo row
+        // Validate promo status
         if (!promo.is_active) {
             return res.status(400).json({ success: false, message: "Promo code is inactive" });
         }
@@ -125,7 +243,16 @@ const validatePromoCode = async (req, res) => {
             });
         }
 
-        // Calculate dynamic values for this request's cartTotal
+        const usageKey = getPromoUsageKey(promoCode);
+        const usedCount = parseInt(await redis.get(usageKey) || '0');
+        if (promo.usage_limit && usedCount >= promo.usage_limit) {
+            return res.status(400).json({
+                success: false,
+                message: "Promo code usage limit has been reached"
+            });
+        }
+
+        // Calculate discount
         const discount = calculateDiscount(promo, cartTotal);
         const maxAllowedDiscount = calculateMaxDiscount(
             cartTotal,
@@ -146,14 +273,15 @@ const validatePromoCode = async (req, res) => {
             minCartValue: promo.minimum_order_amount || 0,
             expiresAt: promo.expiry_date || null,
             usageLimit: promo.usage_limit || null,
-            usedCount: promo.used_count || 0,
-            remainingUses: promo.usage_limit ? (promo.usage_limit - (promo.used_count || 0)) : null,
+            usedCount: usedCount,
+            remainingUses: promo.usage_limit ? (promo.usage_limit - usedCount) : null,
             valid: true,
             discount: finalDiscount,
             finalAmount: finalAmount,
             isExpiringSoon: isExpiringSoon,
             isStackable: promo.is_stackable !== false,
-            maxStack: promo.max_stack || 1
+            maxStack: promo.max_stack || 1,
+            exclusiveCategory: promo.exclusive_category || null
         };
 
         console.log(`[AUDIT] Promo ${promoCode} validated by user ${userId} - Discount: ${finalDiscount} (Cached: ${fromCache})`);
@@ -173,6 +301,7 @@ const validateMultiplePromos = async (req, res) => {
     try {
         const { promoCodes, cartTotal } = req.body;
         const userId = req.user ? req.user.id : 'guest';
+        const sessionId = req.body.sessionId || req.headers['x-session-id'] || 'default';
 
         if (!promoCodes || !Array.isArray(promoCodes) || promoCodes.length === 0) {
             return res.status(400).json({ success: false, message: "At least one promo code is required" });
@@ -187,32 +316,69 @@ const validateMultiplePromos = async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid cart total" });
         }
 
-        const results = [];
-        for (const code of promoCodes) {
-            const normalizedCode = normalizePromoCode(code);
-            if (!validatePromoFormat(normalizedCode)) {
-                results.push({ promoCode: code, valid: false, message: "Invalid promo code format" });
-                continue;
+        const lockKey = getCartLockKey(userId, sessionId);
+        const results = await withLock(lockKey, async () => {
+            const promoResults = [];
+            const validatedPromos = [];
+
+            for (const code of promoCodes) {
+                const normalizedCode = normalizePromoCode(code);
+                if (!validatePromoFormat(normalizedCode)) {
+                    promoResults.push({ promoCode: code, valid: false, message: "Invalid promo code format" });
+                    continue;
+                }
+
+                const promo = await getPromoByCode(normalizedCode);
+                if (!promo) {
+                    promoResults.push({ promoCode: code, valid: false, message: "Promo code not found" });
+                    continue;
+                }
+
+                // Check usage limit
+                const usageKey = getPromoUsageKey(normalizedCode);
+                const usedCount = parseInt(await redis.get(usageKey) || '0');
+                if (promo.usage_limit && usedCount >= promo.usage_limit) {
+                    promoResults.push({ 
+                        promoCode: code, 
+                        valid: false, 
+                        message: "Promo code usage limit reached" 
+                    });
+                    continue;
+                }
+
+                const validation = await validatePromo(normalizedCode, total);
+                if (!validation.valid) {
+                    promoResults.push({ promoCode: code, valid: false, message: validation.message });
+                    continue;
+                }
+
+                const stackCheck = await checkStackableConflicts(
+                    normalizedCode, 
+                    validatedPromos.map(p => p.code)
+                );
+                if (!stackCheck.stackable) {
+                    promoResults.push({ 
+                        promoCode: code, 
+                        valid: false, 
+                        message: stackCheck.reason 
+                    });
+                    continue;
+                }
+
+                validatedPromos.push(promo);
+                promoResults.push({ 
+                    promoCode: code, 
+                    valid: true, 
+                    message: "Promo code is valid" 
+                });
             }
 
-            const promo = await getPromoByCode(normalizedCode);
-            if (!promo) {
-                results.push({ promoCode: code, valid: false, message: "Promo code not found" });
-                continue;
-            }
-
-            const validation = await validatePromo(normalizedCode, total);
-            if (!validation.valid) {
-                results.push({ promoCode: code, valid: false, message: validation.message });
-                continue;
-            }
-
-            results.push({ promoCode: code, valid: true, message: "Promo code is valid" });
-        }
+            return { promos: promoResults, total: promoResults.length, validatedCount: validatedPromos.length };
+        });
 
         console.log(`[AUDIT] Multiple promos validated by user ${userId}: ${promoCodes.join(', ')}`);
 
-        return res.status(200).json({ success: true, data: { promos: results, total: results.length } });
+        return res.status(200).json({ success: true, data: results });
 
     } catch (error) {
         console.error("BULK PROMO VALIDATION ERROR:", error);
@@ -225,8 +391,9 @@ const validateMultiplePromos = async (req, res) => {
 
 const applyMultiplePromos = async (req, res) => {
     try {
-        const { promoCodes, cartTotal } = req.body;
+        const { promoCodes, cartTotal, sessionId: bodySessionId } = req.body;
         const userId = req.user ? req.user.id : 'guest';
+        const sessionId = bodySessionId || req.headers['x-session-id'] || crypto.randomBytes(8).toString('hex');
 
         if (!promoCodes || !Array.isArray(promoCodes) || promoCodes.length === 0) {
             return res.status(400).json({ success: false, message: "At least one promo code is required" });
@@ -244,73 +411,167 @@ const applyMultiplePromos = async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid cart total" });
         }
 
+        // Normalize and deduplicate
         const normalizedCodes = promoCodes.map(code => normalizePromoCode(code));
-        const uniqueCodes = new Set(normalizedCodes);
-        if (uniqueCodes.size !== normalizedCodes.length) {
+        const uniqueCodes = [...new Set(normalizedCodes)];
+        if (uniqueCodes.length !== normalizedCodes.length) {
             return res.status(400).json({ success: false, message: "Duplicate promo codes are not allowed" });
         }
 
-        const results = [];
-        let remainingTotal = total;
-        let totalDiscount = 0;
-
-        const promos = await Promise.all(normalizedCodes.map(code => getPromoByCode(code)));
-
-        for (let i = 0; i < promos.length; i++) {
-            if (!promos[i]) {
-                return res.status(404).json({ success: false, message: `Promo code not found: ${normalizedCodes[i]}` });
-            }
-        }
-
-        const stackable = promos.every(p => p.is_stackable !== false);
-        if (!stackable) {
-            return res.status(400).json({ success: false, message: "Some promos cannot be stacked together" });
-        }
-
-        for (let i = 0; i < promos.length; i++) {
-            const promo = promos[i];
-            const code = normalizedCodes[i];
-
-            const validation = await validatePromo(code, remainingTotal);
-            if (!validation.valid) {
-                results.push({ promoCode: code, valid: false, message: validation.message });
-                continue;
+        const lockKey = getCartLockKey(userId, sessionId);
+        const result = await withLock(lockKey, async () => {
+            // Fetch all promos in one go
+            const promos = await Promise.all(uniqueCodes.map(code => getPromoByCode(code)));
+            
+            // Check all promos exist
+            const missingIndex = promos.findIndex(p => !p);
+            if (missingIndex !== -1) {
+                throw new Error(`Promo code not found: ${uniqueCodes[missingIndex]}`);
             }
 
-            const discount = calculateDiscount(promo, remainingTotal);
-            const maxAllowedDiscount = calculateMaxDiscount(remainingTotal, promo.discount_type, promo.discount_value);
-            const finalDiscount = Math.min(discount, maxAllowedDiscount);
-            const discountApplied = Number(finalDiscount.toFixed(2));
+            const nonStackable = promos.filter(p => p.is_stackable === false);
+            if (nonStackable.length > 0) {
+                throw new Error(`Promo codes ${nonStackable.map(p => p.code).join(', ')} cannot be stacked`);
+            }
 
-            remainingTotal = Number((remainingTotal - discountApplied).toFixed(2));
-            totalDiscount = Number((totalDiscount + discountApplied).toFixed(2));
+            // Check exclusivity conflicts
+            const exclusiveGroups = new Map();
+            for (const promo of promos) {
+                if (promo.exclusive_category) {
+                    if (exclusiveGroups.has(promo.exclusive_category)) {
+                        throw new Error(
+                            `Conflicting promos in exclusive category: ${promo.exclusive_category}`
+                        );
+                    }
+                    exclusiveGroups.set(promo.exclusive_category, promo.code);
+                }
+            }
 
-            results.push({
-                promoCode: code,
-                valid: true,
-                discountApplied: discountApplied,
-                remainingTotal: remainingTotal,
-                message: "Promo applied successfully"
-            });
-        }
+            // Check campaign conflicts
+            const campaignGroups = new Map();
+            for (const promo of promos) {
+                if (promo.campaign_id) {
+                    if (campaignGroups.has(promo.campaign_id)) {
+                        throw new Error(
+                            `Conflicting promos from same campaign: ${promo.campaign_id}`
+                        );
+                    }
+                    campaignGroups.set(promo.campaign_id, promo.code);
+                }
+            }
 
-        console.log(`[AUDIT] Multiple promos applied by user ${userId}: ${normalizedCodes.join(', ')} - Final: ${remainingTotal}`);
+            // Transactional verification and application
+            const results = [];
+            let remainingTotal = total;
+            let totalDiscount = 0;
+            const appliedPromos = [];
 
-        return res.status(200).json({
-            success: true,
-            data: {
+            const sortedPromos = [...promos].sort((a, b) => (a.priority || 0) - (b.priority || 0));
+
+            for (const promo of sortedPromos) {
+                // Check usage limit atomically
+                const usageKey = getPromoUsageKey(promo.code);
+                const usedCount = parseInt(await redis.get(usageKey) || '0');
+                
+                if (promo.usage_limit && usedCount >= promo.usage_limit) {
+                    results.push({
+                        promoCode: promo.code,
+                        valid: false,
+                        message: "Promo code usage limit reached",
+                        discountApplied: 0
+                    });
+                    continue;
+                }
+
+                // Validate promo against current remaining total
+                const validation = await validatePromo(promo.code, remainingTotal);
+                if (!validation.valid) {
+                    results.push({
+                        promoCode: promo.code,
+                        valid: false,
+                        message: validation.message,
+                        discountApplied: 0
+                    });
+                    continue;
+                }
+
+                // Calculate discount
+                const discount = calculateDiscount(promo, remainingTotal);
+                const maxAllowedDiscount = calculateMaxDiscount(
+                    remainingTotal,
+                    promo.discount_type,
+                    promo.discount_value
+                );
+                const finalDiscount = Math.min(discount, maxAllowedDiscount);
+                const discountApplied = Number(finalDiscount.toFixed(2));
+
+                // Apply promo atomically
+                const applied = await applyPromoTransaction(promo.code, userId, discountApplied);
+                if (!applied) {
+                    results.push({
+                        promoCode: promo.code,
+                        valid: false,
+                        message: "Failed to apply promo",
+                        discountApplied: 0
+                    });
+                    continue;
+                }
+
+                remainingTotal = Number((remainingTotal - discountApplied).toFixed(2));
+                totalDiscount = Number((totalDiscount + discountApplied).toFixed(2));
+                appliedPromos.push(promo.code);
+
+                results.push({
+                    promoCode: promo.code,
+                    valid: true,
+                    discountApplied: discountApplied,
+                    remainingTotal: remainingTotal,
+                    message: "Promo applied successfully"
+                });
+            }
+
+            // Update cart in database with atomic transaction
+            await db.query(
+                `UPDATE carts 
+                 SET promo_codes = ?, 
+                     discount_total = ?, 
+                     final_total = ?,
+                     updated_at = NOW()
+                 WHERE user_id = ? AND session_id = ?`,
+                [JSON.stringify(appliedPromos), totalDiscount, remainingTotal, userId, sessionId]
+            );
+
+            return {
                 originalTotal: total,
                 finalTotal: remainingTotal,
                 totalDiscount: totalDiscount,
-                appliedPromos: results
-            }
+                appliedPromos: results,
+                appliedCodes: appliedPromos
+            };
+        });
+
+        console.log(`[AUDIT] Promos applied by user ${userId}: ${result.appliedCodes.join(', ')} - Final: ${result.finalTotal}`);
+
+        return res.status(200).json({
+            success: true,
+            data: result
         });
 
     } catch (error) {
         console.error("APPLY MULTIPLE PROMOS ERROR:", error);
+        
+        // Handle lock errors
+        if (error.message.includes('Failed to acquire lock')) {
+            return res.status(409).json({
+                success: false,
+                message: "Cart is currently being processed. Please try again.",
+                error: "CONCURRENT_MODIFICATION"
+            });
+        }
+
         return res.status(500).json({
             success: false,
-            message: "Failed to apply multiple promo codes",
+            message: error.message || "Failed to apply promo codes",
         });
     }
 };
@@ -329,6 +590,10 @@ const getPromoDetails = async (req, res) => {
             return res.status(404).json({ success: false, message: "Promo code not found" });
         }
 
+        // Get current usage count from Redis
+        const usageKey = getPromoUsageKey(promoCode);
+        const usedCount = parseInt(await redis.get(usageKey) || '0');
+
         console.log(`[AUDIT] Promo details requested for ${promoCode} by user ${userId}`);
 
         return res.status(200).json({
@@ -337,14 +602,17 @@ const getPromoDetails = async (req, res) => {
                 code: promo.code,
                 discountType: promo.discount_type,
                 discountValue: promo.discount_value,
-                maxDiscount: promo.max_discount,
-                minCartValue: promo.min_cart_value,
-                expiresAt: promo.expires_at,
+                maxDiscount: promo.maximum_discount,
+                minCartValue: promo.minimum_order_amount,
+                expiresAt: promo.expiry_date,
                 usageLimit: promo.usage_limit,
-                usedCount: promo.used_count,
-                remainingUses: promo.usage_limit ? (promo.usage_limit - (promo.used_count || 0)) : null,
+                usedCount: usedCount,
+                remainingUses: promo.usage_limit ? (promo.usage_limit - usedCount) : null,
                 isStackable: promo.is_stackable !== false,
-                status: promo.status || 'active'
+                exclusiveCategory: promo.exclusive_category || null,
+                campaignId: promo.campaign_id || null,
+                status: promo.is_active ? 'active' : 'inactive',
+                priority: promo.priority || 0
             }
         });
 
@@ -359,8 +627,8 @@ const getPromoDetails = async (req, res) => {
 
 const clearPromoCache = async (req, res) => {
     try {
-        if (req.user.role !== 'admin') {
-            console.log(`[AUDIT] Unauthorized cache clear attempt by user ${req.user.id}`);
+        if (!req.user || req.user.role !== 'admin') {
+            console.log(`[AUDIT] Unauthorized cache clear attempt by user ${req.user?.id || 'unknown'}`);
             return res.status(403).json({ success: false, message: "Unauthorized: Only admins can clear promo cache" });
         }
 
@@ -381,10 +649,37 @@ const clearPromoCache = async (req, res) => {
     }
 };
 
+const getCartLockStatus = async (req, res) => {
+    try {
+        const userId = req.user ? req.user.id : 'guest';
+        const sessionId = req.query.sessionId || req.headers['x-session-id'] || 'default';
+        const lockKey = getCartLockKey(userId, sessionId);
+        
+        const lockValue = await redis.get(lockKey);
+        
+        return res.status(200).json({
+            success: true,
+            data: {
+                isLocked: !!lockValue,
+                lockKey: lockKey,
+                userId: userId,
+                sessionId: sessionId
+            }
+        });
+    } catch (error) {
+        console.error("GET CART LOCK STATUS ERROR:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to get cart lock status"
+        });
+    }
+};
+
 module.exports = {
     validatePromoCode,
     validateMultiplePromos,
     applyMultiplePromos,
     getPromoDetails,
-    clearPromoCache
+    clearPromoCache,
+    getCartLockStatus
 };
