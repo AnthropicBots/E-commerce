@@ -1,56 +1,81 @@
 // backend/services/domainEventService.js
+// Issue #1263: Attach UUID v5 idempotency keys + consumer-side verification
 const EventEmitter = require('events');
 const db = require('../config/db').promise;
+const { v5: uuidv5 } = require('uuid');
+const {
+    withIdempotency,
+    outboxService
+} = require('./outboxService');
 
 // ============================================
 // DOMAIN EVENTS CONFIGURATION
 // ============================================
 
 const DOMAIN_EVENTS = {
-    // Order events
     ORDER_CREATED: 'order.created',
     ORDER_UPDATED: 'order.updated',
     ORDER_CANCELLED: 'order.cancelled',
     ORDER_COMPLETED: 'order.completed',
     ORDER_PAYMENT_SUCCESS: 'order.payment.success',
     ORDER_PAYMENT_FAILED: 'order.payment.failed',
-    
-    // Product events
+
     PRODUCT_VIEWED: 'product.viewed',
     PRODUCT_ADDED: 'product.added',
     PRODUCT_UPDATED: 'product.updated',
     PRODUCT_REMOVED: 'product.removed',
     PRODUCT_REVIEWED: 'product.reviewed',
-    
-    // Wishlist events
+
     WISHLIST_ITEM_ADDED: 'wishlist.item.added',
     WISHLIST_ITEM_REMOVED: 'wishlist.item.removed',
-    
-    // Cart events
+
     CART_ITEM_ADDED: 'cart.item.added',
     CART_ITEM_REMOVED: 'cart.item.removed',
     CART_CLEARED: 'cart.cleared',
-    
-    // User events
+
     USER_REGISTERED: 'user.registered',
     USER_LOGGED_IN: 'user.logged.in',
     USER_LOGGED_OUT: 'user.logged.out',
     USER_UPDATED: 'user.updated',
-    
-    // Payment events
+
     PAYMENT_INITIATED: 'payment.initiated',
     PAYMENT_COMPLETED: 'payment.completed',
     PAYMENT_REFUNDED: 'payment.refunded',
-    
-    // Promo events
+
     COUPON_APPLIED: 'coupon.applied',
     COUPON_CREATED: 'coupon.created',
     COUPON_EXPIRED: 'coupon.expired',
-    
-    // Analytics events
+
     ANALYTICS_TRACK: 'analytics.track',
     ANALYTICS_PAGE_VIEW: 'analytics.page.view'
 };
+
+const DOMAIN_IDEMPOTENCY_NAMESPACE = uuidv5('ecommerce.domain.events', uuidv5.DNS);
+
+function isKnownEvent(eventName) {
+    return Object.values(DOMAIN_EVENTS).includes(eventName);
+}
+
+function extractEntityId(data = {}) {
+    return (
+        data.orderId ||
+        data.paymentId ||
+        data.productId ||
+        data.userId ||
+        data.entityId ||
+        data.id ||
+        null
+    );
+}
+
+/**
+ * UUID v5 idempotency key: Event Type + Entity ID + Timestamp
+ */
+function buildDomainIdempotencyKey(eventName, data, timestamp) {
+    const entityId = extractEntityId(data);
+    const ts = timestamp instanceof Date ? timestamp.toISOString() : String(timestamp || '');
+    return uuidv5(`${eventName}|${entityId || 'none'}|${ts}`, DOMAIN_IDEMPOTENCY_NAMESPACE);
+}
 
 // ============================================
 // DOMAIN EVENT SERVICE
@@ -68,10 +93,11 @@ class DomainEventService {
     }
 
     /**
-     * Register a subscriber for a domain event
+     * Register a subscriber. Pass context.idempotent=true (default for async)
+     * to wrap the handler with consumer-side idempotency checks.
      */
     subscribe(eventName, handler, context = {}) {
-        if (!DOMAIN_EVENTS[Object.keys(DOMAIN_EVENTS).find(key => DOMAIN_EVENTS[key] === eventName)]) {
+        if (!isKnownEvent(eventName)) {
             throw new Error(`Unknown event: ${eventName}`);
         }
 
@@ -79,74 +105,119 @@ class DomainEventService {
             this.subscribers.set(eventName, []);
         }
 
+        const consumerName = context.consumerName || `domain:${eventName}`;
+        const useIdempotency = context.idempotent !== false;
+
+        const guardedHandler = useIdempotency
+            ? withIdempotency(consumerName, async (normalized) => {
+                return handler(normalized.data, {
+                    ...context,
+                    event: normalized,
+                    idempotencyKey: normalized.idempotencyKey
+                });
+            })
+            : async (eventPayload) => handler(eventPayload.data || eventPayload, context);
+
         const subscription = {
             id: this.generateSubscriptionId(),
-            handler,
-            context,
+            handler: guardedHandler,
+            rawHandler: handler,
+            context: { ...context, consumerName, idempotent: useIdempotency },
             subscribedAt: new Date().toISOString()
         };
 
         this.subscribers.get(eventName).push(subscription);
-        
-        this.emitter.on(eventName, async (data) => {
+
+        this.emitter.on(eventName, async (envelope) => {
             try {
-                await handler(data, context);
+                await guardedHandler(envelope);
             } catch (error) {
                 console.error(`Error in subscriber for ${eventName}:`, error);
-                await this.logError(eventName, data, error);
+                await this.logError(eventName, envelope?.data || envelope, error);
             }
         });
 
-        console.log(`✅ Subscriber registered for: ${eventName}`);
+        console.log(`✅ Subscriber registered for: ${eventName} (idempotent=${useIdempotency})`);
         return subscription;
     }
 
     /**
-     * Emit a domain event
+     * Emit a domain event with an attached UUID v5 idempotency key.
+     * Optionally mirrors the event into the transactional outbox.
      */
     async emit(eventName, data, metadata = {}) {
-        if (!DOMAIN_EVENTS[Object.keys(DOMAIN_EVENTS).find(key => DOMAIN_EVENTS[key] === eventName)]) {
+        if (!isKnownEvent(eventName)) {
             throw new Error(`Unknown event: ${eventName}`);
         }
+
+        const timestamp = metadata.timestamp || new Date().toISOString();
+        const entityId = extractEntityId(data);
+        const idempotencyKey =
+            metadata.idempotencyKey ||
+            buildDomainIdempotencyKey(eventName, data, timestamp);
 
         const event = {
             id: this.generateEventId(),
             name: eventName,
+            type: eventName,
             data,
+            entityId,
+            idempotencyKey,
             metadata: {
                 ...metadata,
-                timestamp: new Date().toISOString(),
+                timestamp,
+                entityId,
+                idempotencyKey,
                 source: metadata.source || 'application'
             },
+            createdAt: timestamp,
             status: 'pending'
         };
 
-        // Log event
         await this.logEvent(event);
-
-        // Store in memory
         this.eventHistory.push(event);
 
-        // Emit synchronously (for immediate effects)
-        this.emitter.emit(eventName, data);
+        // Persist to outbox when explicitly requested (durable dispatch path)
+        if (metadata.useOutbox === true) {
+            try {
+                await outboxService.storeEvent(eventName, data, {
+                    ...event.metadata,
+                    eventTimestamp: timestamp,
+                    domainEventId: event.id
+                });
+            } catch (error) {
+                console.error('Outbox mirror failed:', error.message);
+            }
+        }
 
-        // Process async subscribers
-        this.processAsyncSubscribers(event);
+        // Emit envelope (not raw data) so consumers receive idempotencyKey
+        const envelope = {
+            id: event.id,
+            name: eventName,
+            type: eventName,
+            data,
+            entityId,
+            idempotencyKey,
+            metadata: event.metadata,
+            createdAt: timestamp
+        };
 
-        console.log(`📡 Event emitted: ${eventName}`);
+        this.emitter.emit(eventName, envelope);
+        this.processAsyncSubscribers(envelope);
+
+        console.log(`📡 Event emitted: ${eventName} key=${idempotencyKey}`);
         return event;
     }
 
-    /**
-     * Process async subscribers
-     */
     async processAsyncSubscribers(event) {
         const subscribers = this.subscribers.get(event.name) || [];
-        const asyncSubscribers = subscribers.filter(s => s.context.async !== false);
+        // Emitter already invoked handlers; this path covers explicit async fan-out
+        // for subscribers registered with context.asyncFanout=true only.
+        const asyncSubscribers = subscribers.filter((s) => s.context.asyncFanout === true);
 
         for (const subscriber of asyncSubscribers) {
             try {
-                await subscriber.handler(event.data, subscriber.context);
+                await subscriber.handler(event);
             } catch (error) {
                 console.error(`Async subscriber error for ${event.name}:`, error);
                 await this.logError(event.name, event.data, error);
@@ -154,37 +225,29 @@ class DomainEventService {
         }
     }
 
-    /**
-     * Get all events
-     */
     getEvents(filter = {}) {
         let events = this.eventHistory;
 
         if (filter.eventName) {
-            events = events.filter(e => e.name === filter.eventName);
+            events = events.filter((e) => e.name === filter.eventName);
         }
-
         if (filter.fromDate) {
-            events = events.filter(e => e.metadata.timestamp >= filter.fromDate);
+            events = events.filter((e) => e.metadata.timestamp >= filter.fromDate);
         }
-
         if (filter.toDate) {
-            events = events.filter(e => e.metadata.timestamp <= filter.toDate);
+            events = events.filter((e) => e.metadata.timestamp <= filter.toDate);
+        }
+        if (filter.idempotencyKey) {
+            events = events.filter((e) => e.idempotencyKey === filter.idempotencyKey);
         }
 
         return events.slice(-100);
     }
 
-    /**
-     * Get subscribers
-     */
     getSubscribers(eventName) {
         return this.subscribers.get(eventName) || [];
     }
 
-    /**
-     * Get event statistics
-     */
     getStatistics() {
         const stats = {
             totalEvents: this.eventHistory.length,
@@ -193,12 +256,10 @@ class DomainEventService {
             eventQueueSize: this.eventQueue.length
         };
 
-        // Count events by type
         for (const event of this.eventHistory) {
             stats.eventsByType[event.name] = (stats.eventsByType[event.name] || 0) + 1;
         }
 
-        // Count subscribers by type
         for (const [eventName, subscribers] of this.subscribers) {
             stats.subscribersByType[eventName] = subscribers.length;
         }
@@ -206,22 +267,18 @@ class DomainEventService {
         return stats;
     }
 
-    /**
-     * Get status
-     */
     getStatus() {
         return {
             totalEvents: this.eventHistory.length,
-            totalSubscribers: Array.from(this.subscribers.values()).reduce((sum, s) => sum + s.length, 0),
+            totalSubscribers: Array.from(this.subscribers.values()).reduce(
+                (sum, s) => sum + s.length,
+                0
+            ),
             eventTypes: Object.keys(DOMAIN_EVENTS),
             isProcessing: this.isProcessing,
             queueSize: this.eventQueue.length
         };
     }
-
-    // ============================================
-    // HELPER FUNCTIONS
-    // ============================================
 
     generateEventId() {
         return `EVT_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
@@ -234,7 +291,7 @@ class DomainEventService {
     async logEvent(event) {
         try {
             await db.query(
-                `INSERT INTO domain_events_log 
+                `INSERT INTO domain_events_log
                  (event_id, event_name, event_data, metadata, status, created_at)
                  VALUES (?, ?, ?, ?, ?, NOW())`,
                 [
@@ -253,7 +310,7 @@ class DomainEventService {
     async logError(eventName, data, error) {
         try {
             await db.query(
-                `INSERT INTO domain_event_errors 
+                `INSERT INTO domain_event_errors
                  (event_name, event_data, error_message, error_stack, created_at)
                  VALUES (?, ?, ?, ?, NOW())`,
                 [
@@ -268,13 +325,10 @@ class DomainEventService {
         }
     }
 
-    /**
-     * Clear old events
-     */
     async clearOldEvents(days = 30) {
         try {
             await db.query(
-                `DELETE FROM domain_events_log 
+                `DELETE FROM domain_events_log
                  WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
                 [days]
             );
@@ -285,17 +339,92 @@ class DomainEventService {
     }
 }
 
-// ============================================
-// DOMAIN EVENT SUBSCRIBERS
-// ============================================
+/**
+ * Express middleware: require / attach Idempotency-Key for mutating APIs
+ * that publish domain events. Rejects replayed keys that are still active.
+ */
+function consumerIdempotencyMiddleware(options = {}) {
+    const {
+        headerName = 'idempotency-key',
+        consumerName = 'http-api',
+        requireKey = false
+    } = options;
+
+    return async (req, res, next) => {
+        try {
+            const headerKey =
+                req.headers[headerName] ||
+                req.headers['x-idempotency-key'] ||
+                req.body?.idempotencyKey;
+
+            if (!headerKey && requireKey) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Idempotency-Key header is required'
+                });
+            }
+
+            if (!headerKey) {
+                return next();
+            }
+
+            const syntheticEvent = {
+                id: `HTTP_${headerKey}`,
+                type: `${req.method}:${req.path}`,
+                data: req.body || {},
+                idempotencyKey: String(headerKey)
+            };
+
+            const claim = await outboxService.claimConsumerIdempotency(
+                String(headerKey),
+                syntheticEvent,
+                consumerName
+            );
+
+            if (!claim.proceed) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'Duplicate request rejected by idempotency guard',
+                    reason: claim.reason,
+                    idempotencyKey: headerKey
+                });
+            }
+
+            req.idempotencyKey = String(headerKey);
+            req.idempotencyConsumer = consumerName;
+
+            const originalJson = res.json.bind(res);
+            res.json = async function idempotentJson(payload) {
+                try {
+                    if (res.statusCode >= 200 && res.statusCode < 300) {
+                        await outboxService.completeConsumerIdempotency(
+                            String(headerKey),
+                            consumerName
+                        );
+                    }
+                } catch (err) {
+                    console.error('Idempotency completion error:', err.message);
+                }
+                return originalJson(payload);
+            };
+
+            return next();
+        } catch (error) {
+            console.error('Idempotency middleware error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Idempotency check failed'
+            });
+        }
+    };
+}
 
 const domainEventService = new DomainEventService();
 
-// ============================================
-// EXPORT
-// ============================================
-
 module.exports = {
     domainEventService,
-    DOMAIN_EVENTS
+    DOMAIN_EVENTS,
+    buildDomainIdempotencyKey,
+    consumerIdempotencyMiddleware,
+    withIdempotency
 };
