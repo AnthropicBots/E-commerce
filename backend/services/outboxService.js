@@ -1,6 +1,7 @@
 // backend/services/outboxService.js
 const db = require('../config/db');
 const crypto = require('crypto');
+const { v5: uuidv5 } = require('uuid');
 
 // ============================================
 // OUTBOX CONFIGURATION
@@ -12,14 +13,18 @@ const OUTBOX_CONFIG = {
     batchSize: 100,
     maxRetries: 5,
     retryDelay: 30000, // 30 seconds
-    
+
     // Event retention
     retentionDays: 7,
     cleanupInterval: 3600000, // 1 hour
-    
-    // Processing
+
+    // Processing / stale lock (#1263)
     processingTimeout: 60000, // 1 minute
-    concurrentProcessors: 3
+    staleProcessingMs: parseInt(process.env.OUTBOX_STALE_LOCK_MS, 10) || 30000, // 30s
+    concurrentProcessors: 3,
+
+    // Idempotency ledger must outlive short TTLs that caused re-dispatch bugs
+    idempotencyRetentionDays: parseInt(process.env.OUTBOX_IDEMPOTENCY_DAYS, 10) || 90
 };
 
 const OUTBOX_STATUS = {
@@ -47,6 +52,9 @@ const EVENT_TYPES = {
     RECOMMENDATION_UPDATED: 'recommendation.updated'
 };
 
+/** Fixed namespace for deterministic UUID v5 idempotency keys */
+const IDEMPOTENCY_NAMESPACE = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+
 // ============================================
 // OUTBOX SERVICE
 // ============================================
@@ -61,10 +69,14 @@ class OutboxService {
             processed: 0,
             failed: 0,
             retried: 0,
-            total: 0
+            total: 0,
+            skippedDuplicate: 0,
+            staleReset: 0,
+            optimisticLockConflicts: 0
         };
         this.pollInterval = null;
         this.cleanupInterval = null;
+        this.staleResetInterval = null;
     }
 
     /**
@@ -73,17 +85,13 @@ class OutboxService {
     async initialize() {
         if (this.isRunning) return;
 
-        // Register default event handlers
         this.registerDefaultHandlers();
-
-        // Start polling
         this.startPolling();
-
-        // Start cleanup
         this.startCleanup();
+        this.startStaleLockReset();
 
         this.isRunning = true;
-        console.log('✅ Outbox Service initialized');
+        console.log('✅ Outbox Service initialized (idempotent dispatch enabled)');
         return this;
     }
 
@@ -102,7 +110,6 @@ class OutboxService {
      * Register default event handlers
      */
     registerDefaultHandlers() {
-        // Order event handlers
         this.registerHandler(EVENT_TYPES.ORDER_CREATED, async (event) => {
             console.log(`📦 Order created: ${event.data.orderId}`);
             await this.processOrderCreated(event.data);
@@ -118,34 +125,86 @@ class OutboxService {
             await this.processPaymentCompleted(event.data);
         });
 
-        // Notification handlers
         this.registerHandler(EVENT_TYPES.NOTIFICATION_SENT, async (event) => {
             console.log(`📧 Notification sent: ${event.data.notificationId}`);
         });
 
-        // Analytics handlers
         this.registerHandler(EVENT_TYPES.ANALYTICS_TRACKED, async (event) => {
             console.log(`📊 Analytics tracked: ${event.data.eventType}`);
         });
 
-        // Recommendation handlers
         this.registerHandler(EVENT_TYPES.RECOMMENDATION_UPDATED, async (event) => {
             console.log(`🎯 Recommendations updated for user: ${event.data.userId}`);
         });
     }
 
     /**
-     * Store event in outbox
+     * UUID v5 derived from Event Type + Entity ID + Timestamp (#1263)
+     */
+    generateIdempotencyKey(eventType, data = {}, occurredAt = null) {
+        const entityId =
+            data.orderId ||
+            data.paymentId ||
+            data.productId ||
+            data.userId ||
+            data.entityId ||
+            data.id ||
+            'unknown';
+        const ts = occurredAt || data.occurredAt || data.timestamp || new Date().toISOString();
+        const name = `${eventType}|${entityId}|${ts}`;
+        return uuidv5(name, IDEMPOTENCY_NAMESPACE);
+    }
+
+    /**
+     * Store event in outbox with idempotency key + version=0
      */
     async storeEvent(eventType, data, metadata = {}) {
+        const occurredAt = metadata.occurredAt || new Date().toISOString();
+        const idempotencyKey = metadata.idempotencyKey
+            || this.generateIdempotencyKey(eventType, data, occurredAt);
+
+        // Deduplicate at write-time if the same logical event was already stored
+        try {
+            const [existing] = await db.query(
+                `SELECT event_id, status FROM outbox_events WHERE idempotency_key = ? LIMIT 1`,
+                [idempotencyKey]
+            );
+            if (existing.length > 0) {
+                console.log(`⏭️ Duplicate outbox write skipped: ${idempotencyKey}`);
+                this.stats.skippedDuplicate++;
+                return {
+                    id: existing[0].event_id,
+                    type: eventType,
+                    idempotencyKey,
+                    status: existing[0].status,
+                    duplicate: true
+                };
+            }
+        } catch (err) {
+            // Column may be missing on legacy DBs — continue insert path
+            if (err.code !== 'ER_BAD_FIELD_ERROR') {
+                console.warn('Idempotency pre-check warning:', err.message);
+            }
+        }
+
         const event = {
             id: this.generateEventId(),
             type: eventType,
-            data,
-            metadata,
+            data: {
+                ...data,
+                idempotencyKey,
+                occurredAt
+            },
+            metadata: {
+                ...metadata,
+                idempotencyKey,
+                occurredAt
+            },
             status: OUTBOX_STATUS.PENDING,
             attempts: 0,
             maxAttempts: OUTBOX_CONFIG.maxRetries,
+            version: 0,
+            idempotencyKey,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             processedAt: null,
@@ -156,8 +215,8 @@ class OutboxService {
             await db.query(
                 `INSERT INTO outbox_events 
                  (event_id, event_type, data, metadata, status, attempts, 
-                  max_attempts, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  max_attempts, version, idempotency_key, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     event.id,
                     event.type,
@@ -166,16 +225,27 @@ class OutboxService {
                     event.status,
                     event.attempts,
                     event.maxAttempts,
+                    event.version,
+                    event.idempotencyKey,
                     event.createdAt,
                     event.updatedAt
                 ]
             );
 
             this.stats.total++;
-            console.log(`📝 Event stored: ${event.type} (${event.id})`);
+            console.log(`📝 Event stored: ${event.type} (${event.id}) key=${event.idempotencyKey}`);
 
             return event;
         } catch (error) {
+            if (error.code === 'ER_DUP_ENTRY') {
+                this.stats.skippedDuplicate++;
+                return {
+                    id: event.id,
+                    type: eventType,
+                    idempotencyKey,
+                    duplicate: true
+                };
+            }
             console.error('Store event error:', error);
             throw error;
         }
@@ -191,7 +261,6 @@ class OutboxService {
             this.processPendingEvents();
         }, OUTBOX_CONFIG.pollInterval);
 
-        // Initial processing
         setTimeout(() => this.processPendingEvents(), 1000);
     }
 
@@ -207,14 +276,179 @@ class OutboxService {
     }
 
     /**
-     * Process pending events
+     * Automatically reset stale PROCESSING locks after 30s (#1263)
+     */
+    startStaleLockReset() {
+        if (this.staleResetInterval) return;
+
+        this.staleResetInterval = setInterval(() => {
+            this.resetStaleProcessingLocks().catch((err) => {
+                console.error('Stale lock reset error:', err.message);
+            });
+        }, Math.min(OUTBOX_CONFIG.staleProcessingMs, 15000));
+
+        setTimeout(() => this.resetStaleProcessingLocks().catch(() => {}), 2000);
+    }
+
+    /**
+     * PENDING/RETRY stuck in PROCESSING → RETRY when lock older than 30s
+     */
+    async resetStaleProcessingLocks() {
+        const staleSeconds = Math.ceil(OUTBOX_CONFIG.staleProcessingMs / 1000);
+        const [result] = await db.query(
+            `UPDATE outbox_events
+             SET status = ?,
+                 processing_started_at = NULL,
+                 updated_at = NOW()
+             WHERE status = ?
+               AND processing_started_at IS NOT NULL
+               AND processing_started_at < DATE_SUB(NOW(), INTERVAL ? SECOND)`,
+            [OUTBOX_STATUS.RETRY, OUTBOX_STATUS.PROCESSING, staleSeconds]
+        );
+
+        const reset = result.affectedRows || 0;
+        if (reset > 0) {
+            this.stats.staleReset += reset;
+            console.log(`🔓 Reset ${reset} stale outbox processing lock(s)`);
+        }
+        return { reset };
+    }
+
+    /**
+     * Claim a single event with optimistic lock (version check).
+     * Returns true only if this worker owns the transition PENDING/RETRY → PROCESSING.
+     */
+    async claimEventWithOptimisticLock(eventRow) {
+        const currentVersion = eventRow.version != null ? Number(eventRow.version) : 0;
+        const [result] = await db.query(
+            `UPDATE outbox_events
+             SET status = ?,
+                 version = version + 1,
+                 processing_started_at = NOW(),
+                 updated_at = NOW()
+             WHERE event_id = ?
+               AND version = ?
+               AND status IN (?, ?)`,
+            [
+                OUTBOX_STATUS.PROCESSING,
+                eventRow.event_id,
+                currentVersion,
+                OUTBOX_STATUS.PENDING,
+                OUTBOX_STATUS.RETRY
+            ]
+        );
+
+        if (!result.affectedRows) {
+            this.stats.optimisticLockConflicts++;
+            return false;
+        }
+
+        eventRow.version = currentVersion + 1;
+        return true;
+    }
+
+    /**
+     * Consumer-side idempotency: reserve key before side-effects.
+     * Returns { proceed: false } if already completed for this consumer.
+     */
+    async beginConsumerIdempotency(idempotencyKey, eventId, eventType, consumer = 'outbox-dispatcher') {
+        if (!idempotencyKey) {
+            return { proceed: true, skipped: false };
+        }
+
+        try {
+            const [existing] = await db.query(
+                `SELECT status FROM outbox_idempotency_ledger
+                 WHERE idempotency_key = ? AND consumer = ?
+                 LIMIT 1`,
+                [idempotencyKey, consumer]
+            );
+
+            if (existing.length > 0) {
+                if (existing[0].status === 'completed') {
+                    this.stats.skippedDuplicate++;
+                    return { proceed: false, skipped: true, reason: 'already_completed' };
+                }
+                // Allow retry of failed / abandoned processing rows after stale window
+                if (existing[0].status === 'processing') {
+                    await db.query(
+                        `UPDATE outbox_idempotency_ledger
+                         SET status = 'processing', event_id = ?, event_type = ?
+                         WHERE idempotency_key = ? AND consumer = ? AND status != 'completed'`,
+                        [eventId, eventType, idempotencyKey, consumer]
+                    );
+                    return { proceed: true, skipped: false, resumed: true };
+                }
+            }
+
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + OUTBOX_CONFIG.idempotencyRetentionDays);
+
+            await db.query(
+                `INSERT INTO outbox_idempotency_ledger
+                 (idempotency_key, event_id, consumer, event_type, status, created_at, expires_at)
+                 VALUES (?, ?, ?, ?, 'processing', NOW(), ?)
+                 ON DUPLICATE KEY UPDATE
+                   event_id = IF(status = 'completed', event_id, VALUES(event_id)),
+                   status = IF(status = 'completed', status, 'processing')`,
+                [idempotencyKey, eventId, consumer, eventType, expiresAt]
+            );
+
+            // Re-read to honor concurrent completer
+            const [again] = await db.query(
+                `SELECT status FROM outbox_idempotency_ledger
+                 WHERE idempotency_key = ? AND consumer = ? LIMIT 1`,
+                [idempotencyKey, consumer]
+            );
+            if (again[0]?.status === 'completed') {
+                this.stats.skippedDuplicate++;
+                return { proceed: false, skipped: true, reason: 'race_completed' };
+            }
+
+            return { proceed: true, skipped: false };
+        } catch (error) {
+            // Fail closed for billing/notification safety if ledger insert races
+            if (error.code === 'ER_DUP_ENTRY') {
+                this.stats.skippedDuplicate++;
+                return { proceed: false, skipped: true, reason: 'duplicate_key' };
+            }
+            console.error('Consumer idempotency begin error:', error.message);
+            // Fail open only for missing table during migration
+            if (error.code === 'ER_NO_SUCH_TABLE') {
+                return { proceed: true, skipped: false, legacy: true };
+            }
+            throw error;
+        }
+    }
+
+    async completeConsumerIdempotency(idempotencyKey, consumer = 'outbox-dispatcher', failed = false) {
+        if (!idempotencyKey) return;
+        try {
+            await db.query(
+                `UPDATE outbox_idempotency_ledger
+                 SET status = ?, completed_at = NOW()
+                 WHERE idempotency_key = ? AND consumer = ?`,
+                [failed ? 'failed' : 'completed', idempotencyKey, consumer]
+            );
+        } catch (error) {
+            if (error.code !== 'ER_NO_SUCH_TABLE') {
+                console.error('Consumer idempotency complete error:', error.message);
+            }
+        }
+    }
+
+    /**
+     * Process pending events with per-row optimistic claims
      */
     async processPendingEvents() {
-        const connection = await db.getConnection();
+        let connection;
         try {
-            await connection.query('START TRANSACTION');
+            // Unlock stale processors first so retries are eligible
+            await this.resetStaleProcessingLocks();
 
-            // Get pending events using SKIP LOCKED to prevent race conditions
+            connection = await db.getConnection();
+            await connection.beginTransaction();
+
             const [events] = await connection.query(
                 `SELECT * FROM outbox_events 
                  WHERE status IN (?, ?)
@@ -225,32 +459,42 @@ class OutboxService {
                 [OUTBOX_STATUS.PENDING, OUTBOX_STATUS.RETRY, OUTBOX_CONFIG.batchSize]
             );
 
+            await connection.commit();
+            connection.release();
+            connection = null;
+
             if (events.length === 0) {
-                await connection.query('COMMIT');
-                connection.release();
                 return;
             }
 
-            // Mark events as processing atomically
-            const eventIds = events.map(e => e.event_id);
-            await connection.query(
-                `UPDATE outbox_events SET status = ? WHERE event_id IN (?)`,
-                [OUTBOX_STATUS.PROCESSING, eventIds]
-            );
-
-            await connection.query('COMMIT');
-            connection.release();
-
-            // Process each event
             for (const eventRow of events) {
+                const claimed = await this.claimEventWithOptimisticLock(eventRow);
+                if (!claimed) {
+                    continue;
+                }
+
+                let data = eventRow.data;
+                let metadata = eventRow.metadata;
+                try {
+                    data = typeof data === 'string' ? JSON.parse(data) : data;
+                    metadata = typeof metadata === 'string' ? JSON.parse(metadata || '{}') : (metadata || {});
+                } catch {
+                    data = {};
+                    metadata = {};
+                }
+
                 const event = {
                     id: eventRow.event_id,
                     type: eventRow.event_type,
-                    data: JSON.parse(eventRow.data),
-                    metadata: JSON.parse(eventRow.metadata || '{}'),
+                    data,
+                    metadata,
                     status: OUTBOX_STATUS.PROCESSING,
                     attempts: eventRow.attempts,
                     maxAttempts: eventRow.max_attempts,
+                    version: eventRow.version,
+                    idempotencyKey: eventRow.idempotency_key
+                        || data.idempotencyKey
+                        || metadata.idempotencyKey,
                     createdAt: eventRow.created_at,
                     updatedAt: eventRow.updated_at,
                     error: eventRow.error
@@ -260,54 +504,86 @@ class OutboxService {
             }
         } catch (error) {
             if (connection) {
-                await connection.query('ROLLBACK');
-                connection.release();
+                try {
+                    await connection.rollback();
+                } catch (_) { /* ignore */ }
+                try {
+                    connection.release();
+                } catch (_) { /* ignore */ }
             }
             console.error('Process pending events error:', error);
         }
     }
 
     /**
-     * Process a single event
+     * Process a single event with consumer-side idempotency gate
      */
     async processEvent(event) {
-        // Update status to processing
-        await this.updateEventStatus(event.id, OUTBOX_STATUS.PROCESSING);
+        const idempotencyKey = event.idempotencyKey
+            || this.generateIdempotencyKey(event.type, event.data, event.metadata?.occurredAt);
+
+        const gate = await this.beginConsumerIdempotency(
+            idempotencyKey,
+            event.id,
+            event.type,
+            'outbox-dispatcher'
+        );
+
+        if (!gate.proceed) {
+            await this.updateEventStatus(event.id, OUTBOX_STATUS.COMPLETED, {
+                version: event.version
+            });
+            console.log(`⏭️ Skipped duplicate dispatch: ${event.type} (${event.id})`);
+            return;
+        }
 
         try {
-            // Get handlers for this event type
             const handlers = this.eventHandlers.get(event.type) || [];
 
             if (handlers.length === 0) {
                 console.warn(`No handlers for event type: ${event.type}`);
-                await this.updateEventStatus(event.id, OUTBOX_STATUS.COMPLETED);
+                await this.completeConsumerIdempotency(idempotencyKey);
+                await this.updateEventStatus(event.id, OUTBOX_STATUS.COMPLETED, {
+                    version: event.version
+                });
                 return;
             }
 
-            // Execute all handlers
+            const payload = {
+                ...event,
+                data: {
+                    ...event.data,
+                    idempotencyKey
+                },
+                idempotencyKey
+            };
+
             for (const handler of handlers) {
-                await handler(event);
+                await handler(payload);
             }
 
-            // Update status to completed
-            await this.updateEventStatus(event.id, OUTBOX_STATUS.COMPLETED);
+            await this.completeConsumerIdempotency(idempotencyKey);
+            await this.updateEventStatus(event.id, OUTBOX_STATUS.COMPLETED, {
+                version: event.version
+            });
             this.stats.processed++;
 
             console.log(`✅ Event processed: ${event.type} (${event.id})`);
-
         } catch (error) {
             console.error(`Error processing event ${event.id}:`, error);
 
-            // Increment attempts
+            await this.completeConsumerIdempotency(idempotencyKey, 'outbox-dispatcher', true);
+
             const newAttempts = event.attempts + 1;
-            const newStatus = newAttempts >= event.maxAttempts 
-                ? OUTBOX_STATUS.FAILED 
+            const newStatus = newAttempts >= event.maxAttempts
+                ? OUTBOX_STATUS.FAILED
                 : OUTBOX_STATUS.RETRY;
 
             await this.updateEventStatus(event.id, newStatus, {
                 attempts: newAttempts,
                 error: error.message,
-                updatedAt: new Date().toISOString()
+                version: event.version,
+                clearProcessingLock: true
             });
 
             if (newStatus === OUTBOX_STATUS.FAILED) {
@@ -321,17 +597,48 @@ class OutboxService {
     }
 
     /**
-     * Update event status
+     * Update event status (optionally with optimistic version bump)
      */
     async updateEventStatus(eventId, status, additional = {}) {
-        const updates = {
-            status,
-            updatedAt: new Date().toISOString(),
-            ...additional
-        };
+        const updatedAt = new Date().toISOString();
+        const processedAt = status === OUTBOX_STATUS.COMPLETED
+            ? new Date().toISOString()
+            : null;
 
-        if (status === OUTBOX_STATUS.COMPLETED) {
-            updates.processedAt = new Date().toISOString();
+        const clearLock = status === OUTBOX_STATUS.COMPLETED
+            || status === OUTBOX_STATUS.FAILED
+            || status === OUTBOX_STATUS.RETRY
+            || additional.clearProcessingLock;
+
+        if (additional.version != null) {
+            const [result] = await db.query(
+                `UPDATE outbox_events 
+                 SET status = ?, 
+                     attempts = COALESCE(?, attempts),
+                     error = COALESCE(?, error),
+                     processed_at = COALESCE(?, processed_at),
+                     processing_started_at = IF(?, NULL, processing_started_at),
+                     version = version + 1,
+                     updated_at = ?
+                 WHERE event_id = ?
+                   AND version = ?`,
+                [
+                    status,
+                    additional.attempts != null ? additional.attempts : null,
+                    additional.error != null ? additional.error : null,
+                    processedAt,
+                    clearLock ? 1 : 0,
+                    updatedAt,
+                    eventId,
+                    additional.version
+                ]
+            );
+
+            if (!result.affectedRows) {
+                this.stats.optimisticLockConflicts++;
+                console.warn(`Optimistic lock miss on status update for ${eventId}`);
+            }
+            return;
         }
 
         await db.query(
@@ -340,21 +647,23 @@ class OutboxService {
                  attempts = COALESCE(?, attempts),
                  error = COALESCE(?, error),
                  processed_at = COALESCE(?, processed_at),
+                 processing_started_at = IF(?, NULL, processing_started_at),
                  updated_at = ?
              WHERE event_id = ?`,
             [
                 status,
-                additional.attempts || null,
-                additional.error || null,
-                updates.processedAt || null,
-                updates.updatedAt,
+                additional.attempts != null ? additional.attempts : null,
+                additional.error != null ? additional.error : null,
+                processedAt,
+                clearLock ? 1 : 0,
+                updatedAt,
                 eventId
             ]
         );
     }
 
     /**
-     * Clean up old events
+     * Clean up old events (keep idempotency ledger longer)
      */
     async cleanupOldEvents() {
         try {
@@ -371,6 +680,19 @@ class OutboxService {
             if (result.affectedRows > 0) {
                 console.log(`🧹 Cleaned up ${result.affectedRows} old events`);
             }
+
+            // Only purge ledger rows past long retention (avoid early expiration re-dispatch)
+            const ledgerCutoff = new Date();
+            ledgerCutoff.setDate(
+                ledgerCutoff.getDate() - OUTBOX_CONFIG.idempotencyRetentionDays
+            );
+            await db.query(
+                `DELETE FROM outbox_idempotency_ledger
+                 WHERE status = 'completed'
+                   AND (expires_at IS NOT NULL AND expires_at < NOW()
+                        OR completed_at < ?)`,
+                [ledgerCutoff.toISOString()]
+            );
         } catch (error) {
             console.error('Cleanup error:', error);
         }
@@ -393,9 +715,25 @@ class OutboxService {
                  FROM outbox_events`
             );
 
+            let ledger = null;
+            try {
+                const [ledgerRows] = await db.query(
+                    `SELECT
+                        COUNT(*) as ledger_total,
+                        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as ledger_completed
+                     FROM outbox_idempotency_ledger`
+                );
+                ledger = ledgerRows[0];
+            } catch (_) {
+                ledger = null;
+            }
+
             return {
                 ...stats[0],
                 ...this.stats,
+                ledger,
+                staleProcessingMs: OUTBOX_CONFIG.staleProcessingMs,
+                idempotencyRetentionDays: OUTBOX_CONFIG.idempotencyRetentionDays,
                 timestamp: new Date().toISOString()
             };
         } catch (error) {
@@ -411,6 +749,7 @@ class OutboxService {
         await db.query(
             `UPDATE outbox_events 
              SET status = ?, 
+                 processing_started_at = NULL,
                  updated_at = NOW()
              WHERE status = ? 
              AND attempts < max_attempts`,
@@ -431,19 +770,40 @@ class OutboxService {
         return result[0]?.count || 0;
     }
 
+    /**
+     * Check whether an idempotency key was already consumed
+     */
+    async checkIdempotency(idempotencyKey, consumer = 'outbox-dispatcher') {
+        const [rows] = await db.query(
+            `SELECT status, event_id, completed_at, expires_at
+             FROM outbox_idempotency_ledger
+             WHERE idempotency_key = ? AND consumer = ?
+             LIMIT 1`,
+            [idempotencyKey, consumer]
+        );
+        if (!rows.length) {
+            return { exists: false, completed: false };
+        }
+        return {
+            exists: true,
+            completed: rows[0].status === 'completed',
+            status: rows[0].status,
+            eventId: rows[0].event_id,
+            completedAt: rows[0].completed_at,
+            expiresAt: rows[0].expires_at
+        };
+    }
+
     // ============================================
     // EVENT HANDLERS
     // ============================================
 
-    /**
-     * Process order created event
-     */
     async processOrderCreated(data) {
-        // Send notification
         await this.sendNotification({
             userId: data.userId,
             type: 'order_confirmation',
             template: 'order-confirmation',
+            idempotencyKey: data.idempotencyKey,
             data: {
                 orderId: data.orderId,
                 total: data.total,
@@ -451,56 +811,50 @@ class OutboxService {
             }
         });
 
-        // Update analytics
         await this.updateAnalytics({
             event: 'order_created',
             userId: data.userId,
             orderId: data.orderId,
             total: data.total,
+            idempotencyKey: data.idempotencyKey,
             timestamp: new Date().toISOString()
         });
 
-        // Update recommendations
         await this.updateRecommendations({
             userId: data.userId,
             orderId: data.orderId,
-            items: data.items
+            items: data.items,
+            idempotencyKey: data.idempotencyKey
         });
     }
 
-    /**
-     * Process order completed event
-     */
     async processOrderCompleted(data) {
-        // Send delivery notification
         await this.sendNotification({
             userId: data.userId,
             type: 'order_completed',
             template: 'order-completed',
+            idempotencyKey: data.idempotencyKey,
             data: {
                 orderId: data.orderId,
                 deliveryDate: data.deliveryDate
             }
         });
 
-        // Update analytics
         await this.updateAnalytics({
             event: 'order_completed',
             userId: data.userId,
             orderId: data.orderId,
+            idempotencyKey: data.idempotencyKey,
             timestamp: new Date().toISOString()
         });
     }
 
-    /**
-     * Process payment completed event
-     */
     async processPaymentCompleted(data) {
-        // Send payment confirmation
         await this.sendNotification({
             userId: data.userId,
             type: 'payment_confirmation',
             template: 'payment-confirmation',
+            idempotencyKey: data.idempotencyKey,
             data: {
                 paymentId: data.paymentId,
                 orderId: data.orderId,
@@ -508,12 +862,12 @@ class OutboxService {
             }
         });
 
-        // Update analytics
         await this.updateAnalytics({
             event: 'payment_completed',
             userId: data.userId,
             paymentId: data.paymentId,
             amount: data.amount,
+            idempotencyKey: data.idempotencyKey,
             timestamp: new Date().toISOString()
         });
     }
@@ -522,43 +876,25 @@ class OutboxService {
     // HELPER FUNCTIONS
     // ============================================
 
-    /**
-     * Send notification (simplified)
-     */
     async sendNotification(data) {
-        // In production, send actual notification
-        console.log(`📧 Notification: ${data.type} for user ${data.userId}`);
+        console.log(`📧 Notification: ${data.type} for user ${data.userId} key=${data.idempotencyKey || 'n/a'}`);
         return { sent: true };
     }
 
-    /**
-     * Update analytics (simplified)
-     */
     async updateAnalytics(data) {
-        // In production, update analytics
         console.log(`📊 Analytics: ${data.event}`);
         return { updated: true };
     }
 
-    /**
-     * Update recommendations (simplified)
-     */
     async updateRecommendations(data) {
-        // In production, update recommendations
         console.log(`🎯 Recommendations updated for user ${data.userId}`);
         return { updated: true };
     }
 
-    /**
-     * Generate event ID
-     */
     generateEventId() {
         return `EVT_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
     }
 
-    /**
-     * Stop the outbox service
-     */
     async shutdown() {
         if (this.pollInterval) {
             clearInterval(this.pollInterval);
@@ -568,6 +904,11 @@ class OutboxService {
         if (this.cleanupInterval) {
             clearInterval(this.cleanupInterval);
             this.cleanupInterval = null;
+        }
+
+        if (this.staleResetInterval) {
+            clearInterval(this.staleResetInterval);
+            this.staleResetInterval = null;
         }
 
         this.isRunning = false;
@@ -583,5 +924,6 @@ module.exports = {
     OutboxService,
     OUTBOX_STATUS,
     EVENT_TYPES,
+    OUTBOX_CONFIG,
     outboxService: new OutboxService()
 };
