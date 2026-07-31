@@ -317,3 +317,4 @@ window.closeCartDrawer = closeCartDrawer;
 window.renderCartDrawer = renderCartDrawer;
 
 window.addEventListener(AppUtils.CART_UPDATED_EVENT, renderCartDrawer);
+window.addEventListener('online', renderCartDrawer);

@@ -998,6 +998,34 @@ const readCartEnvelope = (
     };
 };
 
+const CART_BROADCAST_CHANNEL = 'ecommerce_cart_channel';
+let cartChannel = null;
+
+try {
+    if (typeof BroadcastChannel !== 'undefined') {
+        cartChannel = new BroadcastChannel(CART_BROADCAST_CHANNEL);
+        cartChannel.onmessage = (event) => {
+            if (event && event.data && event.data.type === 'CART_SYNC_BROADCAST') {
+                const currentOwner = getCartOwner();
+                if (event.data.owner === currentOwner) {
+                    const updatedCart = getCart();
+                    dispatchCartUpdated(updatedCart);
+                }
+            }
+        };
+    }
+} catch (err) {
+    console.warn('BroadcastChannel initialization error:', err);
+}
+
+// Cross-Tab Storage Event Fallback for older browsers
+window.addEventListener('storage', (event) => {
+    if (event.key === CONFIG.STORAGE_KEYS.CART) {
+        const updatedCart = getCart();
+        dispatchCartUpdated(updatedCart);
+    }
+});
+
 const writeCartEnvelope = (
     envelope
 ) => {
@@ -1013,6 +1041,18 @@ const writeCartEnvelope = (
     ) {
 
         lastWrittenCart = envelope;
+
+        if (cartChannel) {
+            try {
+                cartChannel.postMessage({
+                    type: 'CART_SYNC_BROADCAST',
+                    owner: envelope.owner,
+                    timestamp: envelope.updatedAt || Date.now()
+                });
+            } catch (e) {
+                // Ignore broadcast post failures
+            }
+        }
     }
 
     return saved;
@@ -1378,10 +1418,54 @@ const cartLinesForBackend = (cart) =>
             qty: item.qty
         }));
 
+const OFFLINE_CART_QUEUE_KEY = "offline_cart_queue";
+
+const getOfflineCartQueue = () => getJSON(OFFLINE_CART_QUEUE_KEY, []);
+const saveOfflineCartQueue = (queue) => setJSON(OFFLINE_CART_QUEUE_KEY, queue);
+
+const enqueueOfflineCartMutation = (cart) => {
+    const queue = getOfflineCartQueue();
+    queue.push({
+        cart: cartLinesForBackend(cart),
+        timestamp: Date.now()
+    });
+    saveOfflineCartQueue(queue);
+};
+
+const processOfflineCartQueue = async () => {
+    if (!navigator.onLine || !isAuthenticated()) return;
+    const queue = getOfflineCartQueue();
+    if (!queue.length) return;
+
+    saveOfflineCartQueue([]);
+
+    try {
+        const currentCart = getCart();
+        const synced = await pushCartToBackend(currentCart);
+        if (synced) {
+            notify("Reconnected: Cart synced to your account", "info");
+        }
+    } catch (error) {
+        console.warn("Failed to sync offline cart queue:", error);
+    }
+};
+
+window.addEventListener("online", () => {
+    processOfflineCartQueue();
+    const currentCart = getCart();
+    dispatchCartUpdated(currentCart);
+});
+
 // Push the whole cart and report whether the account accepted it. /cart/sync is
 // replace-all, so this reconciles the server with the local cart after any
 // mutation — including bulk edits made through saveCart directly.
 const pushCartToBackend = async (cart) => {
+    if (!navigator.onLine) {
+        enqueueOfflineCartMutation(cart);
+        notify("Network offline. Cart saved locally and queued for background sync.", "warning");
+        return true;
+    }
+
     let response = null;
 
     try {
@@ -1394,11 +1478,11 @@ const pushCartToBackend = async (cart) => {
         });
     } catch (error) {
         console.warn("Cart backend sync failed:", error);
+        enqueueOfflineCartMutation(cart);
     }
 
     if (response && response.success) {
         serverAcknowledgedItems = cart;
-
         return true;
     }
 
@@ -1408,8 +1492,6 @@ const pushCartToBackend = async (cart) => {
         "error"
     );
 
-    // Show what the account actually holds rather than leaving the shopper
-    // looking at a change that was refused.
     if (serverAcknowledgedItems) {
         saveCart(serverAcknowledgedItems, { sync: false });
     }
