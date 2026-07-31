@@ -992,16 +992,15 @@ function initializeImageZoom() {
     }
     if (productElements.minusBtn) {
         productElements.minusBtn.addEventListener("click", () => {
-            productElements.qtyInput.value = safeQty(productElements.qtyInput.value) - 1;
+            if (!productElements.qtyInput) return;
+            productElements.qtyInput.value = Math.max(1, safeQty(productElements.qtyInput.value) - 1);
             syncQtyControls();
         });
     }
 
     window.syncProductQtyControls = syncQtyControls;
 
-    // ============================================
     // KEYBOARD ACCESSIBILITY
-    // ============================================
     document.addEventListener("keydown", (event) => {
         const activeTag = document.activeElement?.tagName;
         if (["INPUT", "TEXTAREA"].includes(activeTag)) return;
@@ -1040,22 +1039,158 @@ function initializeImageZoom() {
 // INITIALIZATION
 // ========================================
 
-document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-
-        fetchProduct();
-
-        if (
-            typeof updateCartCount ===
-            "function"
-        ) {
-
-            updateCartCount();
-        }
-
-        initBackToTop();
+    resizeCanvas() {
+        if (!this.canvas || !this.canvas.parentElement) return;
+        const rect = this.canvas.parentElement.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        this.canvas.width = rect.width * dpr;
+        this.canvas.height = rect.height * dpr;
+        this.ctx.scale(dpr, dpr);
+        this.render();
     }
-);
+
+    render() {
+        if (!this.ctx || !this.images.length || !this.canvas.parentElement) return;
+
+        const rect = this.canvas.parentElement.getBoundingClientRect();
+        const width = rect.width;
+        const height = rect.height;
+
+        this.ctx.clearRect(0, 0, width, height);
+
+        const img = this.images[this.currentFrame] || this.images[0];
+        if (!img || !img.complete) return;
+
+        this.ctx.save();
+        this.ctx.translate(width / 2 + this.panX, height / 2 + this.panY);
+        this.ctx.scale(this.scale, this.scale);
+
+        // Frame scrubbing tilt angle effect on HTML5 Canvas
+        const angle = (this.currentFrame / this.totalFrames) * Math.PI * 2;
+        const scaleX = Math.cos(angle);
+        this.ctx.scale(scaleX, 1);
+
+        this.ctx.drawImage(img, -width / 3, -height / 3, (width * 2) / 3, (height * 2) / 3);
+        this.ctx.restore();
+    }
+
+    onDragStart(point) {
+        if (!this.container || this.container.style.display === "none") return;
+        this.isDragging = true;
+        this.startX = point.clientX;
+        this.lastX = point.clientX;
+        this.lastTime = performance.now();
+        this.velocity = 0;
+        this.stopAutoRotate();
+        if (this.inertiaRaf) cancelAnimationFrame(this.inertiaRaf);
+        this.canvas.classList.add("is-grabbing");
+    }
+
+    onDragMove(point) {
+        if (!this.isDragging) return;
+        const now = performance.now();
+        const deltaX = point.clientX - this.lastX;
+        const deltaTime = Math.max(1, now - this.lastTime);
+
+        this.velocity = deltaX / deltaTime;
+        this.lastX = point.clientX;
+        this.lastTime = now;
+
+        const sensitivity = 0.15;
+        const frameOffset = Math.round(deltaX * sensitivity);
+        if (frameOffset !== 0) {
+            this.currentFrame = (this.currentFrame - frameOffset + this.totalFrames * 10) % this.totalFrames;
+            requestAnimationFrame(() => this.render());
+        }
+    }
+
+    onDragEnd() {
+        if (!this.isDragging) return;
+        this.isDragging = false;
+        this.canvas.classList.remove("is-grabbing");
+        this.applyInertia();
+    }
+
+    applyInertia() {
+        if (Math.abs(this.velocity) < 0.05) return;
+
+        const step = () => {
+            if (Math.abs(this.velocity) < 0.05 || this.isDragging) {
+                this.inertiaRaf = null;
+                return;
+            }
+
+            const frameDelta = this.velocity > 0 ? -1 : 1;
+            this.currentFrame = (this.currentFrame + frameDelta + this.totalFrames) % this.totalFrames;
+            this.velocity *= 0.92;
+            this.render();
+
+            this.inertiaRaf = requestAnimationFrame(step);
+        };
+
+        if (this.inertiaRaf) cancelAnimationFrame(this.inertiaRaf);
+        this.inertiaRaf = requestAnimationFrame(step);
+    }
+
+    toggleAutoRotate() {
+        if (this.autoRotate) {
+            this.stopAutoRotate();
+        } else {
+            this.autoRotate = true;
+            if (this.btnRotate) this.btnRotate.classList.add("is-active");
+            const loop = () => {
+                if (!this.autoRotate) return;
+                this.currentFrame = (this.currentFrame + 1) % this.totalFrames;
+                this.render();
+                this.autoRotateRaf = setTimeout(() => requestAnimationFrame(loop), 80);
+            };
+            loop();
+        }
+    }
+
+    stopAutoRotate() {
+        this.autoRotate = false;
+        if (this.btnRotate) this.btnRotate.classList.remove("is-active");
+        if (this.autoRotateRaf) {
+            clearTimeout(this.autoRotateRaf);
+            this.autoRotateRaf = null;
+        }
+    }
+
+    zoom(factor) {
+        this.scale = Math.min(3.0, Math.max(0.5, this.scale * factor));
+        this.render();
+    }
+
+    resetView() {
+        this.scale = 1.0;
+        this.panX = 0;
+        this.panY = 0;
+        this.currentFrame = 0;
+        this.stopAutoRotate();
+        this.render();
+    }
+
+    toggleFullscreen() {
+        if (!this.container) return;
+        this.container.classList.toggle("is-fullscreen");
+        this.resizeCanvas();
+    }
+}
+
+// ========================================
+// INITIALIZATION
+// ========================================
+
+document.addEventListener("DOMContentLoaded", () => {
+    fetchProduct();
+
+    if (typeof updateCartCount === "function") {
+        updateCartCount();
+    }
+
+    initBackToTop();
+    new Product360Viewer();
+});
 
 })();

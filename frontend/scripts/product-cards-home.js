@@ -11,7 +11,6 @@ function safeText(value, fallback = "") {
 
 function safePrice(value) {
   const parsed = parseFloat(value);
-
   return isNaN(parsed) ? 0 : parsed;
 }
 
@@ -118,60 +117,46 @@ function createProductCard(
             }
         ).join("");
 
-    // Stock status
     const stock = Number(product.stock) || 0;
     const outOfStock = isOutOfStock(stock);
     const outOfStockClass = outOfStock ? 'out-of-stock' : '';
 
+    const wishlistIds = wishlistSet instanceof Set 
+        ? wishlistSet 
+        : (typeof AppUtils !== 'undefined' && AppUtils.getWishlist ? new Set(AppUtils.getWishlist().map(item => String(item.id))) : new Set());
+    const isWishlisted = wishlistIds.has(String(product.id));
+
     return `
-        <div class="pro ${outOfStockClass} fade-in">
+        <div class="pro ${outOfStockClass} fade-in" data-id="${product.id}">
             ${
                 product.featured
-                    ? `
-                        <span class="product-badge">
-                            Featured
-                        </span>
-                    `
+                    ? `<span class="product-badge">Featured</span>`
                     : ""
             }
 
             <div class="product-image-wrapper">
                 <img
-    src="${defaultImage(product.image)}"
-    alt="${escapeHTML(product.name || 'Product image')}"
-    loading="lazy"
-    onerror="handleImageError(this)"
->
+                    src="${typeof defaultImage === 'function' ? defaultImage(product.image) : (product.image || '')}"
+                    alt="${typeof escapeHTML === 'function' ? escapeHTML(product.name || 'Product image') : (product.name || 'Product')}"
+                    loading="lazy"
+                    onerror="typeof handleImageError === 'function' && handleImageError(this)"
+                >
                 ${getStockBadgeHTML(stock)}
                 ${getOutOfStockOverlayHTML(stock)}
             </div>
 
             <div class="des">
-                <span>
-                    ${safeText(product.brand || product.category, "Fashion")}
-                </span>
-
-                <h5>
-                    ${safeText(product.name, "Product")}
-                </h5>
-
-                <div class="star">
-                    ${stars}
-                </div>
-
-                <h4>
-                    ${formatPrice(safePrice(product.price))}
-                </h4>
-
+                <span>${safeText(product.brand || product.category, "Fashion")}</span>
+                <h5>${safeText(product.name, "Product")}</h5>
+                <div class="star">${stars}</div>
+                <h4>${typeof formatPrice === 'function' ? formatPrice(safePrice(product.price)) : `$${safePrice(product.price)}`}</h4>
                 ${getLowStockTextHTML(stock)}
 
                 <div class="product-actions">
                     <button
                         type="button"
                         class="view-product-btn"
-                        data-id="${
-                            product.id
-                        }"
+                        data-id="${product.id}"
                         ${outOfStock ? 'disabled' : ''}
                     >
                         View
@@ -179,9 +164,7 @@ function createProductCard(
                     <button
                         type="button"
                         class="add-cart-btn"
-                        data-id="${
-                            product.id
-                        }"
+                        data-id="${product.id}"
                         ${outOfStock ? 'disabled' : ''}
                     >
                         Add Cart
@@ -189,9 +172,7 @@ function createProductCard(
                     <button
                         type="button"
                         class="compare-btn"
-                        data-id="${
-                            product.id
-                        }"
+                        data-id="${product.id}"
                         ${outOfStock ? 'disabled' : ''}
                     >
                         Compare
@@ -232,22 +213,36 @@ function renderSkeletonCards(containerId, count = 4) {
     container.innerHTML = skeletons;
 }
 
+/**
+ * Initialize touch inertia carousel on product containers safely
+ * Prevents memory leaks by destroying previous instance on the container
+ */
+function attachTouchCarousel(container) {
+    if (!container) return;
+    if (typeof TouchInertiaCarousel === 'function') {
+        new TouchInertiaCarousel(container);
+    }
+}
+
 // render featured products
 function renderFeaturedProducts(products = []) {
   if (!homeFeaturedContainer) {
     return;
   }
 
+  // Cleanup old carousel instance to avoid memory leak
+  if (homeFeaturedContainer.__touchCarouselInstance) {
+      homeFeaturedContainer.__touchCarouselInstance.destroy();
+  }
+
   const featured = products.filter((product) => product.featured);
-  const wishlistIds = new Set(AppUtils.getWishlist().map((item) => String(item.id)));
+  const wishlistIds = (typeof AppUtils !== 'undefined' && AppUtils.getWishlist) 
+      ? new Set(AppUtils.getWishlist().map((item) => String(item.id))) 
+      : new Set();
 
   homeFeaturedContainer.innerHTML = featured.length
     ? featured.slice(0, 8).map((product) => createProductCard(product, wishlistIds)).join("")
-    : `
-                <p class="empty-products">
-                    No featured products found
-                </p>
-            `;
+    : `<p class="empty-products">No featured products found</p>`;
 
     requestAnimationFrame(() => {
         const cards = homeFeaturedContainer.querySelectorAll('.pro');
@@ -273,36 +268,31 @@ function renderFeaturedProducts(products = []) {
                 }
             });
         }
+
+        // Attach hardware-accelerated touch gesture carousel
+        attachTouchCarousel(homeFeaturedContainer);
     });
+}
 
 // render new arrivals
-function renderNewArrivals(
-    products = []
-) {
-    if (
-        !homeArrivalsContainer
-    ) {
+function renderNewArrivals(products = []) {
+    if (!homeArrivalsContainer) {
         return;
     }
 
-    const arrivals =
-        products.filter(
-            (product) =>
-                Number(product.featured) !== 1
-        ).slice(0, 8);
+    // Cleanup old carousel instance to avoid memory leak
+    if (homeArrivalsContainer.__touchCarouselInstance) {
+        homeArrivalsContainer.__touchCarouselInstance.destroy();
+    }
 
-    homeArrivalsContainer.innerHTML =
-        arrivals.length
-            ? arrivals
-                .map(
-                    createProductCard
-                )
-                .join("")
-            : `
-                <p class="empty-products">
-                    No new arrivals found
-                </p>
-            `;
+    const arrivals = products.filter((product) => Number(product.featured) !== 1).slice(0, 8);
+    const wishlistIds = (typeof AppUtils !== 'undefined' && AppUtils.getWishlist) 
+        ? new Set(AppUtils.getWishlist().map((item) => String(item.id))) 
+        : new Set();
+
+    homeArrivalsContainer.innerHTML = arrivals.length
+        ? arrivals.map((product) => createProductCard(product, wishlistIds)).join("")
+        : `<p class="empty-products">No new arrivals found</p>`;
 
     requestAnimationFrame(() => {
         if (typeof initializeScrollAnimations === "function") {
@@ -316,6 +306,9 @@ function renderNewArrivals(
                 card.classList.add('in-view');
             }
         });
+
+        // Attach hardware-accelerated touch gesture carousel
+        attachTouchCarousel(homeArrivalsContainer);
     });
 }
 
@@ -333,13 +326,6 @@ function refreshHomeCardAnimations() {
     if (typeof initializeScrollAnimations === "function") {
         initializeScrollAnimations();
     }
-    return;
-  }
-
-  // Fallback: re-run observer setup
-  if (typeof initializeScrollAnimations === "function") {
-    initializeScrollAnimations();
-  }
 }
 
 function renderFeaturedProductsWithAnim(products = []) {
@@ -352,11 +338,6 @@ function renderNewArrivalsWithAnim(products = []) {
   refreshHomeCardAnimations();
 }
 
-window.renderFeaturedProducts =
-    renderFeaturedProductsWithAnim;
-
-window.renderNewArrivals =
-    renderNewArrivalsWithAnim;
-
-window.createProductCard =
-    createProductCard;
+window.renderFeaturedProducts = renderFeaturedProductsWithAnim;
+window.renderNewArrivals = renderNewArrivalsWithAnim;
+window.createProductCard = createProductCard;

@@ -822,3 +822,241 @@ body.dark-theme .image-lens {
   flex-direction: column;
   gap: 15px;
 }
+
+.product-view-controls {
+    margin-top: 15px;
+    display: flex;
+    justify-content: center;
+}
+
+.view-360-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #088178 0%, #066663 100%);
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 700;
+    border: none;
+    border-radius: 30px;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(8, 129, 120, 0.3);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.view-360-btn:hover {
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 8px 25px rgba(8, 129, 120, 0.45);
+    background: linear-gradient(135deg, #0aa398 0%, #088178 100%);
+}
+
+.view-360-btn i {
+    font-size: 16px;
+    transition: transform 0.5s ease;
+}
+
+.view-360-btn:hover i {
+    transform: rotate(180deg);
+}
+
+/* 360 Viewer Container */
+.product-360-viewer {
+    position: relative;
+    margin-top: 20px;
+    background: #ffffff;
+    border: 1px solid var(--border-color, #e1e1e1);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.product-360-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #eee;
+    margin-bottom: 15px;
+}
+
+.product-360-header h4 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 18px;
+    color: var(--primary-color, #088178);
+}
+
+.close-360-btn {
+    background: transparent;
+    border: none;
+    font-size: 20px;
+    color: #666;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.close-360-btn:hover {
+    background: #f0f0f0;
+    color: #e74c3c;
+}
+
+/* Canvas & Preloader */
+.product-360-canvas-wrapper {
+    position: relative;
+    width: 100%;
+    height: 420px;
+    background: #f8f9fa;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    touch-action: none;
+}
+
+#product-360-canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    cursor: grab;
+}
+
+#product-360-canvas.is-grabbing {
+    cursor: grabbing;
+}
+
+.product-360-preloader {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.95);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 20px;
+}
+
+.preloader-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #e0e0e0;
+    border-top-color: var(--primary-color, #088178);
+    border-radius: 50%;
+    animation: spin360 0.8s linear infinite;
+}
+
+@keyframes spin360 {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.progress-bar-container {
+    width: 80%;
+    max-width: 260px;
+    height: 8px;
+    background: #e0e0e0;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--primary-color, #088178);
+    transition: width 0.2s ease;
+}
+
+.product-360-gesture-hint {
+    position: absolute;
+    bottom: 12px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #ffffff;
+    font-size: 12px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    pointer-events: none;
+    backdrop-filter: blur(4px);
+}
+
+/* Toolbar Controls */
+.product-360-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 15px;
+    flex-wrap: wrap;
+}
+
+.btn-360-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: #f0f4f3;
+    color: var(--text-dark, #222);
+    border: 1px solid #d0dedb;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-360-control:hover,
+.btn-360-control.is-active {
+    background: var(--primary-color, #088178);
+    color: #ffffff;
+    border-color: var(--primary-color, #088178);
+}
+
+/* Fullscreen Mode */
+.product-360-viewer.is-fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    border-radius: 0;
+    margin: 0;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+}
+
+.product-360-viewer.is-fullscreen .product-360-canvas-wrapper {
+    flex: 1;
+    height: calc(100vh - 120px);
+}
+
+/* Dark Theme Support */
+body.dark-theme .product-360-viewer {
+    background: #1e1e1e;
+    border-color: #333;
+}
+
+body.dark-theme .product-360-header {
+    border-bottom-color: #333;
+}
+
+body.dark-theme .product-360-canvas-wrapper {
+    background: #121212;
+}
+
+body.dark-theme .btn-360-control {
+    background: #2a2a2a;
+    color: #e0e0e0;
+    border-color: #444;
+}
+
+body.dark-theme .product-360-preloader {
+    background: rgba(18, 18, 18, 0.95);
+    color: #ffffff;
+}
+
