@@ -5,6 +5,7 @@ class RecentlyViewedService {
     constructor() {
         this.cache = new Map();
         this.maxItems = 20;
+
         this.cacheTTL = 300000; // 5 minutes in milliseconds
         this.cleanupInterval = null;
         this.initialized = false;
@@ -24,12 +25,27 @@ class RecentlyViewedService {
         this.initialized = true;
         console.log('✅ Recently Viewed Service initialized');
         return this;
+
     }
 
     /**
      * Add product to recently viewed
      */
     async addViewed(userId, productId) {
+        if (!userId || !productId) return;
+
+        try {
+            // Check if product exists
+            const [product] = await db.query(
+                'SELECT id, name, price, image_url FROM products WHERE id = ? AND stock > 0',
+                [productId]
+            );
+
+            if (product.length === 0) return;
+
+            // Get existing viewed items
+            const key = `recently_viewed_${userId}`;
+
         if (!userId || !productId) {
             console.warn('⚠️ Missing userId or productId for recently viewed');
             return [];
@@ -57,6 +73,7 @@ class RecentlyViewedService {
 
             // Get existing viewed items
             const key = this.getCacheKey(userId);
+ 
             let viewed = this.cache.get(key) || [];
 
             // Remove if already exists
@@ -66,8 +83,13 @@ class RecentlyViewedService {
             viewed.unshift({
                 id: productId,
                 name: product[0].name,
+
+                price: product[0].price,
+                imageUrl: product[0].image_url,
+
                 price: parseFloat(product[0].price),
                 imageUrl: product[0].image_url || '/assets/images/placeholder.png',
+
                 viewedAt: new Date().toISOString()
             });
 
@@ -76,11 +98,14 @@ class RecentlyViewedService {
                 viewed = viewed.slice(0, this.maxItems);
             }
 
+            this.cache.set(key, viewed);
+
             // Store in cache with timestamp
             this.cache.set(key, {
                 data: viewed,
                 timestamp: Date.now()
             });
+
 
             // Store in database
             await db.query(
@@ -92,7 +117,10 @@ class RecentlyViewedService {
 
             return viewed;
         } catch (error) {
+            console.error('Add recently viewed error:', error);
+
             console.error('❌ Add recently viewed error:', error);
+
             return [];
         }
     }
@@ -101,6 +129,16 @@ class RecentlyViewedService {
      * Get recently viewed products for user
      */
     async getRecentlyViewed(userId, limit = 10) {
+        if (!userId) return [];
+
+        try {
+            // Check cache first
+            const key = `recently_viewed_${userId}`;
+            let viewed = this.cache.get(key);
+
+            if (viewed && viewed.length > 0) {
+                return viewed.slice(0, limit);
+
         if (!userId) {
             console.warn('⚠️ No userId provided for recently viewed');
             return [];
@@ -126,6 +164,18 @@ class RecentlyViewedService {
                     p.id,
                     p.name,
                     p.price,
+                    p.image_url as imageUrl,
+                    rv.viewed_at as viewedAt
+                 FROM recently_viewed rv
+                 JOIN products p ON p.id = rv.product_id
+                 WHERE rv.user_id = ? AND p.stock > 0
+                 ORDER BY rv.viewed_at DESC
+                 LIMIT ?`,
+                [userId, limit]
+            );
+
+            if (rows.length > 0) {
+                this.cache.set(key, rows);
                     COALESCE(p.image_url, '/assets/images/placeholder.png') as imageUrl,
                     rv.viewed_at as viewedAt
                  FROM recently_viewed rv
@@ -147,12 +197,21 @@ class RecentlyViewedService {
 
             return [];
         } catch (error) {
+            console.error('Get recently viewed error:', error);
             console.error('❌ Get recently viewed error:', error);
             return [];
         }
     }
 
     /**
+     * Clear recently viewed for user
+     */
+    async clearRecentlyViewed(userId) {
+        if (!userId) return;
+
+        try {
+            const key = `recently_viewed_${userId}`;
+
      * Get recently viewed with product details
      */
     async getRecentlyViewedWithDetails(userId, limit = 10) {
@@ -211,6 +270,16 @@ class RecentlyViewedService {
                 'DELETE FROM recently_viewed WHERE user_id = ?',
                 [userId]
             );
+
+            return true;
+        } catch (error) {
+            console.error('Clear recently viewed error:', error);
+            return false;
+        }
+    }
+}
+
+module.exports = new RecentlyViewedService();
 
             console.log(`🧹 Cleared recently viewed for user ${userId}`);
             return true;
@@ -414,3 +483,4 @@ const recentlyViewedService = new RecentlyViewedService();
 recentlyViewedService.initialize();
 
 module.exports = recentlyViewedService;
+

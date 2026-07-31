@@ -2,11 +2,15 @@
 const jwt = require('jsonwebtoken');
 const refreshTokenService = require('../services/refreshTokenService');
 
-// JWT_SECRET must be set in environment - throw error if missing
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-    throw new Error('FATAL: JWT_SECRET environment variable is required but not set. Application cannot start without a secure JWT secret.');
-}
+// Importing the token contract validates the token configuration, so a missing
+// or reused secret stops the process at startup instead of surfacing as a
+// mysterious 401 on the first protected request.
+const {
+    COOKIE_NAMES,
+    assertAccessTokenSecret,
+    hasSubjectClaim,
+    verifyAccessToken
+} = require('../utils/tokens');
 
 /**
  * Verify JWT token from Authorization header or cookies fallback.
@@ -23,8 +27,8 @@ async function authMiddleware(req, res, next) {
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
         token = authHeader.slice(7);
-    } else if (req.cookies && req.cookies.accessToken) {
-        token = req.cookies.accessToken;
+    } else if (req.cookies && req.cookies[COOKIE_NAMES.accessToken]) {
+        token = req.cookies[COOKIE_NAMES.accessToken];
     }
 
     if (!token || token.trim().length === 0) {
@@ -111,8 +115,8 @@ async function optionalAuth(req, res, next) {
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
         token = authHeader.slice(7);
-    } else if (req.cookies && req.cookies.accessToken) {
-        token = req.cookies.accessToken;
+    } else if (req.cookies && req.cookies[COOKIE_NAMES.accessToken]) {
+        token = req.cookies[COOKIE_NAMES.accessToken];
     }
 
     if (!token || token.trim().length === 0) {

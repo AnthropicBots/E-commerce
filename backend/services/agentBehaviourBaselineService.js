@@ -1149,6 +1149,31 @@ class AgentBehavioralBaselineService {
                 timestamp: new Date().toISOString()
             };
         } catch (error) {
+            console.error('Statistics error:', error);
+            throw error;
+        }
+    }
+
+    getStatus() {
+        return {
+            agentBaselines: this.agentBaselines.size,
+            merchantProfiles: this.merchantProfiles.size,
+            basketProfiles: this.basketProfiles.size,
+            conversationFingerprints: this.conversationFingerprints.size,
+            mandateProfiles: this.mandateProfiles.size,
+            anomalyLogs: this.anomalyLogs.length,
+            detectionAlerts: this.detectionAlerts.length,
+            config: BASELINE_CONFIG
+        };
+    }
+}
+
+// ============================================
+// EXPORT
+// ============================================
+
+module.exports = new AgentBehavioralBaselineService();
+
             console.error('AGENT BASELINE STATISTICS ERROR:', error);
 
             // Statistics are advisory: a failure here must not take down the
@@ -1175,3 +1200,4 @@ class AgentBehavioralBaselineService {
 // it could neither be parsed nor required.
 module.exports = new AgentBehavioralBaselineService();
 module.exports.AgentBehavioralBaselineService = AgentBehavioralBaselineService;
+

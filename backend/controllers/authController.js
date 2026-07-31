@@ -4,7 +4,6 @@
  */
 
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const db = require("../config/db");
 const { sanitizeString, safeArray } = require("../utils/helpers");
@@ -58,11 +57,6 @@ setInterval(() => {
         }
     }
 }, CLEANUP_INTERVAL);
-
-// ==================== JWT SECRET VALIDATION ====================
-if (!process.env.JWT_SECRET) {
-    throw new Error("JWT_SECRET environment variable is not set");
-}
 
 // ==================== APPWRITE CLIENT ====================
 const appwriteClient = new Client()
@@ -379,11 +373,7 @@ const login = async (req, res) => {
 
         // Check if 2FA is enabled
         if (user.is_2fa_enabled === 1) {
-            const tempToken = jwt.sign(
-                { id: user.id, email: user.email, role: user.role, is2FA: true },
-                process.env.JWT_SECRET,
-                { expiresIn: "5m" }
-            );
+            const tempToken = issueTwoFactorToken(user);
             return res.status(200).json({
                 success: true,
                 requires2FA: true,
@@ -453,8 +443,8 @@ const logout = async (req, res) => {
         }
 
         // Clear cookies using shared cookie options
-        res.clearCookie('accessToken', getClearCookieOptions());
-        res.clearCookie('refreshToken', getClearCookieOptions('/api/auth/refresh'));
+        res.clearCookie(COOKIE_NAMES.accessToken, getClearCookieOptions());
+        res.clearCookie(COOKIE_NAMES.refreshToken, getClearCookieOptions(REFRESH_COOKIE_PATH));
 
         console.log(`🔓 User ${userId} logged out successfully`);
 
@@ -568,6 +558,20 @@ const resetPassword = async (req, res) => {
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await db.query(`UPDATE users SET password = ? WHERE email = ?`, [hashedPassword, appwriteUser.email]);
 
+        // A reset is the path someone takes when they may have lost control of
+        // the account, so every existing session goes -- there is no session to
+        // keep here, because the reset is not made from a signed-in device.
+        const [resetUsers] = await db.query(
+            `SELECT id FROM users WHERE email = ? LIMIT 1`,
+            [appwriteUser.email]
+        );
+        if (safeArray(resetUsers).length) {
+            await revokeUserSessions({
+                userId: resetUsers[0].id,
+                reason: REVOKE_REASON.PASSWORD_CHANGED
+            });
+        }
+
         // Cleanup Appwrite session
         try {
             await userAccount.deleteSession('current');
@@ -678,11 +682,19 @@ const refreshAccessToken = async (req, res) => {
         );
 
         if (!safeArray(users).length) {
+            await revokeUserSessions({
+                userId: rotation.userId,
+                reason: REVOKE_REASON.ACCOUNT_DISABLED
+            });
             return res.status(401).json({ success: false, message: "Invalid refresh token" });
         }
 
         const user = rotation.user || users[0];
         if (user.is_active === 0) {
+            await revokeUserSessions({
+                userId: user.id,
+                reason: REVOKE_REASON.ACCOUNT_DISABLED
+            });
             return res.status(403).json({ success: false, message: "Account has been deactivated" });
         }
 

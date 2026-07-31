@@ -218,26 +218,6 @@ class User {
         return this;
     }
 
-    // ==================== TOKEN METHODS ====================
-
-    /**
-     * Generate refresh token for user
-     * @param {string} refreshToken - Refresh token
-     * @param {string} ip - IP address
-     * @param {string} userAgent - User agent
-     * @returns {Object} Token data
-     */
-    generateRefreshToken(refreshToken, ip, userAgent) {
-        return {
-            userId: this.id,
-            token: refreshToken,
-            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-            ipAddress: ip,
-            userAgent: userAgent,
-            isRevoked: false
-        };
-    }
-
     // ==================== PASSWORD HISTORY ====================
 
     /**
