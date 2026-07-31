@@ -3,7 +3,6 @@ const express = require('express');
 const router = express.Router();
 
 const aiProductFeed = require('../services/aiProductFeedService');
-
 const aiFeedController = require('../controllers/aiFeedController');
 
 

@@ -17,9 +17,14 @@ const morgan = require("morgan");
 const timeout = require("connect-timeout");
 const fs = require("fs");
 const path = require("path");
+
 // Add with other imports
 const aiFeedRoutes = require('./routes/aiFeedRoutes');
+// Add with other imports
+const claudeRoutes = require('./routes/claudeRoutes');
 
+// Add Claude routes
+app.use('/api/claude', claudeRoutes);
 // Add AI feed routes
 app.use('/api/ai-feed', aiFeedRoutes);
 const dotenv = require("dotenv");
