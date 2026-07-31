@@ -81,6 +81,13 @@ async function renderDashboardOrders() {
                     ? `<button class="btn btn-sm" style="color:red; border:1px solid red; padding: 4px 8px; border-radius:4px; background:transparent; cursor:pointer;" onclick="cancelDashboardOrder(${order.id})">Cancel Order</button>`
                     : "";
 
+                const isReturnable = (order.status || "").toLowerCase() === "delivered";
+                const returnBtnHtml = isReturnable
+                    ? `<button class="btn btn-sm" style="color:#111; border:1px solid #111; padding: 4px 8px; border-radius:4px; background:transparent; cursor:pointer;" onclick="openReturnModal('${order.id}')">Request Return</button>`
+                    : "";
+
+                const actionsHtml = [cancelBtnHtml, returnBtnHtml].filter(Boolean).join(" ");
+
                 card.innerHTML = `
                     <div class="dashboard-order-top">
                         <div>
@@ -131,7 +138,7 @@ async function renderDashboardOrders() {
                             }
                         </strong>
                     </div>
-                    ${cancelBtnHtml ? `<div style="text-align: right; margin-top: 10px;">${cancelBtnHtml}</div>` : ""}
+                    ${actionsHtml ? `<div style="text-align: right; margin-top: 10px; display:flex; gap:8px; justify-content:flex-end;">${actionsHtml}</div>` : ""}
                 `;
 
                 dashboardOrderElements

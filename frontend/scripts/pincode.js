@@ -18,10 +18,9 @@ document.addEventListener("DOMContentLoaded", () => {
         resultEl.className = "pincode-loading";
 
         try {
-            const response = await fetch(
-                `${window.CONFIG.API_BASE}/pincode/check/${pincode}`
+            const data = await AppUtils.apiRequest(
+                `/pincode/check/${pincode}`
             );
-            const data = await response.json();
 
             resultEl.textContent = data.message;
             resultEl.className = data.deliverable

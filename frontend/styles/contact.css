@@ -417,37 +417,43 @@ body.dark-theme .ratings-right h2 {
     }
 }
 
-/* Universal Form Field Override - Smooth Pastel Lilac */
-.form-left input, 
+
+/* LIGHT MODE Inputs & Textareas */
+.form-left input,
 .form-left textarea,
 .form-left .form-control,
 .form-left .input-field {
-    background: #ebdfff !important;       
-    background-color: #ebdfff !important; 
-    border: 1px solid #dcd0f0 !important; 
-    color: #222222 !important;            
+    background: #f0fcfb !important;
+    /* Very light teal background */
+    background-color: #f0fcfb !important;
+    border: 1px solid #b2dfdb !important;
+    /* Soft teal border */
+    color: #222222 !important;
 }
 
-.form-left input:focus, 
+.form-left input:focus,
 .form-left textarea:focus {
-    background: #e2d4f7 !important;       
-    background-color: #e2d4f7 !important;
-    border-color: #c4b3e6 !important;     
+    background: #e0f2f1 !important;
+    /* Slightly darker teal on focus */
+    background-color: #e0f2f1 !important;
+    border-color: #80cbc4 !important;
+    /* Darker teal border on focus */
 }
 
-/* Update the Submit Feedback Button to a Sleek Purple Palette */
+/* Update the Submit Feedback Button to match Teal theme */
 .form-left button,
 .form-left input[type="submit"],
 .form-left .btn,
 #submit-feedback,
 .form-left button[type="submit"] {
-    background-color: #6d44b8 !important; 
-    color: #ffffff !important;             
+    background-color: #088178 !important;
+    /* Updated to website's primary teal */
+    color: #ffffff !important;
     border: none !important;
     padding: 12px 30px !important;
     font-size: 16px !important;
     font-weight: 600 !important;
-    border-radius: 8px !important;         
+    border-radius: 8px !important;
     cursor: pointer !important;
     transition: background-color 0.3s ease, transform 0.2s ease !important;
 }
@@ -456,10 +462,32 @@ body.dark-theme .ratings-right h2 {
 .form-left input[type="submit"]:hover,
 .form-left .btn:hover,
 .form-left button[type="submit"]:hover {
-    background-color: #855cd6 !important; 
-    transform: translateY(-1px) !important; 
+    background-color: #06655e !important;
+    /* Darker teal on hover */
+    transform: translateY(-1px) !important;
 }
 
+body.dark-theme .form-left input,
+body.dark-theme .form-left textarea {
+    background: #1a2e2c !important;
+    /* Very dark teal background */
+    background-color: #1a2e2c !important;
+    border-color: #2f5d58 !important;
+    /* Dark teal border */
+    color: #f0f0f0 !important;
+}
+
+body.dark-theme .form-left input::placeholder,
+body.dark-theme .form-left textarea::placeholder {
+    color: #8aa8a5 !important;
+}
+
+body.dark-theme .form-left input:focus,
+body.dark-theme .form-left textarea:focus {
+    background: #24403d !important;
+    /* Slightly lighter dark teal on focus */
+    border-color: #429188 !important;
+}
 /* ========================================================
    LIGHT THEME STYLES (Default / Standard Page View)
 ======================================================== */
@@ -571,6 +599,7 @@ body.dark-theme #contact-details .details span {
 body.dark-theme #contact-details .details li p,
 body.dark-theme #contact-details .details li i {
     color: #c0c0c0 !important;
+}
 /* ── DARK MODE MISSING FIXES ── */
 body.dark-theme #contact-details {
     background: #121212 !important;
@@ -619,4 +648,4 @@ body.dark-theme .form-left textarea::placeholder {
 body.dark-theme #form-details {
     background: #0d0d0d !important;
     border-color: #2a2a2a !important;
-}
+}}

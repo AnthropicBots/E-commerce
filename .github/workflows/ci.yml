@@ -1,0 +1,50 @@
+# .github/workflows/ci.yml
+#
+# Addresses #1297.
+#
+# The repository had no workflows directory at all, so nothing between a pull
+# request and the default branch ever parsed the code. Eight unparsable files
+# reached `main` as a result, four of them on the server's require path.
+#
+# This workflow runs the repo-wide parse gate. It is dependency-free and takes
+# a couple of seconds, so there is no reason for a PR not to run it.
+#
+# NOT YET WIRED UP: `backend/` has 20 Jest suites that are currently red on
+# `main` for a separate, pre-existing reason -- several unguarded top-level
+# `require()` calls in server.js and its controllers point at modules that do
+# not exist on disk (e.g. `./middleware/provenanceMiddleware`,
+# `../services/auditTrialService`), so `require('../server')` throws
+# MODULE_NOT_FOUND. That is a different defect class from the parse errors
+# fixed here -- a syntax gate cannot catch it -- and it needs its own issue and
+# its own PR. A `backend-tests` job should be added here as soon as those
+# requires resolve; adding it now would only produce a permanently red check
+# that contributors learn to ignore.
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# Cancel superseded runs on the same ref so repeated pushes to a PR do not queue.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  syntax:
+    name: Syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Deliberately dependency-free: the gate needs only Node's own parser, so
+      # it runs before (and independently of) any npm install. A file that does
+      # not parse fails here in seconds rather than at deploy time.
+      - name: Check every tracked .js file parses
+        run: node scripts/check-syntax.js

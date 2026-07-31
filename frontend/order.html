@@ -101,80 +101,119 @@
         id="order-page"
         class="section-p1"
     >
-        <div class="order-card">
-            <!-- Top -->
-            <div class="order-top">
-                <div>
-                    <h3 id="order-id">
-                        Order ID
+    
+    <div id="order-search-container" style="display: none;"></div>
+
+        <div class="order-card" id="order-card">
+            <!-- Loading State -->
+            <div id="loading-state" style="text-align: center; padding: 40px 0;">
+                <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #6C3BFF;"></i>
+                <p style="margin-top: 12px;">Loading order details...</p>
+            </div>
+
+            <!-- Order Details (hidden initially) -->
+            <div id="order-details" style="display: none;">
+                <!-- Top -->
+                <div class="order-top">
+                    <div>
+                        <h3 id="order-id">
+                            Order ID
+                        </h3>
+                        <p id="order-date">
+                            Date
+                        </p>
+                    </div>
+
+                    <div class="order-status">
+                        <span id="status-badge">
+                            Pending
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Interactive Delivery Route Canvas -->
+                <div class="delivery-map-container" id="delivery-map-container">
+                    <div class="map-header">
+                        <div class="map-title">
+                            <i class="fas fa-map-marked-alt" aria-hidden="true"></i>
+                            <span>Live Delivery Route Tracker</span>
+                        </div>
+                        <div class="map-live-badge">
+                            <span class="live-dot" aria-hidden="true"></span>
+                            <span id="live-status-text">Live Sync</span>
+                        </div>
+                    </div>
+                    <div class="canvas-wrapper">
+                        <canvas id="delivery-tracking-canvas" width="800" height="220"></canvas>
+                    </div>
+                </div>
+
+                <!-- Timeline -->
+                <div class="tracking-timeline">
+                    <div class="tracking-step active-step" id="pending-step">
+                        <div class="step-circle">
+                            <i class="fas fa-check"></i>
+                        </div>
+                        <p>Order Placed</p>
+                    </div>
+                    <div class="tracking-line"></div>
+                    <div class="tracking-step" id="processing-step">
+                        <div class="step-circle">
+                            <i class="fas fa-box"></i>
+                        </div>
+                        <p>Processing</p>
+                    </div>
+                    <div class="tracking-line"></div>
+                    <div class="tracking-step" id="shipped-step">
+                        <div class="step-circle">
+                            <i class="fas fa-shipping-fast"></i>
+                        </div>
+                        <p>Shipped</p>
+                    </div>
+                    <div class="tracking-line"></div>
+                    <div class="tracking-step" id="delivered-step">
+                        <div class="step-circle">
+                            <i class="fas fa-home"></i>
+                        </div>
+                        <p>Delivered</p>
+                    </div>
+                </div>
+
+                <!-- Shipping Details -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 30px; padding: 16px; background: #f8f9fa; border-radius: 8px;">
+                    <div>
+                        <p style="margin: 0; font-size: 0.8rem; color: #888;">Estimated Delivery</p>
+                        <p style="margin: 4px 0 0; font-weight: 600;" id="estimated-delivery">-</p>
+                    </div>
+                    <div>
+                        <p style="margin: 0; font-size: 0.8rem; color: #888;">Tracking Number</p>
+                        <p style="margin: 4px 0 0; font-weight: 600;" id="tracking-number">-</p>
+                    </div>
+                </div>
+
+                <!-- Items -->
+                <div class="order-items">
+                    <h3>
+                        Order Items
                     </h3>
-                    <p id="order-date">
-                        Date
-                    </p>
+                    <div id="order-items-container"></div>
                 </div>
 
-                <div class="order-status">
-                    <span id="status-badge">
-                        Pending
-                    </span>
+                <!-- Back Button -->
+                <div style="text-align: center; margin-top: 24px;">
+                    <a href="dashboard.html#orders" class="btn btn-secondary" style="padding: 10px 24px; border: 2px solid #ddd; border-radius: 8px; text-decoration: none; color: #333; display: inline-block;">
+                        <i class="fas fa-arrow-left"></i> Back to Orders
+                    </a>
                 </div>
             </div>
 
-            <!-- Timeline -->
-            <div class="tracking-timeline">
-                <div class="tracking-step active-step">
-                    <div class="step-circle">
-                        <i class="fas fa-check"></i>
-                    </div>
-                    <p>
-                        Order Placed
-                    </p>
-                </div>
-                <div class="tracking-line"></div>
-                <div
-                    class="tracking-step"
-                    id="processing-step"
-                >
-                    <div class="step-circle">
-                        <i class="fas fa-box"></i>
-                    </div>
-                    <p>
-                        Processing
-                    </p>
-                </div>
-                <div class="tracking-line"></div>
-                <div
-                    class="tracking-step"
-                    id="shipped-step"
-                >
-                    <div class="step-circle">
-                        <i class="fas fa-shipping-fast"></i>
-                    </div>
-                    <p>
-                        Shipped
-                    </p>
-                </div>
-
-                <div class="tracking-line"></div>
-                <div
-                    class="tracking-step"
-                    id="delivered-step"
-                >
-                    <div class="step-circle">
-                        <i class="fas fa-home"></i>
-                    </div>
-                    <p>
-                        Delivered
-                    </p>
-                </div>
-            </div>
-
-            <!-- Items -->
-            <div class="order-items">
-                <h3>
-                    Order Items
-                </h3>
-                <div id="order-items-container"></div>
+            <!-- Error State -->
+            <div id="error-state" style="display: none; text-align: center; padding: 40px 0;">
+                <i class="fas fa-exclamation-circle" style="font-size: 2.5rem; color: #dc3545;"></i>
+                <p style="margin: 12px 0; font-size: 1.1rem;">Failed to load order details.</p>
+                <a href="dashboard.html#orders" class="btn btn-secondary" style="padding: 10px 24px; border: 2px solid #ddd; border-radius: 8px; text-decoration: none; color: #333; display: inline-block;">
+                    <i class="fas fa-arrow-left"></i> Back to Orders
+                </a>
             </div>
         </div>
     </section>
@@ -218,11 +257,11 @@
         src="scripts/components.js"
     ></script>
 
+    <!-- Socket.IO Client -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
     <!-- Order Script -->
-    <script
-        defer
-        src="scripts/order.js"
-    ></script>
+    <script defer src="scripts/order.js"></script>
     <script defer src="scripts/ui.js"></script>
 
 </body>
