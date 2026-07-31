@@ -9,6 +9,8 @@ const crypto = require("crypto");
 const db = require("../config/db");
 const { sanitizeString, safeArray } = require("../utils/helpers");
 const { getClearCookieOptions } = require("../config/cookieConfig");
+const refreshTokenService = require("../services/refreshTokenService");
+const agentIdentityService = require("../services/agentIdentityService");
 
 // Appwrite SDK
 const { Client, Account, ID, Databases } = require('node-appwrite');
@@ -71,24 +73,49 @@ const appwriteAccount = new Account(appwriteClient);
 
 // ==================== HELPER FUNCTIONS ====================
 
-function generateAccessToken(user) {
-    return jwt.sign(
-        { id: user.id, email: user.email, role: user.role },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN || "15m" }
-    );
+function clientMeta(req) {
+    const ip = req.ip
+        || req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim()
+        || req.connection?.remoteAddress
+        || null;
+    const userAgent = req.headers['user-agent'] || '';
+    return { ip, userAgent };
+}
+
+function generateAccessToken(user, familyId = null) {
+    const jti = crypto.randomUUID();
+    const payload = {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        jti
+    };
+    if (familyId) {
+        payload.fid = familyId;
+    }
+    return {
+        token: jwt.sign(
+            payload,
+            process.env.JWT_SECRET,
+            { expiresIn: process.env.JWT_EXPIRES_IN || "15m" }
+        ),
+        jti,
+        familyId
+    };
 }
 
 function generateRefreshToken() {
-    return crypto.randomBytes(40).toString("hex");
+    return refreshTokenService.generateRawRefreshToken();
 }
 
-function sendAuthResponse(res, { message, accessToken, refreshToken, user }) {
+function sendAuthResponse(res, { message, accessToken, refreshToken, user, familyId, security }) {
     return res.status(200).json({
         success: true,
         message,
         accessToken,
         refreshToken,
+        familyId: familyId || undefined,
+        security: security || undefined,
         user: {
             id: user.id,
             name: user.name,
@@ -365,20 +392,20 @@ const login = async (req, res) => {
             });
         }
 
-        const accessToken = generateAccessToken(user);
-        const refreshToken = generateRefreshToken();
+        const { ip, userAgent } = clientMeta(req);
+        const session = await refreshTokenService.issueRefreshFamily(user.id, { ip, userAgent });
+        const access = generateAccessToken(user, session.familyId);
 
-        // Update refresh token and last login time
-        await db.query(
-            `UPDATE users SET refresh_token = ?, last_login = NOW() WHERE id = ?`, 
-            [refreshToken, user.id]
-        );
-
-        return sendAuthResponse(res, { 
-            message: "Login successful", 
-            accessToken, 
-            refreshToken, 
-            user 
+        return sendAuthResponse(res, {
+            message: "Login successful",
+            accessToken: access.token,
+            refreshToken: session.refreshToken,
+            familyId: session.familyId,
+            user,
+            security: {
+                tokenRotation: true,
+                deviceFingerprint: session.deviceFingerprint.slice(0, 12) + '…'
+            }
         });
     } catch (error) {
         console.error("LOGIN ERROR:", error);
@@ -390,12 +417,39 @@ const login = async (req, res) => {
 const logout = async (req, res) => {
     try {
         const userId = req.user?.id;
+        const presented =
+            sanitizeString(req.body?.refreshToken)
+            || req.cookies?.refreshToken
+            || null;
+        const logoutAll = req.body?.allDevices === true || req.query?.allDevices === 'true';
+
         if (userId) {
-            // Clear refresh token AND update last logout time
-            await db.query(
-                `UPDATE users SET refresh_token = NULL, last_logout = NOW() WHERE id = ?`,
-                [userId]
-            );
+            if (logoutAll) {
+                await refreshTokenService.revokeAllUserFamilies(userId, 'user_logout_all');
+                // Cascade: suspend user-bound agent sessions (#1261 multi-device)
+                await agentIdentityService.onUserSessionFamilyRevoked(
+                    userId,
+                    null,
+                    'user_logout_all'
+                ).catch(() => {});
+            } else {
+                await refreshTokenService.revokePresentedSession(
+                    presented,
+                    userId,
+                    'user_logout'
+                );
+                if (req.user?.fid) {
+                    await agentIdentityService.onUserSessionFamilyRevoked(
+                        userId,
+                        req.user.fid,
+                        'user_logout'
+                    ).catch(() => {});
+                }
+            }
+
+            if (req.user?.jti) {
+                await refreshTokenService.blacklistAccessJti(req.user.jti);
+            }
         }
 
         // Clear cookies using shared cookie options
@@ -406,7 +460,9 @@ const logout = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            message: "Logged out successfully",
+            message: logoutAll
+                ? "Logged out from all devices successfully"
+                : "Logged out successfully",
             timestamp: new Date().toISOString()
         });
     } catch (error) {
@@ -567,9 +623,17 @@ const changePassword = async (req, res) => {
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await db.query(`UPDATE users SET password = ? WHERE id = ?`, [hashedPassword, userId]);
 
+        // Password change → revoke all refresh families (force re-auth on every device)
+        await refreshTokenService.revokeAllUserFamilies(userId, 'password_changed');
+        await agentIdentityService.onUserSessionFamilyRevoked(
+            userId,
+            null,
+            'password_changed'
+        ).catch(() => {});
+
         return res.status(200).json({ 
             success: true, 
-            message: "Password changed successfully" 
+            message: "Password changed successfully. Please login again on all devices." 
         });
     } catch (error) {
         console.error("CHANGE PASSWORD ERROR:", error);
@@ -580,37 +644,61 @@ const changePassword = async (req, res) => {
 // ==================== 8. REFRESH ACCESS TOKEN ====================
 const refreshAccessToken = async (req, res) => {
     try {
-        const { refreshToken } = req.body;
-        const cleanRefreshToken = sanitizeString(refreshToken);
+        const presented =
+            sanitizeString(req.body?.refreshToken)
+            || req.cookies?.refreshToken
+            || null;
 
-        if (!cleanRefreshToken) {
+        if (!presented) {
             return res.status(401).json({ success: false, message: "Refresh token required" });
         }
 
+        const { ip, userAgent } = clientMeta(req);
+        const rotation = await refreshTokenService.rotateRefreshToken(presented, { ip, userAgent });
+
+        if (!rotation.ok) {
+            if (rotation.familyRevoked) {
+                await agentIdentityService.onUserSessionFamilyRevoked(
+                    rotation.userId || null,
+                    rotation.familyId,
+                    'token_reuse_detected'
+                ).catch(() => {});
+            }
+            return res.status(rotation.status || 401).json({
+                success: false,
+                message: rotation.message,
+                errorCode: rotation.code,
+                securityAlarm: rotation.familyRevoked === true
+            });
+        }
+
         const [users] = await db.query(
-            `SELECT id, name, email, role, is_active FROM users WHERE refresh_token = ? LIMIT 1`,
-            [cleanRefreshToken]
+            `SELECT id, name, email, role, is_active FROM users WHERE id = ? LIMIT 1`,
+            [rotation.userId]
         );
 
         if (!safeArray(users).length) {
             return res.status(401).json({ success: false, message: "Invalid refresh token" });
         }
 
-        const user = users[0];
+        const user = rotation.user || users[0];
         if (user.is_active === 0) {
             return res.status(403).json({ success: false, message: "Account has been deactivated" });
         }
 
-        const newAccessToken = generateAccessToken(user);
-        const newRefreshToken = generateRefreshToken();
+        const access = generateAccessToken(user, rotation.familyId);
 
-        await db.query(`UPDATE users SET refresh_token = ? WHERE id = ?`, [newRefreshToken, user.id]);
-
-        return sendAuthResponse(res, { 
-            message: "Token refreshed", 
-            accessToken: newAccessToken, 
-            refreshToken: newRefreshToken, 
-            user 
+        return sendAuthResponse(res, {
+            message: "Token refreshed",
+            accessToken: access.token,
+            refreshToken: rotation.refreshToken,
+            familyId: rotation.familyId,
+            user,
+            security: {
+                tokenRotation: true,
+                fingerprintMatch: rotation.fingerprintMatch !== false,
+                legacyMigrated: rotation.legacyMigrated || false
+            }
         });
     } catch (error) {
         console.error("REFRESH TOKEN ERROR:", error);

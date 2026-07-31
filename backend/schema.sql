@@ -47,6 +47,50 @@ CREATE TABLE IF NOT EXISTS users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
+-- REFRESH TOKEN FAMILIES (#1261)
+-- Automatic Token Rotation + reuse detection
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    family_id CHAR(36) NOT NULL,
+    token_hash CHAR(64) NOT NULL,
+    parent_token_hash CHAR(64) NULL,
+    device_fingerprint CHAR(64) NOT NULL,
+    user_agent VARCHAR(512) NULL,
+    ip_hash CHAR(64) NULL,
+    status ENUM('active', 'rotated', 'revoked', 'reuse_detected') NOT NULL DEFAULT 'active',
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    rotated_at DATETIME NULL,
+    revoked_at DATETIME NULL,
+    last_used_at DATETIME NULL,
+    UNIQUE KEY uq_refresh_token_hash (token_hash),
+    INDEX idx_rt_user (user_id),
+    INDEX idx_rt_family (family_id),
+    INDEX idx_rt_status (status),
+    INDEX idx_rt_family_status (family_id, status),
+    INDEX idx_rt_expires (expires_at),
+    CONSTRAINT fk_rt_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS refresh_token_security_events (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NULL,
+    family_id CHAR(36) NULL,
+    event_type VARCHAR(64) NOT NULL,
+    details JSON NULL,
+    ip_hash CHAR(64) NULL,
+    user_agent VARCHAR(512) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_rtse_user (user_id),
+    INDEX idx_rtse_family (family_id),
+    INDEX idx_rtse_type (event_type),
+    INDEX idx_rtse_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
 -- CATEGORIES TABLE (New)
 -- ============================================
 
