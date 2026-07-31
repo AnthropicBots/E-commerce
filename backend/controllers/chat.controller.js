@@ -5,6 +5,7 @@ const {
   safeNumber,
   safeUUID,
 } = require("../utils/helpers");
+const logger = require("../utils/logger");
 
 const getConversations = async (req, res) => {
   try {
@@ -80,7 +81,7 @@ const getConversationDetails = async (req, res) => {
       req.user.role,
     );
     if (!hasAccess) {
-      console.log(
+      logger.warn(
         `[AUDIT] Unauthorized access attempt: User ${req.user.id} tried to access conversation ${id}`,
       );
       return res.status(403).json({
@@ -129,7 +130,7 @@ const updateStatus = async (req, res) => {
       });
     }
 
-    console.log(
+    logger.info(
       `[AUDIT] User ${req.user.id} updated conversation ${id} status to ${status} at ${new Date().toISOString()}`,
     );
 
@@ -170,7 +171,7 @@ const assignAdmin = async (req, res) => {
     }
 
     if (req.user.role !== "admin") {
-      console.log(
+      logger.warn(
         `[AUDIT] Unauthorized assignment attempt: User ${req.user.id} (${req.user.role}) tried to assign conversation ${id}`,
       );
       return res.status(403).json({
@@ -179,7 +180,7 @@ const assignAdmin = async (req, res) => {
       });
     }
 
-    console.log(
+    logger.info(
       `[AUDIT] User ${req.user.id} (Admin) assigned conversation ${id} at ${new Date().toISOString()}`,
     );
 
@@ -213,9 +214,51 @@ const assignAdmin = async (req, res) => {
   }
 };
 
+const getConnectionTelemetry = async (req, res) => {
+  try {
+    const activeConnections = await chatService.getActiveConnections();
+    const totalConnections = await chatService.getTotalConnectionCount();
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        active: activeConnections,
+        totalSockets: activeConnections.reduce((sum, c) => sum + c.socketCount, 0),
+        lifetime: totalConnections,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error("GET CONNECTION TELEMETRY ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get connection telemetry"
+    });
+  }
+};
+
+const getDashboardStats = async (req, res) => {
+  try {
+    const stats = await chatService.getDashboardStats();
+    res.status(200).json({
+      success: true,
+      data: stats,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("GET DASHBOARD STATS ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get dashboard stats"
+    });
+  }
+};
+
 module.exports = {
   getConversations,
   getConversationDetails,
   updateStatus,
   assignAdmin,
+  getConnectionTelemetry,
+  getDashboardStats
 };

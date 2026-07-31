@@ -2,9 +2,21 @@ const db = require("../config/db");
 const logger = require("../utils/logger");
 const { safeArray, safeNumber, sanitizeString, safeUUID } = require("../utils/helpers");
 const NodeCache = require('node-cache');
+const Redis = require('ioredis');
 
-const conversationCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
+const redis = new Redis({
+    host: process.env.REDIS_HOST || "localhost",
+    port: process.env.REDIS_PORT || 6379,
+    password: process.env.REDIS_PASSWORD || undefined,
+    retryStrategy: (times) => Math.min(times * 50, 2000),
+    maxRetriesPerRequest: 3
+});
+
 const MESSAGE_LIMIT = parseInt(process.env.CHAT_MESSAGE_LIMIT) || 1000;
+const SESSION_TTL = parseInt(process.env.CHAT_SESSION_TTL) || 3600; // 1 hour
+const CACHE_TTL = parseInt(process.env.CHAT_CACHE_TTL) || 300;
+
+const conversationCache = new NodeCache({ stdTTL: CACHE_TTL, checkperiod: 60 });
 
 function validateMessage(message) {
     if (!message || typeof message !== 'string') {
@@ -35,6 +47,143 @@ function validateUserId(id) {
     return validId;
 }
 
+async function getSessionState(sessionId) {
+    try {
+        const key = `chat:session:${sessionId}`;
+        const data = await redis.get(key);
+        return data ? JSON.parse(data) : null;
+    } catch (error) {
+        logger.error('Get session state error:', error);
+        return null;
+    }
+}
+
+async function setSessionState(sessionId, state, ttl = SESSION_TTL) {
+    try {
+        const key = `chat:session:${sessionId}`;
+        await redis.setex(key, ttl, JSON.stringify(state));
+        return true;
+    } catch (error) {
+        logger.error('Set session state error:', error);
+        return false;
+    }
+}
+
+async function deleteSessionState(sessionId) {
+    try {
+        const key = `chat:session:${sessionId}`;
+        await redis.del(key);
+        return true;
+    } catch (error) {
+        logger.error('Delete session state error:', error);
+        return false;
+    }
+}
+
+async function getConversationState(conversationId) {
+    try {
+        const key = `chat:conversation:${conversationId}`;
+        const data = await redis.get(key);
+        return data ? JSON.parse(data) : null;
+    } catch (error) {
+        logger.error('Get conversation state error:', error);
+        return null;
+    }
+}
+
+async function setConversationState(conversationId, state, ttl = CACHE_TTL) {
+    try {
+        const key = `chat:conversation:${conversationId}`;
+        await redis.setex(key, ttl, JSON.stringify(state));
+        return true;
+    } catch (error) {
+        logger.error('Set conversation state error:', error);
+        return false;
+    }
+}
+
+async function trackConnection(userId, socketId, metadata = {}) {
+    try {
+        const key = `chat:connection:${userId}`;
+        const connections = await redis.get(key);
+        let data = connections ? JSON.parse(connections) : { sockets: [] };
+        
+        // Add socket if not already present
+        if (!data.sockets.includes(socketId)) {
+            data.sockets.push(socketId);
+        }
+        data.metadata = metadata;
+        data.lastSeen = new Date().toISOString();
+        
+        await redis.setex(key, 300, JSON.stringify(data)); // 5 minute TTL
+        
+        // Track total connections
+        await redis.incr('chat:total_connections');
+        await redis.expire('chat:total_connections', 86400); // 24 hours
+        
+        return true;
+    } catch (error) {
+        logger.error('Track connection error:', error);
+        return false;
+    }
+}
+
+async function untrackConnection(userId, socketId) {
+    try {
+        const key = `chat:connection:${userId}`;
+        const connections = await redis.get(key);
+        if (!connections) return true;
+        
+        const data = JSON.parse(connections);
+        data.sockets = data.sockets.filter(id => id !== socketId);
+        
+        if (data.sockets.length === 0) {
+            await redis.del(key);
+        } else {
+            await redis.setex(key, 300, JSON.stringify(data));
+        }
+        
+        return true;
+    } catch (error) {
+        logger.error('Untrack connection error:', error);
+        return false;
+    }
+}
+
+async function getActiveConnections() {
+    try {
+        const keys = await redis.keys('chat:connection:*');
+        const connections = [];
+        for (const key of keys) {
+            const data = await redis.get(key);
+            if (data) {
+                const parsed = JSON.parse(data);
+                const userId = key.replace('chat:connection:', '');
+                connections.push({
+                    userId,
+                    socketCount: parsed.sockets.length,
+                    sockets: parsed.sockets,
+                    lastSeen: parsed.lastSeen
+                });
+            }
+        }
+        return connections;
+    } catch (error) {
+        logger.error('Get active connections error:', error);
+        return [];
+    }
+}
+
+async function getTotalConnectionCount() {
+    try {
+        const count = await redis.get('chat:total_connections');
+        return parseInt(count) || 0;
+    } catch (error) {
+        logger.error('Get total connection count error:', error);
+        return 0;
+    }
+}
+
 const findOrCreateConversation = async (customerId) => {
     try {
         const validCustomerId = validateUserId(customerId);
@@ -43,6 +192,19 @@ const findOrCreateConversation = async (customerId) => {
         const cached = conversationCache.get(cacheKey);
         if (cached) return cached;
 
+        // Check Redis state first
+        const redisState = await getConversationState(validCustomerId);
+        if (redisState && redisState.id) {
+            const [existing] = await db.query(
+                `SELECT * FROM chat_conversations WHERE id = ? AND status IN ('open', 'pending')`,
+                [redisState.id]
+            );
+            if (existing.length > 0) {
+                conversationCache.set(cacheKey, existing[0]);
+                return existing[0];
+            }
+        }
+
         const [existing] = await db.query(
             `SELECT * FROM chat_conversations WHERE customer_id = ? AND status IN ('open', 'pending') LIMIT 1`,
             [validCustomerId]
@@ -50,6 +212,7 @@ const findOrCreateConversation = async (customerId) => {
 
         if (existing.length > 0) {
             conversationCache.set(cacheKey, existing[0]);
+            await setConversationState(validCustomerId, existing[0]);
             return existing[0];
         }
 
@@ -61,8 +224,9 @@ const findOrCreateConversation = async (customerId) => {
         const [newConv] = await db.query(`SELECT * FROM chat_conversations WHERE id = ?`, [result.insertId]);
         
         conversationCache.set(cacheKey, newConv[0]);
-        logger.info(`New conversation created: ${result.insertId} for customer ${validCustomerId}`);
+        await setConversationState(validCustomerId, newConv[0]);
         
+        logger.info(`New conversation created: ${result.insertId} for customer ${validCustomerId}`);
         return newConv[0];
     } catch (error) {
         logger.error(`FindOrCreate conversation error: ${error.message}`);
@@ -198,6 +362,8 @@ const saveMessage = async (conversationId, senderId, senderType, message) => {
         const keys = conversationCache.keys();
         keys.filter(k => k.startsWith(`msgs_${validConvId}`)).forEach(k => conversationCache.del(k));
         conversationCache.del(`conv_${validSenderId}`);
+        
+        await setConversationState(validConvId, { lastMessage: newMsg[0], updatedAt: new Date().toISOString() });
 
         logger.info(`Message saved: ${result.insertId} in conversation ${validConvId}`);
         return newMsg[0];
@@ -327,6 +493,9 @@ const updateConversationStatus = async (conversationId, status) => {
         conversationCache.del(`conv_${validId}`);
         const keys = conversationCache.keys();
         keys.filter(k => k.startsWith(`msgs_${validId}`)).forEach(k => conversationCache.del(k));
+        
+        // Update Redis state
+        await deleteSessionState(`conversation_${validId}`);
 
         logger.info(`Conversation ${validId} status updated to ${status}`);
     } catch (error) {
@@ -381,12 +550,23 @@ const getDashboardStats = async () => {
         const [closedConvs] = await db.query(`SELECT COUNT(*) as closed FROM chat_conversations WHERE status = 'closed'`);
         const [unassigned] = await db.query(`SELECT COUNT(*) as unassigned FROM chat_conversations WHERE assigned_admin_id IS NULL AND status != 'closed'`);
         
+        // Get active connections from Redis
+        const activeConnections = await getActiveConnections();
+        const totalConnections = await getTotalConnectionCount();
+
         return {
-            total: totalConvs[0]?.total || 0,
-            open: openConvs[0]?.open || 0,
-            pending: pendingConvs[0]?.pending || 0,
-            closed: closedConvs[0]?.closed || 0,
-            unassigned: unassigned[0]?.unassigned || 0
+            conversations: {
+                total: totalConvs[0]?.total || 0,
+                open: openConvs[0]?.open || 0,
+                pending: pendingConvs[0]?.pending || 0,
+                closed: closedConvs[0]?.closed || 0,
+                unassigned: unassigned[0]?.unassigned || 0
+            },
+            connections: {
+                active: activeConnections.length,
+                totalSockets: activeConnections.reduce((sum, c) => sum + c.socketCount, 0),
+                lifetime: totalConnections
+            }
         };
     } catch (error) {
         logger.error(`Get dashboard stats error: ${error.message}`);
@@ -424,5 +604,14 @@ module.exports = {
     verifyConversationAccess,
     getDashboardStats,
     clearCache,
-    getCacheStats
+    getCacheStats,
+    getSessionState,
+    setSessionState,
+    deleteSessionState,
+    getConversationState,
+    setConversationState,
+    trackConnection,
+    untrackConnection,
+    getActiveConnections,
+    getTotalConnectionCount
 };

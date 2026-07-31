@@ -1,9 +1,30 @@
 const { Server } = require("socket.io");
+const { createAdapter } = require("@socket.io/redis-adapter");
 const jwt = require("jsonwebtoken");
 const chatService = require("../services/chat.service");
 const logger = require("./logger");
 const { sanitizeString } = require("./helpers");
 const NodeCache = require('node-cache');
+const Redis = require('ioredis');
+
+const redis = new Redis({
+    host: process.env.REDIS_HOST || "localhost",
+    port: process.env.REDIS_PORT || 6379,
+    password: process.env.REDIS_PASSWORD || undefined,
+    retryStrategy: (times) => Math.min(times * 50, 2000),
+    maxRetriesPerRequest: 3
+});
+
+const pubClient = redis.duplicate();
+const subClient = redis.duplicate();
+
+const RATE_LIMIT = parseInt(process.env.SOCKET_RATE_LIMIT) || 10;
+const RATE_WINDOW = parseInt(process.env.SOCKET_RATE_WINDOW) || 60000;
+const TYPING_TIMEOUT = parseInt(process.env.TYPING_TIMEOUT) || 5000;
+const HEARTBEAT_INTERVAL = parseInt(process.env.HEARTBEAT_INTERVAL) || 30000;
+const MAX_CONNECTIONS_PER_USER = parseInt(process.env.MAX_SOCKET_CONNECTIONS) || 3;
+const MESSAGE_QUEUE_LIMIT = parseInt(process.env.MESSAGE_QUEUE_LIMIT) || 100;
+const MEMORY_LEAK_THRESHOLD = parseInt(process.env.MEMORY_LEAK_THRESHOLD) || 1000;
 
 let io;
 const userSockets = new Map();
@@ -15,12 +36,64 @@ const userStatus = new Map();
 const messageQueue = new Map();
 const offlineMessages = new NodeCache({ stdTTL: 86400, checkperiod: 600 });
 
-const RATE_LIMIT = parseInt(process.env.SOCKET_RATE_LIMIT) || 10;
-const RATE_WINDOW = parseInt(process.env.SOCKET_RATE_WINDOW) || 60000;
-const TYPING_TIMEOUT = parseInt(process.env.TYPING_TIMEOUT) || 5000;
-const HEARTBEAT_INTERVAL = parseInt(process.env.HEARTBEAT_INTERVAL) || 30000;
-const MAX_CONNECTIONS_PER_USER = parseInt(process.env.MAX_SOCKET_CONNECTIONS) || 3;
-const MESSAGE_QUEUE_LIMIT = parseInt(process.env.MESSAGE_QUEUE_LIMIT) || 100;
+const listenerRegistry = new Map();
+const heartbeatIntervals = new Map();
+const cleanupTimers = new Map();
+const connectionMetrics = {
+    totalConnections: 0,
+    activeConnections: 0,
+    totalDisconnections: 0,
+    memoryWarnings: 0,
+    lastCleanup: null
+};
+
+class ListenerRegistry {
+    constructor(socketId) {
+        this.socketId = socketId;
+        this.listeners = new Map();
+        this.cleanupFunctions = new Set();
+    }
+
+    register(event, listener, options = {}) {
+        const key = `${event}_${options.once ? 'once' : 'on'}`;
+        this.listeners.set(key, { event, listener, once: options.once || false });
+        return this;
+    }
+
+    getListener(event, once = false) {
+        const key = `${event}_${once ? 'once' : 'on'}`;
+        return this.listeners.get(key)?.listener || null;
+    }
+
+    getAllListeners() {
+        return Array.from(this.listeners.entries()).map(([key, data]) => ({
+            event: data.event,
+            once: data.once,
+            hasListener: true
+        }));
+    }
+
+    addCleanup(fn) {
+        this.cleanupFunctions.add(fn);
+        return this;
+    }
+
+    async cleanup() {
+        for (const fn of this.cleanupFunctions) {
+            try {
+                await fn();
+            } catch (error) {
+                logger.error(`Cleanup function error for ${this.socketId}:`, error);
+            }
+        }
+        this.cleanupFunctions.clear();
+        this.listeners.clear();
+    }
+
+    getCount() {
+        return this.listeners.size + this.cleanupFunctions.size;
+    }
+}
 
 const initSocket = (server, allowedOrigins) => {
     io = new Server(server, {
@@ -39,6 +112,13 @@ const initSocket = (server, allowedOrigins) => {
         }
     });
 
+    try {
+        io.adapter(createAdapter(pubClient, subClient));
+        logger.info("✅ Redis Adapter initialized for Socket.IO");
+    } catch (error) {
+        logger.error("❌ Redis Adapter initialization failed:", error);
+    }
+
     io.use(async (socket, next) => {
         try {
             const token = socket.handshake.auth.token;
@@ -51,6 +131,8 @@ const initSocket = (server, allowedOrigins) => {
             socket.user = decoded;
             socket.userId = decoded.id;
             socket.userRole = decoded.role || 'customer';
+
+            socket._listenerRegistry = new ListenerRegistry(socket.id);
 
             const existingSockets = userSockets.get(socket.userId) || new Set();
 
@@ -70,16 +152,17 @@ const initSocket = (server, allowedOrigins) => {
         const userId = socket.userId;
         const userRole = socket.userRole;
 
+        connectionMetrics.totalConnections++;
+        connectionMetrics.activeConnections++;
         logger.info(`User connected: ${userId} (${userRole}) - Socket: ${socket.id}`);
 
         if (!userSockets.has(userId)) {
             userSockets.set(userId, new Set());
         }
-
         const userSocketSet = userSockets.get(userId);
         userSocketSet.add(socket.id);
-
         socketUsers.set(socket.id, userId);
+
         userStatus.set(userId, {
             status: 'online',
             lastSeen: new Date(),
@@ -89,22 +172,39 @@ const initSocket = (server, allowedOrigins) => {
         io.emit('user_status_change', { userId, status: 'online' });
         io.emit('users_online', userSockets.size);
 
-        setupEventHandlers(socket);
-        setupHeartbeat(socket);
+        // Setup event handlers with registry
+        setupEventHandlersWithRegistry(socket);
+        setupHeartbeatWithCleanup(socket);
 
+        // Setup cleanup on disconnect
         socket.on("disconnect", () => {
-            handleDisconnect(socket);
+            handleDisconnectWithCleanup(socket);
         });
+
+        // Error handler with cleanup
+        socket.on("error", (error) => {
+            logger.error(`Socket ${socket.id} error:`, error);
+            handleDisconnectWithCleanup(socket);
+        });
+
+        // Check memory usage periodically
+        checkMemoryUsage(socket);
+    });
+
+    process.on('SIGTERM', () => {
+        logger.info('SIGTERM received, cleaning up socket connections...');
+        cleanupAll();
     });
 
     return io;
 };
 
-function setupEventHandlers(socket) {
+function setupEventHandlersWithRegistry(socket) {
+    const registry = socket._listenerRegistry;
     const userId = socket.userId;
     const userRole = socket.userRole;
 
-    socket.on("join_conversation", async (data, callback) => {
+    const joinConversationHandler = async (data, callback) => {
         try {
             let conversationId = data?.conversationId;
 
@@ -135,7 +235,6 @@ function setupEventHandlers(socket) {
             activeRooms.get(roomId).add(socket.id);
             socket.currentRoom = roomId;
 
-            // deliver queued messages only after the socket has joined the room
             deliverQueuedMessages(socket, userId);
 
             logger.info(`User ${userId} joined ${roomId}`);
@@ -151,9 +250,11 @@ function setupEventHandlers(socket) {
             logger.error(`Socket Join Error: ${err.message}`);
             if (callback) callback({ success: false, message: "Server error" });
         }
-    });
+    };
+    socket.on("join_conversation", joinConversationHandler);
+    registry.register("join_conversation", joinConversationHandler);
 
-    socket.on("send_message", async (data, callback) => {
+    const sendMessageHandler = async (data, callback) => {
         try {
             if (!checkRateLimit(socket.id)) {
                 socket.emit('error', {
@@ -202,17 +303,23 @@ function setupEventHandlers(socket) {
             logger.error(`Socket Send Message Error: ${err.message}`);
             if (callback) callback({ success: false, message: "Server error" });
         }
-    });
+    };
+    socket.on("send_message", sendMessageHandler);
+    registry.register("send_message", sendMessageHandler);
 
-    socket.on("typing", (data) => {
+    const typingHandler = (data) => {
         handleTyping(socket, data);
-    });
+    };
+    socket.on("typing", typingHandler);
+    registry.register("typing", typingHandler);
 
-    socket.on("stop_typing", (data) => {
+    const stopTypingHandler = (data) => {
         handleStopTyping(socket, data);
-    });
+    };
+    socket.on("stop_typing", stopTypingHandler);
+    registry.register("stop_typing", stopTypingHandler);
 
-    socket.on("message_read", async (data) => {
+    const messageReadHandler = async (data) => {
         try {
             const { messageId, conversationId } = data;
             if (!messageId || !conversationId) return;
@@ -227,9 +334,11 @@ function setupEventHandlers(socket) {
         } catch (err) {
             logger.error(`Message read error: ${err.message}`);
         }
-    });
+    };
+    socket.on("message_read", messageReadHandler);
+    registry.register("message_read", messageReadHandler);
 
-    socket.on("edit_message", async (data) => {
+    const editMessageHandler = async (data) => {
         try {
             const { messageId, newMessage, conversationId } = data;
             if (!messageId || !newMessage || !conversationId) return;
@@ -252,9 +361,11 @@ function setupEventHandlers(socket) {
             logger.error(`Edit message error: ${err.message}`);
             socket.emit('error', { message: 'Failed to edit message' });
         }
-    });
+    };
+    socket.on("edit_message", editMessageHandler);
+    registry.register("edit_message", editMessageHandler);
 
-    socket.on("delete_message", async (data) => {
+    const deleteMessageHandler = async (data) => {
         try {
             const { messageId, conversationId } = data;
             if (!messageId || !conversationId) return;
@@ -275,28 +386,144 @@ function setupEventHandlers(socket) {
             logger.error(`Delete message error: ${err.message}`);
             socket.emit('error', { message: 'Failed to delete message' });
         }
-    });
+    };
+    socket.on("delete_message", deleteMessageHandler);
+    registry.register("delete_message", deleteMessageHandler);
 
-    socket.on("join_admin_room", () => {
+    const joinAdminHandler = () => {
         if (userRole === 'admin') {
             socket.join('admin_room');
             logger.info(`Admin ${userId} joined admin_room`);
             socket.emit('admin_room_joined', { success: true });
         }
-    });
+    };
+    socket.on("join_admin_room", joinAdminHandler);
+    registry.register("join_admin_room", joinAdminHandler);
 
-    socket.on("get_active_users", () => {
+    const getActiveUsersHandler = () => {
         const activeUsers = Array.from(userSockets.keys());
         socket.emit('active_users', activeUsers);
-    });
+    };
+    socket.on("get_active_users", getActiveUsersHandler);
+    registry.register("get_active_users", getActiveUsersHandler);
 
-    socket.on("get_online_count", () => {
+    const getOnlineCountHandler = () => {
         socket.emit('online_count', userSockets.size);
+    };
+    socket.on("get_online_count", getOnlineCountHandler);
+    registry.register("get_online_count", getOnlineCountHandler);
+
+    const pongHandler = () => {
+        socket.lastPong = Date.now();
+    };
+    socket.on("pong", pongHandler);
+    registry.register("pong", pongHandler);
+
+    registry.addCleanup(() => {
+        const listeners = registry.getAllListeners();
+        for (const { event, once } of listeners) {
+            try {
+                if (once) {
+                    socket.removeAllListeners(event);
+                } else {
+                    socket.removeAllListeners(event);
+                }
+            } catch (error) {
+                logger.error(`Failed to remove listener ${event}:`, error);
+            }
+        }
+        logger.debug(`Cleaned up ${listeners.length} listeners for socket ${socket.id}`);
     });
 
-    socket.on("pong", () => {
-        socket.lastPong = Date.now();
+    logger.debug(`Registered ${registry.getCount()} listeners for socket ${socket.id}`);
+}
+
+function setupHeartbeatWithCleanup(socket) {
+    socket.lastPong = Date.now();
+
+    const heartbeatInterval = setInterval(() => {
+        const now = Date.now();
+        if (now - socket.lastPong > HEARTBEAT_INTERVAL + 5000) {
+            logger.warn(`Heartbeat timeout for socket ${socket.id}`);
+            socket.emit('heartbeat_timeout');
+            clearInterval(heartbeatInterval);
+            socket.disconnect(true);
+        }
+    }, HEARTBEAT_INTERVAL);
+
+    heartbeatIntervals.set(socket.id, heartbeatInterval);
+
+    socket._listenerRegistry.addCleanup(() => {
+        if (heartbeatIntervals.has(socket.id)) {
+            clearInterval(heartbeatIntervals.get(socket.id));
+            heartbeatIntervals.delete(socket.id);
+        }
     });
+}
+
+function handleDisconnectWithCleanup(socket) {
+    const userId = socket.userId;
+    const socketId = socket.id;
+
+    try {
+        if (socket._listenerRegistry) {
+            socket._listenerRegistry.cleanup();
+            delete socket._listenerRegistry;
+        }
+
+        if (heartbeatIntervals.has(socketId)) {
+            clearInterval(heartbeatIntervals.get(socketId));
+            heartbeatIntervals.delete(socketId);
+        }
+
+        clearTypingForUser(userId);
+
+        if (messageRateLimit.has(socketId)) {
+            messageRateLimit.delete(socketId);
+        }
+
+        cleanupPreviousRooms(socket);
+
+        if (userId) {
+            const userSocketSet = userSockets.get(userId);
+            if (userSocketSet) {
+                userSocketSet.delete(socketId);
+                if (userSocketSet.size === 0) {
+                    userSockets.delete(userId);
+                    userStatus.set(userId, { status: 'offline', lastSeen: new Date() });
+                    io.emit('user_status_change', { userId, status: 'offline' });
+                } else {
+                    userStatus.set(userId, {
+                        status: 'online',
+                        lastSeen: new Date(),
+                        socketId: Array.from(userSocketSet)[0]
+                    });
+                }
+            }
+            socketUsers.delete(socketId);
+
+            // Update metrics
+            connectionMetrics.activeConnections--;
+            connectionMetrics.totalDisconnections++;
+        }
+
+        if (io?.sockets?.sockets) {
+            delete io.sockets.sockets[socketId];
+        }
+
+        io.emit('users_online', userSockets.size);
+
+        logger.info(`User disconnected: ${userId || 'unknown'} - Socket: ${socketId}`);
+        logger.info(`Active connections: ${connectionMetrics.activeConnections}`);
+
+        if (connectionMetrics.activeConnections < 10 && process.memoryUsage().heapUsed > 100 * 1024 * 1024) {
+            global.gc && global.gc();
+            logger.info('GC triggered after cleanup');
+        }
+
+    } catch (error) {
+        logger.error(`Disconnect cleanup error for socket ${socketId}:`, error);
+    }
 }
 
 function cleanupPreviousRooms(socket) {
@@ -305,6 +532,7 @@ function cleanupPreviousRooms(socket) {
             sockets.delete(socket.id);
             if (sockets.size === 0) {
                 activeRooms.delete(room);
+                logger.debug(`Room ${room} removed (empty)`);
             }
         }
     }
@@ -375,24 +603,6 @@ function checkRateLimit(socketId) {
     return true;
 }
 
-function setupHeartbeat(socket) {
-    socket.lastPong = Date.now();
-
-    const heartbeatInterval = setInterval(() => {
-        const now = Date.now();
-        if (now - socket.lastPong > HEARTBEAT_INTERVAL + 5000) {
-            logger.warn(`Heartbeat timeout for socket ${socket.id}`);
-            socket.emit('heartbeat_timeout');
-            clearInterval(heartbeatInterval);
-            socket.disconnect(true);
-        }
-    }, HEARTBEAT_INTERVAL);
-
-    socket.on('disconnect', () => {
-        clearInterval(heartbeatInterval);
-    });
-}
-
 function queueMessage(conversationId, message) {
     if (!messageQueue.has(conversationId)) {
         messageQueue.set(conversationId, []);
@@ -419,39 +629,57 @@ function deliverQueuedMessages(socket, userId) {
     }
 }
 
-function handleDisconnect(socket) {
-    const userId = socket.userId;
-    if (userId) {
-        cleanupPreviousRooms(socket);
+function checkMemoryUsage(socket) {
+    const memoryUsage = process.memoryUsage();
+    const heapUsedMB = memoryUsage.heapUsed / 1024 / 1024;
+    const heapTotalMB = memoryUsage.heapTotal / 1024 / 1024;
+    const heapUsagePercent = (heapUsedMB / heapTotalMB) * 100;
 
-        const userSocketSet = userSockets.get(userId);
-
-        if (userSocketSet) {
-            userSocketSet.delete(socket.id);
-
-            if (userSocketSet.size === 0) {
-                userSockets.delete(userId);
-                userStatus.set(userId, { status: 'offline', lastSeen: new Date() });
-                io.emit('user_status_change', { userId, status: 'offline' });
-            } else {
-                userStatus.set(userId, {
-                    status: 'online',
-                    lastSeen: new Date(),
-                    socketId: Array.from(userSocketSet)[0]
-                });
-            }
+    // Check for memory leak warning
+    if (heapUsagePercent > 80) {
+        connectionMetrics.memoryWarnings++;
+        logger.warn(`Memory usage warning: ${heapUsedMB.toFixed(2)}MB / ${heapTotalMB.toFixed(2)}MB (${heapUsagePercent.toFixed(1)}%)`);
+        
+        // Check for stale listeners
+        const totalListeners = Array.from(listenerRegistry.keys()).length;
+        if (totalListeners > MEMORY_LEAK_THRESHOLD) {
+            logger.error(`Potential memory leak: ${totalListeners} listeners detected!`);
+            // Trigger aggressive cleanup
+            setTimeout(() => cleanupStaleListeners(), 1000);
         }
-
-        socketUsers.delete(socket.id);
-        clearTypingForUser(userId);
-
-        io.emit('users_online', userSockets.size);
-        logger.info(`User disconnected: ${userId}`);
     }
 
-    const rateKey = socket.id;
-    if (messageRateLimit.has(rateKey)) {
-        messageRateLimit.delete(rateKey);
+    // Store memory metrics in Redis for monitoring
+    try {
+        const metricKey = `socket:metrics:${socket.id}`;
+        redis.setex(metricKey, 60, JSON.stringify({
+            heapUsed: heapUsedMB,
+            heapTotal: heapTotalMB,
+            heapPercent: heapUsagePercent,
+            activeConnections: connectionMetrics.activeConnections,
+            timestamp: new Date().toISOString()
+        }));
+    } catch (error) {
+        // Silently fail for metrics
+    }
+}
+
+function cleanupStaleListeners() {
+    let cleaned = 0;
+    const now = Date.now();
+
+    for (const [socketId, registry] of listenerRegistry) {
+        // Check if socket is still active
+        if (!io?.sockets?.sockets?.has(socketId)) {
+            registry.cleanup();
+            listenerRegistry.delete(socketId);
+            cleaned++;
+        }
+    }
+
+    if (cleaned > 0) {
+        logger.info(`Cleaned up ${cleaned} stale listener registries`);
+        connectionMetrics.lastCleanup = new Date().toISOString();
     }
 }
 
@@ -464,7 +692,11 @@ function sendToUser(userId, event, data) {
     const socketIds = userSockets.get(userId);
     if (socketIds && socketIds.size > 0) {
         socketIds.forEach((socketId) => {
-            io.to(socketId).emit(event, data);
+            try {
+                io.to(socketId).emit(event, data);
+            } catch (error) {
+                logger.error(`Failed to send to socket ${socketId}:`, error);
+            }
         });
         return true;
     }
@@ -472,7 +704,11 @@ function sendToUser(userId, event, data) {
 }
 
 function broadcastToRoom(roomId, event, data) {
-    io.to(roomId).emit(event, data);
+    try {
+        io.to(roomId).emit(event, data);
+    } catch (error) {
+        logger.error(`Failed to broadcast to room ${roomId}:`, error);
+    }
 }
 
 function getActiveUsers() {
@@ -495,7 +731,30 @@ function getRoomParticipants(roomId) {
         .filter(id => id);
 }
 
-function cleanup() {
+function getConnectionMetrics() {
+    return {
+        ...connectionMetrics,
+        activeSockets: userSockets.size,
+        activeRooms: activeRooms.size,
+        typingUsers: typingUsers.size,
+        queuedMessages: Array.from(messageQueue.values()).reduce((sum, q) => sum + q.length, 0)
+    };
+}
+
+function cleanupAll() {
+    logger.info('Starting full cleanup...');
+    
+    // Clean up all listener registries
+    for (const [socketId, registry] of listenerRegistry) {
+        try {
+            registry.cleanup();
+        } catch (error) {
+            logger.error(`Failed to clean registry for ${socketId}:`, error);
+        }
+    }
+    listenerRegistry.clear();
+
+    // Clear all maps
     userSockets.clear();
     socketUsers.clear();
     typingUsers.clear();
@@ -504,7 +763,41 @@ function cleanup() {
     userStatus.clear();
     messageQueue.clear();
     offlineMessages.flushAll();
-    logger.info('Socket manager cleanup completed');
+
+    // Clear heartbeat intervals
+    for (const [socketId, interval] of heartbeatIntervals) {
+        clearInterval(interval);
+    }
+    heartbeatIntervals.clear();
+
+    for (const [socketId, timer] of cleanupTimers) {
+        clearTimeout(timer);
+    }
+    cleanupTimers.clear();
+
+    connectionMetrics.activeConnections = 0;
+    connectionMetrics.lastCleanup = new Date().toISOString();
+
+    logger.info('Full cleanup completed');
+}
+
+function getSocketInfo(socketId) {
+    try {
+        const userId = socketUsers.get(socketId);
+        const registry = listenerRegistry.get(socketId);
+        return {
+            socketId,
+            userId,
+            listenerCount: registry?.getCount() || 0,
+            listeners: registry?.getAllListeners() || [],
+            isActive: io?.sockets?.sockets?.has(socketId) || false,
+            rooms: Array.from(activeRooms.entries())
+                .filter(([_, sockets]) => sockets.has(socketId))
+                .map(([room]) => room)
+        };
+    } catch (error) {
+        return { socketId, error: error.message };
+    }
 }
 
 module.exports = {
@@ -516,5 +809,11 @@ module.exports = {
     getUserStatus,
     getOnlineCount,
     getRoomParticipants,
-    cleanup
+    getConnectionMetrics,
+    cleanupAll,
+    getSocketInfo,
+    cleanupStaleListeners,
+    redis,
+    pubClient,
+    subClient
 };
