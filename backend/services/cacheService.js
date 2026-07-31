@@ -177,9 +177,120 @@ class CacheService {
         return value;
     }
 
+    // ============================================
+    // REDLOCK-STYLE DISTRIBUTED LOCKS (Issue #1260)
+    // ============================================
+
+    /**
+     * Acquire a Redis distributed lock (SET key token NX PX ttl).
+     * Retries with short backoff — used as a fast pre-gate before MySQL FOR UPDATE.
+     */
+    async acquireLock(lockName, options = {}) {
+        const {
+            ttlMs = 5000,
+            retries = 25,
+            retryDelayMs = 40,
+            token = crypto.randomBytes(16).toString('hex')
+        } = options;
+
+        const key = `redlock:${lockName}`;
+        let redis;
+        try {
+            redis = require('../config/redis');
+        } catch (_) {
+            // In-memory fallback for environments without Redis
+            if (!this._localLocks) this._localLocks = new Map();
+            const existing = this._localLocks.get(key);
+            if (existing && existing.expiresAt > Date.now()) {
+                for (let i = 0; i < retries; i++) {
+                    await sleep(retryDelayMs);
+                    const again = this._localLocks.get(key);
+                    if (!again || again.expiresAt <= Date.now()) break;
+                }
+                const still = this._localLocks.get(key);
+                if (still && still.expiresAt > Date.now()) {
+                    return null;
+                }
+            }
+            this._localLocks.set(key, { token, expiresAt: Date.now() + ttlMs });
+            return { key, token, local: true };
+        }
+
+        for (let attempt = 0; attempt < retries; attempt++) {
+            try {
+                const result = await redis.set(key, token, 'PX', ttlMs, 'NX');
+                if (result === 'OK') {
+                    return { key, token, local: false };
+                }
+            } catch (err) {
+                console.warn('Redlock acquire failed:', err.message);
+                return null;
+            }
+            await sleep(retryDelayMs);
+        }
+        return null;
+    }
+
+    /**
+     * Release a previously acquired Redlock (compare-and-delete).
+     */
+    async releaseLock(lockHandle) {
+        if (!lockHandle || !lockHandle.key || !lockHandle.token) return false;
+
+        if (lockHandle.local) {
+            if (!this._localLocks) return false;
+            const current = this._localLocks.get(lockHandle.key);
+            if (current && current.token === lockHandle.token) {
+                this._localLocks.delete(lockHandle.key);
+                return true;
+            }
+            return false;
+        }
+
+        let redis;
+        try {
+            redis = require('../config/redis');
+        } catch (_) {
+            return false;
+        }
+
+        const script = `
+            if redis.call("get", KEYS[1]) == ARGV[1] then
+                return redis.call("del", KEYS[1])
+            else
+                return 0
+            end
+        `;
+        try {
+            const result = await redis.eval(script, 1, lockHandle.key, lockHandle.token);
+            return result === 1;
+        } catch (err) {
+            console.warn('Redlock release failed:', err.message);
+            return false;
+        }
+    }
+
+    /**
+     * Run `fn` while holding a Redlock. Always releases on settle.
+     */
+    async withLock(lockName, fn, options = {}) {
+        const handle = await this.acquireLock(lockName, options);
+        if (!handle) {
+            const err = new Error(`Could not acquire lock: ${lockName}`);
+            err.code = 'LOCK_NOT_ACQUIRED';
+            throw err;
+        }
+        try {
+            return await fn(handle);
+        } finally {
+            await this.releaseLock(handle);
+        }
+    }
+
     async clear() {
         this.cache.clear();
         this.tags.clear();
+        if (this._localLocks) this._localLocks.clear();
         console.log('🗑️ Cache cleared');
         return true;
     }
@@ -263,6 +374,10 @@ class CacheService {
 
         console.log(`✅ Cache warmup completed in ${Date.now() - start}ms`);
     }
+}
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ============================================
