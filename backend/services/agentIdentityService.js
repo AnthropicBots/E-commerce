@@ -281,6 +281,80 @@ class AgentIdentityService {
             trustScore: trustScores.find(t => t.agentId === agent.agentId)
         }));
     }
+
+    /**
+     * Device fingerprint = hash(User-Agent + Client IP) (#1261)
+     */
+    buildDeviceFingerprint(userAgent, ip) {
+        const ua = String(userAgent || 'unknown').trim().toLowerCase();
+        const clientIp = String(ip || '0.0.0.0').trim();
+        return crypto
+            .createHash('sha256')
+            .update(`${ua}|${clientIp}`)
+            .digest('hex');
+    }
+
+    /**
+     * Compare stored fingerprint with current request meta
+     */
+    matchDeviceFingerprint(storedFingerprint, userAgent, ip) {
+        if (!storedFingerprint) return false;
+        return storedFingerprint === this.buildDeviceFingerprint(userAgent, ip);
+    }
+
+    /**
+     * Cascade after refresh-token family revocation:
+     * suspend/flag user-owned agents so stolen sessions cannot drive agent actions.
+     */
+    async onUserSessionFamilyRevoked(userId, familyId, reason = 'token_reuse_detected') {
+        if (!userId) {
+            return { suspended: 0, reason, familyId };
+        }
+
+        let suspended = 0;
+        try {
+            const agents = await AgentIdentity.find({
+                ownerId: userId,
+                status: { $in: ['active', 'pending_verification'] }
+            });
+
+            for (const agent of agents) {
+                try {
+                    agent.status = 'suspended';
+                    agent.metadata = {
+                        ...(agent.metadata || {}),
+                        sessionRevocation: {
+                            familyId,
+                            reason,
+                            at: new Date().toISOString()
+                        }
+                    };
+                    await agent.save();
+
+                    const trustScore = await AgentTrustScore.findOne({ agentId: agent.agentId });
+                    if (trustScore && trustScore.addFlag) {
+                        await trustScore.addFlag(
+                            'critical',
+                            `Session family revoked (${reason})`
+                        );
+                    }
+                    suspended += 1;
+                } catch (err) {
+                    console.warn('Agent suspend on family revoke failed:', err.message);
+                }
+            }
+        } catch (err) {
+            // Agent store may be Mongo-backed and unavailable in MySQL-only deploys
+            console.warn('onUserSessionFamilyRevoked skipped:', err.message);
+        }
+
+        console.warn(
+            `Session family cascade: user=${userId} family=${familyId || 'ALL'} ` +
+            `reason=${reason} agentsSuspended=${suspended}`
+        );
+
+        return { suspended, reason, familyId, userId };
+    }
 }
 
 module.exports = new AgentIdentityService();

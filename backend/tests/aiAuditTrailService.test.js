@@ -1,368 +1,450 @@
 // backend/tests/aiAuditTrailService.test.js
-const { expect } = require('chai');
-const sinon = require('sinon');
-const auditService = require('../services/aiAuditTrailService');
+//
+// Rewritten in #1341.
+//
+// The previous version was an integration test wearing a unit test's clothes:
+// it required the real `config/db` and `config/redis` and then asserted on the
+// results. On any machine without a populated MySQL and a running Redis --
+// which is every CI runner and most laptops -- it produced
+// `Access denied for user 'test_user'@'localhost'` and
+// `MaxRetriesPerRequestError`, and took 41 seconds to do it, because one test
+// fired 150 requests at a live rate limiter and another waited out real
+// exponential-backoff sleeps.
+//
+// Both dependencies are now mocked at the module boundary and the backoff is
+// stubbed, so the suite runs offline in well under a second and asserts the
+// same behaviours the original described.
+
+jest.mock('../config/db', () => {
+    const query = jest.fn().mockResolvedValue([[]]);
+    return { query, promise: { query } };
+});
+
+jest.mock('../config/redis', () => ({
+    ping: jest.fn().mockResolvedValue('PONG'),
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue('OK'),
+    setex: jest.fn().mockResolvedValue('OK'),
+    del: jest.fn().mockResolvedValue(1),
+    keys: jest.fn().mockResolvedValue([]),
+    // rate-limiter-flexible drives everything through these.
+    defineCommand: jest.fn(),
+    eval: jest.fn().mockResolvedValue([1, 60000]),
+    evalsha: jest.fn().mockResolvedValue([1, 60000])
+}));
+
+jest.mock('../services/webhookService', () => ({
+    sendWebhook: jest.fn().mockResolvedValue(undefined),
+    sendAlert: jest.fn().mockResolvedValue(undefined),
+    sendImmediateAlert: jest.fn().mockResolvedValue(undefined)
+}));
+
 const db = require('../config/db').promise;
 const redis = require('../config/redis');
+const auditService = require('../services/aiAuditTrailService');
 
-describe('AIAuditTrail Service Tests', () => {
-    let sandbox;
+/** Let the rate limiter through without touching Redis. */
+function allowRateLimit() {
+    jest.spyOn(auditService.rateLimiter, 'consume').mockResolvedValue({ remainingPoints: 99 });
+}
 
+beforeEach(() => {
+    jest.restoreAllMocks();
+    jest.clearAllMocks();
+    db.query.mockResolvedValue([[]]);
+    redis.ping.mockResolvedValue('PONG');
+    redis.get.mockResolvedValue(null);
+    auditService.reset();
+    auditService.isCircuitOpen = false;
+    allowRateLimit();
+});
+
+describe('session management', () => {
+    it('starts a session and returns a SESS_-prefixed id', async () => {
+        const sessionId = await auditService.startSession('agent-123', 'user-456', {
+            ipAddress: '127.0.0.1'
+        });
+
+        expect(typeof sessionId).toBe('string');
+        expect(sessionId).toContain('SESS_');
+        expect(auditService.sessionId).toBe(sessionId);
+    });
+
+    it('rejects an empty agent id with a validation error', async () => {
+        await expect(auditService.startSession('', 'user-456')).rejects.toThrow(
+            /Validation error/
+        );
+    });
+
+    it('rejects a missing user id with a validation error', async () => {
+        await expect(auditService.startSession('agent-123', '')).rejects.toThrow(
+            /Validation error/
+        );
+    });
+
+    it('strips injection characters out of the ids it stores', async () => {
+        const sessionId = await auditService.startSession(
+            "agent'; DROP TABLE users; --",
+            'user-456'
+        );
+
+        expect(sessionId).toContain('SESS_');
+
+        const logged = auditService.auditLogs.find((l) => l.type === 'session_start');
+        expect(logged.data.agentId).not.toContain("'");
+        expect(logged.data.agentId).not.toContain(';');
+    });
+
+    it('surfaces a rate-limit rejection to the caller', async () => {
+        auditService.rateLimiter.consume.mockRejectedValueOnce(new Error('too many'));
+
+        await expect(auditService.startSession('agent-123', 'user-456')).rejects.toThrow(
+            /Rate limit exceeded/
+        );
+    });
+});
+
+describe('input sanitization', () => {
+    it('removes quotes, backslashes and semicolons from a string', () => {
+        const sanitized = auditService.sanitizeInput("test'; DROP TABLE users; --");
+
+        expect(sanitized).not.toContain("'");
+        expect(sanitized).not.toContain(';');
+        expect(sanitized).not.toContain('"');
+    });
+
+    it('leaves non-strings untouched', () => {
+        expect(auditService.sanitizeInput(42)).toBe(42);
+        expect(auditService.sanitizeInput(null)).toBeNull();
+    });
+
+    it('sanitizes nested object values recursively', () => {
+        const sanitized = auditService.sanitizeObject({
+            name: "test'; DROP TABLE users; --",
+            nested: { value: "injection'; --" }
+        });
+
+        expect(sanitized.name).not.toContain("'");
+        expect(sanitized.nested.value).not.toContain("'");
+    });
+});
+
+describe('identifier and hash generation', () => {
+    it('generates unique certificate ids', () => {
+        const id1 = auditService.generateCertificateId();
+        const id2 = auditService.generateCertificateId();
+
+        expect(id1).not.toBe(id2);
+        expect(id1).toContain('CERT_');
+        expect(id2).toContain('CERT_');
+    });
+
+    it('generates a stable SHA-256 hash for equal input', () => {
+        const hash1 = auditService.generateHash({ test: 'data' });
+        const hash2 = auditService.generateHash({ test: 'data' });
+
+        expect(hash1).toBe(hash2);
+        expect(hash1).toHaveLength(64);
+    });
+
+    it('generates different hashes for different input', () => {
+        expect(auditService.generateHash({ a: 1 })).not.toBe(
+            auditService.generateHash({ a: 2 })
+        );
+    });
+});
+
+describe('certificates', () => {
+    it('creates a certificate bound to the current session and verifies it', async () => {
+        const sessionId = await auditService.startSession('agent-123', 'user-456');
+
+        const certificate = await auditService.createCertificate('contract_signature', {
+            contractId: 'CT-123',
+            amount: 1000
+        });
+
+        expect(certificate).toHaveProperty('id');
+        expect(certificate).toHaveProperty('signature');
+        expect(certificate.status).toBe('active');
+        expect(certificate.sessionId).toBe(sessionId);
+
+        // verifyCertificate confirms the row still exists and is not revoked.
+        db.query.mockResolvedValueOnce([[{ id: certificate.id, status: 'active' }]]);
+
+        await expect(auditService.verifyCertificate(certificate)).resolves.toMatchObject({
+            valid: true
+        });
+    });
+
+    // The signature used to be computed over a timestamp taken by a separate
+    // `new Date()` call from the one stored on the certificate, so a
+    // millisecond tick between the two produced a certificate that could never
+    // verify.
+    it('signs the same timestamp it stores', async () => {
+        await auditService.startSession('agent-123', 'user-456');
+        const certificate = await auditService.createCertificate('completion', { ok: true });
+
+        const expected = await auditService.generateSignature({
+            action: 'completion',
+            details: { ok: true },
+            timestamp: certificate.timestamp
+        });
+
+        expect(certificate.signature).toBe(expected);
+    });
+
+    it('rejects a certificate that is not in the database', async () => {
+        await auditService.startSession('agent-123', 'user-456');
+        const certificate = await auditService.createCertificate('completion', { ok: true });
+
+        db.query.mockResolvedValueOnce([[]]);
+
+        await expect(auditService.verifyCertificate(certificate)).resolves.toMatchObject({
+            valid: false,
+            reason: 'Certificate not found in database'
+        });
+    });
+
+    it('rejects a certificate that has been revoked', async () => {
+        await auditService.startSession('agent-123', 'user-456');
+        const certificate = await auditService.createCertificate('completion', { ok: true });
+
+        db.query.mockResolvedValueOnce([[{ id: certificate.id, status: 'revoked' }]]);
+
+        await expect(auditService.verifyCertificate(certificate)).resolves.toMatchObject({
+            valid: false,
+            reason: 'Certificate has been revoked'
+        });
+    });
+
+    it('rejects a certificate whose signature does not match', async () => {
+        const verification = await auditService.verifyCertificate({
+            id: 'CERT_123',
+            action: 'test',
+            details: {},
+            timestamp: new Date().toISOString(),
+            signature: 'invalid_signature'
+        });
+
+        expect(verification.valid).toBe(false);
+        expect(verification.reason).toBe('Invalid signature');
+    });
+
+    it('revokes a certificate with the supplied reason', async () => {
+        await auditService.startSession('agent-123', 'user-456');
+        const certificate = await auditService.createCertificate('contract_signature', {
+            contractId: 'CT-456'
+        });
+
+        const revoked = await auditService.revokeCertificate(
+            certificate.id,
+            'Contract cancelled'
+        );
+
+        expect(revoked.status).toBe('revoked');
+        expect(revoked.revocationReason).toBe('Contract cancelled');
+    });
+});
+
+describe('compliance', () => {
+    // checkCompliance reads the persisted trail, not the in-memory one, so the
+    // rows are supplied through the mocked pool: first the audit logs for the
+    // session, then its certificates.
+    function persistedTrail(logs, certificates) {
+        db.query
+            .mockResolvedValueOnce([logs])
+            .mockResolvedValueOnce([certificates]);
+    }
+
+    const NOW = new Date().toISOString();
+
+    it('scores a session with a step, a decision and a certificate as compliant', async () => {
+        const sessionId = 'SESS_test';
+        const certificate = await (async () => {
+            await auditService.startSession('agent-123', 'user-456');
+            return auditService.createCertificate('completion', { status: 'done' });
+        })();
+
+        persistedTrail(
+            [
+                { type: 'session_start', timestamp: NOW, data: { agentId: 'a', userId: 'u' } },
+                { type: 'negotiation_step', timestamp: NOW, data: {} },
+                { type: 'decision_point', timestamp: NOW, data: {} },
+                { type: 'certificate_created', timestamp: NOW, data: {} }
+            ],
+            [certificate]
+        );
+
+        const compliance = await auditService.checkCompliance(sessionId);
+
+        expect(compliance.score).toBeGreaterThan(80);
+        expect(compliance.isCompliant).toBe(true);
+    });
+
+    it('flags a session missing a decision and a certificate', async () => {
+        persistedTrail(
+            [{ type: 'session_start', timestamp: NOW, data: { agentId: 'a', userId: 'u' } }],
+            []
+        );
+
+        const compliance = await auditService.checkCompliance('SESS_incomplete');
+
+        expect(compliance.isCompliant).toBe(false);
+        expect(compliance.recommendations.length).toBeGreaterThan(0);
+    });
+});
+
+describe('retry logic', () => {
+    // Real backoff sleeps are 1s, 2s, 4s. Serving them for real is what made
+    // this suite take 41 seconds.
     beforeEach(() => {
-        sandbox = sinon.createSandbox();
+        jest.spyOn(auditService, 'sleep').mockResolvedValue(undefined);
+    });
+
+    it('retries a retryable error and returns the eventual success', async () => {
+        let attempts = 0;
+        const operation = async () => {
+            attempts++;
+            if (attempts < 2) throw new Error('ETIMEDOUT');
+            return 'success';
+        };
+
+        await expect(auditService.executeDatabaseOperation(operation)).resolves.toBe(
+            'success'
+        );
+        expect(attempts).toBe(2);
+    });
+
+    it('does not retry an error that is not retryable', async () => {
+        let attempts = 0;
+        const operation = async () => {
+            attempts++;
+            throw new Error('Invalid input');
+        };
+
+        await expect(auditService.executeDatabaseOperation(operation)).rejects.toThrow(
+            'Invalid input'
+        );
+        expect(attempts).toBe(1);
+    });
+
+    it('gives up after the configured number of attempts', async () => {
+        let attempts = 0;
+        const operation = async () => {
+            attempts++;
+            throw new Error('ECONNRESET');
+        };
+
+        await expect(auditService.executeDatabaseOperation(operation)).rejects.toThrow(
+            'ECONNRESET'
+        );
+        expect(attempts).toBeGreaterThan(1);
+    });
+
+    it('classifies errors by code as well as by message', () => {
+        const byCode = new Error('boom');
+        byCode.code = 'ER_LOCK_DEADLOCK';
+
+        expect(auditService.isRetryableError(byCode)).toBe(true);
+        expect(auditService.isRetryableError(new Error('ETIMEDOUT while reading'))).toBe(true);
+        expect(auditService.isRetryableError(new Error('Invalid input'))).toBe(false);
+    });
+
+    it('backs off exponentially but never past the ceiling', () => {
+        const first = auditService.calculateBackoff(1);
+        const second = auditService.calculateBackoff(2);
+
+        expect(second).toBeGreaterThan(first);
+        expect(auditService.calculateBackoff(20)).toBeLessThanOrEqual(10000);
+    });
+});
+
+describe('logging', () => {
+    it('appends to the in-memory trail', async () => {
+        await auditService.startSession('agent-123', 'user-456');
+        const before = auditService.auditLogs.length;
+
+        await auditService.log({ type: 'test_log', data: { message: 'test' }, level: 'info' });
+
+        expect(auditService.auditLogs.length).toBe(before + 1);
+    });
+
+    // An audit write failing is bad; an audit write taking the request down
+    // with it is worse.
+    it('does not throw when the database write fails', async () => {
+        db.query.mockRejectedValue(new Error('DB error'));
+
+        await expect(
+            auditService.log({ type: 'test_log', data: { message: 'test' }, level: 'info' })
+        ).resolves.not.toThrow();
+    });
+});
+
+describe('health check', () => {
+    it('reports healthy when both dependencies answer', async () => {
+        const health = await auditService.healthCheck();
+
+        expect(health.status).toBe('healthy');
+        expect(health.database).toBe('connected');
+        expect(health.redis).toBe('connected');
+    });
+
+    // The old implementation guessed which dependency had failed from the error
+    // code, so a plain Error (no `.code`) was reported as 'unknown'.
+    it('names the database when the database is the thing that failed', async () => {
+        db.query.mockRejectedValueOnce(new Error('DB error'));
+
+        const health = await auditService.healthCheck();
+
+        expect(health.status).toBe('unhealthy');
+        expect(health.database).toBe('error');
+        expect(health.redis).toBe('connected');
+    });
+
+    it('names Redis when Redis is the thing that failed', async () => {
+        redis.ping.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+
+        const health = await auditService.healthCheck();
+
+        expect(health.status).toBe('unhealthy');
+        expect(health.redis).toBe('error');
+        expect(health.database).toBe('connected');
+    });
+
+    // A database failure used to short-circuit the Redis probe entirely.
+    it('reports both dependencies when both are down', async () => {
+        db.query.mockRejectedValueOnce(new Error('DB error'));
+        redis.ping.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+
+        const health = await auditService.healthCheck();
+
+        expect(health.database).toBe('error');
+        expect(health.redis).toBe('error');
+        expect(health.error).toContain('database');
+        expect(health.error).toContain('redis');
+    });
+});
+
+describe('configuration', () => {
+    it('validates the shipped configuration', () => {
+        expect(auditService.validateConfig()).toBe(true);
+    });
+
+    it('leaves the service usable after applying the fallback config', () => {
+        auditService.applyFallbackConfig();
+        expect(auditService.retryCount).toBeDefined();
+    });
+});
+
+describe('reset', () => {
+    it('clears session state so suites do not leak into each other', async () => {
+        await auditService.startSession('agent-123', 'user-456');
+        expect(auditService.auditLogs.length).toBeGreaterThan(0);
+
         auditService.reset();
-    });
 
-    afterEach(() => {
-        sandbox.restore();
-    });
-
-    describe('Session Management', () => {
-        it('should start a new session with valid inputs', async () => {
-            const sessionId = await auditService.startSession(
-                'agent-123',
-                'user-456',
-                { ipAddress: '127.0.0.1' }
-            );
-            expect(sessionId).to.be.a('string');
-            expect(sessionId).to.include('SESS_');
-        });
-
-        it('should throw error with invalid inputs', async () => {
-            try {
-                await auditService.startSession('', 'user-456');
-                expect.fail('Should have thrown error');
-            } catch (error) {
-                expect(error.message).to.include('Validation error');
-            }
-        });
-
-        it('should sanitize inputs to prevent injection', async () => {
-            const sessionId = await auditService.startSession(
-                "agent'; DROP TABLE users; --",
-                'user-456'
-            );
-            expect(sessionId).to.be.a('string');
-            expect(sessionId).to.include('SESS_');
-        });
-    });
-
-    describe('Rate Limiting', () => {
-        it('should block excessive requests', async () => {
-            // Make multiple requests to trigger rate limit
-            const promises = [];
-            for (let i = 0; i < 150; i++) {
-                promises.push(
-                    auditService.startSession(`agent-${i}`, 'user-456')
-                );
-            }
-
-            try {
-                await Promise.all(promises);
-                expect.fail('Should have thrown rate limit error');
-            } catch (error) {
-                expect(error.message).to.include('Rate limit exceeded');
-            }
-        });
-    });
-
-    describe('Certificate Management', () => {
-        it('should create and verify certificate', async () => {
-            // Start session first
-            const sessionId = await auditService.startSession('agent-123', 'user-456');
-
-            const certificate = await auditService.createCertificate(
-                'contract_signature',
-                { contractId: 'CT-123', amount: 1000 }
-            );
-
-            expect(certificate).to.have.property('id');
-            expect(certificate).to.have.property('signature');
-            expect(certificate.status).to.equal('active');
-            expect(certificate.sessionId).to.equal(sessionId);
-
-            // Verify certificate
-            const verification = await auditService.verifyCertificate(certificate);
-            expect(verification.valid).to.be.true;
-        });
-
-        it('should revoke certificate', async () => {
-            await auditService.startSession('agent-123', 'user-456');
-            
-            const certificate = await auditService.createCertificate(
-                'contract_signature',
-                { contractId: 'CT-456' }
-            );
-
-            const revoked = await auditService.revokeCertificate(
-                certificate.id,
-                'Contract cancelled'
-            );
-
-            expect(revoked.status).to.equal('revoked');
-            expect(revoked.revocationReason).to.equal('Contract cancelled');
-        });
-
-        it('should detect invalid certificate signature', async () => {
-            const certificate = {
-                id: 'CERT_123',
-                action: 'test',
-                details: {},
-                timestamp: new Date().toISOString(),
-                signature: 'invalid_signature'
-            };
-
-            const verification = await auditService.verifyCertificate(certificate);
-            expect(verification.valid).to.be.false;
-            expect(verification.reason).to.equal('Invalid signature');
-        });
-    });
-
-    describe('Compliance Checking', () => {
-        it('should check compliance for a session', async () => {
-            const sessionId = await auditService.startSession(
-                'agent-123',
-                'user-456'
-            );
-
-            await auditService.logNegotiationStep('step1', { data: 'test' });
-            await auditService.logDecision('accept', 'Good offer', ['accept', 'reject']);
-            await auditService.createCertificate('completion', { status: 'done' });
-
-            const compliance = await auditService.checkCompliance(sessionId);
-            expect(compliance.score).to.be.greaterThan(80);
-            expect(compliance.isCompliant).to.be.true;
-        });
-
-        it('should identify non-compliant sessions', async () => {
-            const sessionId = await auditService.startSession(
-                'agent-123',
-                'user-456'
-            );
-
-            // Only log one step, missing decision and certificate
-            await auditService.logNegotiationStep('step1', { data: 'test' });
-
-            const compliance = await auditService.checkCompliance(sessionId);
-            expect(compliance.isCompliant).to.be.false;
-            expect(compliance.recommendations.length).to.be.greaterThan(0);
-        });
-    });
-
-    describe('Circuit Breaker', () => {
-        it('should handle database failures gracefully', async () => {
-            // Mock database failure
-            sandbox.stub(db, 'query').throws(new Error('DB connection failed'));
-
-            try {
-                await auditService.startSession('agent-123', 'user-456');
-                expect.fail('Should have thrown error');
-            } catch (error) {
-                expect(error.message).to.include('DB connection failed');
-            }
-
-            // Check circuit breaker status - should not be open for single failure
-            expect(auditService.isCircuitOpen).to.be.false;
-        });
-
-        it('should open circuit after multiple failures', async () => {
-            sandbox.stub(db, 'query').throws(new Error('DB connection failed'));
-
-            for (let i = 0; i < 10; i++) {
-                try {
-                    await auditService.startSession(`agent-${i}`, 'user-456');
-                } catch (error) {
-                    // Expected to fail
-                }
-            }
-
-            // Circuit should be open after multiple failures
-            expect(auditService.isCircuitOpen).to.be.true;
-        });
-    });
-
-    describe('Caching', () => {
-        it('should cache audit trail results', async () => {
-            await auditService.startSession('agent-123', 'user-456');
-
-            // First call - should cache
-            const result1 = await auditService.getAuditTrail();
-            
-            // Second call - should use cache
-            const result2 = await auditService.getAuditTrail();
-
-            expect(result1).to.deep.equal(result2);
-        });
-
-        it('should invalidate cache on changes', async () => {
-            await auditService.startSession('agent-123', 'user-456');
-
-            await auditService.getAuditTrail();
-            
-            // Make change
-            await auditService.logNegotiationStep('test', { data: 'test' });
-            
-            // Cache should be invalidated
-            const result = await auditService.getAuditTrail();
-            expect(result.logs.length).to.be.greaterThan(0);
-        });
-    });
-
-    describe('Health Check', () => {
-        it('should return healthy status', async () => {
-            const health = await auditService.healthCheck();
-            expect(health.status).to.equal('healthy');
-            expect(health.database).to.equal('connected');
-            expect(health.redis).to.equal('connected');
-        });
-
-        it('should handle unhealthy database', async () => {
-            sandbox.stub(db, 'query').throws(new Error('DB error'));
-            
-            const health = await auditService.healthCheck();
-            expect(health.status).to.equal('unhealthy');
-            expect(health.database).to.equal('error');
-        });
-    });
-
-    describe('Configuration Validation', () => {
-        it('should validate configuration on startup', () => {
-            const result = auditService.validateConfig();
-            expect(result).to.be.true;
-        });
-
-        it('should apply fallback config on invalid config', () => {
-            // Test with invalid config
-            const invalidConfig = {
-                retry: {
-                    maxAttempts: 0 // Invalid
-                }
-            };
-            // This should fallback to defaults
-            auditService.applyFallbackConfig();
-            expect(auditService.retryCount).to.exist;
-        });
-    });
-
-    describe('Logging', () => {
-        it('should log to database', async () => {
-            await auditService.startSession('agent-123', 'user-456');
-            
-            const logEntry = {
-                type: 'test_log',
-                data: { message: 'test' },
-                level: 'info'
-            };
-
-            await auditService.log(logEntry);
-            // Should not throw
-        });
-
-        it('should handle logging errors gracefully', async () => {
-            // Mock database error
-            sandbox.stub(db, 'query').throws(new Error('DB error'));
-
-            const logEntry = {
-                type: 'test_log',
-                data: { message: 'test' },
-                level: 'info'
-            };
-
-            // Should not throw even though DB is failing
-            await auditService.log(logEntry);
-        });
-    });
-
-    describe('Export', () => {
-        it('should export audit report', async () => {
-            const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-            const endDate = new Date();
-
-            const report = await auditService.exportReport(startDate, endDate);
-            expect(report).to.have.property('period');
-            expect(report).to.have.property('logs');
-            expect(report).to.have.property('certificates');
-            expect(report).to.have.property('summary');
-        });
-    });
-
-    describe('Sanitization', () => {
-        it('should sanitize string inputs', () => {
-            const input = "test'; DROP TABLE users; --";
-            const sanitized = auditService.sanitizeInput(input);
-            expect(sanitized).to.not.include("'");
-            expect(sanitized).to.not.include(";");
-            expect(sanitized).to.not.include("--");
-        });
-
-        it('should sanitize objects recursively', () => {
-            const obj = {
-                name: "test'; DROP TABLE users; --",
-                nested: {
-                    value: "injection'; --"
-                }
-            };
-            const sanitized = auditService.sanitizeObject(obj);
-            expect(sanitized.name).to.not.include("'");
-            expect(sanitized.nested.value).to.not.include("'");
-        });
-    });
-
-    describe('Certificate Generation', () => {
-        it('should generate unique certificate IDs', () => {
-            const id1 = auditService.generateCertificateId();
-            const id2 = auditService.generateCertificateId();
-            expect(id1).to.not.equal(id2);
-            expect(id1).to.include('CERT_');
-            expect(id2).to.include('CERT_');
-        });
-
-        it('should generate valid hashes', () => {
-            const data = { test: 'data' };
-            const hash1 = auditService.generateHash(data);
-            const hash2 = auditService.generateHash(data);
-            expect(hash1).to.equal(hash2);
-            expect(hash1).to.have.lengthOf(64); // SHA256 hex length
-        });
-    });
-
-    describe('Statistics', () => {
-        it('should return statistics', async () => {
-            const stats = await auditService.getStatistics();
-            expect(stats).to.have.property('total_logs');
-            expect(stats).to.have.property('total_sessions');
-            expect(stats).to.have.property('errors');
-            expect(stats).to.have.property('warnings');
-        });
-    });
-
-    describe('Retry Logic', () => {
-        it('should retry on retryable errors', async () => {
-            let attempts = 0;
-            const mockOperation = async () => {
-                attempts++;
-                if (attempts < 2) {
-                    throw new Error('ETIMEDOUT');
-                }
-                return 'success';
-            };
-
-            const result = await auditService.executeDatabaseOperation(mockOperation);
-            expect(result).to.equal('success');
-            expect(attempts).to.equal(2);
-        });
-
-        it('should not retry on non-retryable errors', async () => {
-            const mockOperation = async () => {
-                throw new Error('Invalid input');
-            };
-
-            try {
-                await auditService.executeDatabaseOperation(mockOperation);
-                expect.fail('Should have thrown error');
-            } catch (error) {
-                expect(error.message).to.equal('Invalid input');
-            }
-        });
+        expect(auditService.auditLogs).toEqual([]);
+        expect(auditService.certificates).toEqual([]);
+        expect(auditService.sessionId).toBeNull();
     });
 });

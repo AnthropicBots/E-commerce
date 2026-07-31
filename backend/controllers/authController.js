@@ -8,24 +8,8 @@ const crypto = require("crypto");
 const db = require("../config/db");
 const { sanitizeString, safeArray } = require("../utils/helpers");
 const { getClearCookieOptions } = require("../config/cookieConfig");
-const {
-    COOKIE_NAMES,
-    REFRESH_COOKIE_PATH,
-    SESSION_CLAIM,
-    issueAccessToken,
-    issueRefreshToken,
-    issueTwoFactorToken,
-    verifyRefreshToken
-} = require("../utils/tokens");
-const {
-    REVOKE_REASON,
-    SESSION_OUTCOME,
-    createSession,
-    revokeSessionById,
-    revokeSessionByToken,
-    revokeUserSessions,
-    rotateSession
-} = require("../services/authSessionService");
+const refreshTokenService = require("../services/refreshTokenService");
+const agentIdentityService = require("../services/agentIdentityService");
 
 // Appwrite SDK
 const { Client, Account, ID, Databases } = require('node-appwrite');
@@ -83,23 +67,49 @@ const appwriteAccount = new Account(appwriteClient);
 
 // ==================== HELPER FUNCTIONS ====================
 
-/**
- * Where the request appears to come from, used to label a session so an account
- * holder can recognise it later.
- */
-function describeRequestOrigin(req) {
+function clientMeta(req) {
+    const ip = req.ip
+        || req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim()
+        || req.connection?.remoteAddress
+        || null;
+    const userAgent = req.headers['user-agent'] || '';
+    return { ip, userAgent };
+}
+
+function generateAccessToken(user, familyId = null) {
+    const jti = crypto.randomUUID();
+    const payload = {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        jti
+    };
+    if (familyId) {
+        payload.fid = familyId;
+    }
     return {
-        ip: req.ip,
-        userAgent: req.headers ? req.headers["user-agent"] : undefined
+        token: jwt.sign(
+            payload,
+            process.env.JWT_SECRET,
+            { expiresIn: process.env.JWT_EXPIRES_IN || "15m" }
+        ),
+        jti,
+        familyId
     };
 }
 
-function sendAuthResponse(res, { message, accessToken, refreshToken, user }) {
+function generateRefreshToken() {
+    return refreshTokenService.generateRawRefreshToken();
+}
+
+function sendAuthResponse(res, { message, accessToken, refreshToken, user, familyId, security }) {
     return res.status(200).json({
         success: true,
         message,
         accessToken,
         refreshToken,
+        familyId: familyId || undefined,
+        security: security || undefined,
         user: {
             id: user.id,
             name: user.name,
@@ -372,24 +382,20 @@ const login = async (req, res) => {
             });
         }
 
-        // A session per device: signing in here leaves any session on another
-        // device untouched.
-        const refreshToken = issueRefreshToken();
-        const { sessionId } = await createSession({
-            userId: user.id,
-            refreshToken,
-            ...describeRequestOrigin(req)
-        });
+        const { ip, userAgent } = clientMeta(req);
+        const session = await refreshTokenService.issueRefreshFamily(user.id, { ip, userAgent });
+        const access = generateAccessToken(user, session.familyId);
 
-        const accessToken = issueAccessToken(user, { [SESSION_CLAIM]: sessionId });
-
-        await db.query(`UPDATE users SET last_login = NOW() WHERE id = ?`, [user.id]);
-
-        return sendAuthResponse(res, { 
-            message: "Login successful", 
-            accessToken, 
-            refreshToken, 
-            user 
+        return sendAuthResponse(res, {
+            message: "Login successful",
+            accessToken: access.token,
+            refreshToken: session.refreshToken,
+            familyId: session.familyId,
+            user,
+            security: {
+                tokenRotation: true,
+                deviceFingerprint: session.deviceFingerprint.slice(0, 12) + '…'
+            }
         });
     } catch (error) {
         console.error("LOGIN ERROR:", error);
@@ -401,22 +407,39 @@ const login = async (req, res) => {
 const logout = async (req, res) => {
     try {
         const userId = req.user?.id;
-
-        // End only the session this request belongs to. The session id on the
-        // access token identifies it without the client having to hand back its
-        // refresh token; the body is a fallback for callers that still do.
-        const sessionId = req.user?.[SESSION_CLAIM];
-        if (sessionId) {
-            await revokeSessionById(sessionId, REVOKE_REASON.LOGOUT);
-        } else {
-            const presentedToken = sanitizeString(req.body?.refreshToken);
-            if (presentedToken) {
-                await revokeSessionByToken(presentedToken, REVOKE_REASON.LOGOUT);
-            }
-        }
+        const presented =
+            sanitizeString(req.body?.refreshToken)
+            || req.cookies?.refreshToken
+            || null;
+        const logoutAll = req.body?.allDevices === true || req.query?.allDevices === 'true';
 
         if (userId) {
-            await db.query(`UPDATE users SET last_logout = NOW() WHERE id = ?`, [userId]);
+            if (logoutAll) {
+                await refreshTokenService.revokeAllUserFamilies(userId, 'user_logout_all');
+                // Cascade: suspend user-bound agent sessions (#1261 multi-device)
+                await agentIdentityService.onUserSessionFamilyRevoked(
+                    userId,
+                    null,
+                    'user_logout_all'
+                ).catch(() => {});
+            } else {
+                await refreshTokenService.revokePresentedSession(
+                    presented,
+                    userId,
+                    'user_logout'
+                );
+                if (req.user?.fid) {
+                    await agentIdentityService.onUserSessionFamilyRevoked(
+                        userId,
+                        req.user.fid,
+                        'user_logout'
+                    ).catch(() => {});
+                }
+            }
+
+            if (req.user?.jti) {
+                await refreshTokenService.blacklistAccessJti(req.user.jti);
+            }
         }
 
         // Clear cookies using shared cookie options
@@ -427,7 +450,9 @@ const logout = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            message: "Logged out successfully",
+            message: logoutAll
+                ? "Logged out from all devices successfully"
+                : "Logged out successfully",
             timestamp: new Date().toISOString()
         });
     } catch (error) {
@@ -602,20 +627,17 @@ const changePassword = async (req, res) => {
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await db.query(`UPDATE users SET password = ? WHERE id = ?`, [hashedPassword, userId]);
 
-        // Anyone signed in with the old password loses their session. The device
-        // making the change keeps its own, so changing a password does not sign
-        // you out of the page you are on.
-        const currentSessionId = req.user?.[SESSION_CLAIM];
-        const revokedCount = await revokeUserSessions({
+        // Password change → revoke all refresh families (force re-auth on every device)
+        await refreshTokenService.revokeAllUserFamilies(userId, 'password_changed');
+        await agentIdentityService.onUserSessionFamilyRevoked(
             userId,
-            exceptSessionId: currentSessionId,
-            reason: REVOKE_REASON.PASSWORD_CHANGED
-        });
+            null,
+            'password_changed'
+        ).catch(() => {});
 
         return res.status(200).json({ 
             success: true, 
-            message: "Password changed successfully",
-            revokedSessionCount: revokedCount
+            message: "Password changed successfully. Please login again on all devices." 
         });
     } catch (error) {
         console.error("CHANGE PASSWORD ERROR:", error);
@@ -626,46 +648,31 @@ const changePassword = async (req, res) => {
 // ==================== 8. REFRESH ACCESS TOKEN ====================
 const refreshAccessToken = async (req, res) => {
     try {
-        const { refreshToken } = req.body;
-        const cleanRefreshToken = sanitizeString(refreshToken);
+        const presented =
+            sanitizeString(req.body?.refreshToken)
+            || req.cookies?.refreshToken
+            || null;
 
-        if (!cleanRefreshToken) {
+        if (!presented) {
             return res.status(401).json({ success: false, message: "Refresh token required" });
         }
 
-        // A token without our tag was never issued here, so there is no point
-        // asking the database about it.
-        if (!verifyRefreshToken(cleanRefreshToken)) {
-            return res.status(401).json({ success: false, message: "Invalid refresh token" });
-        }
+        const { ip, userAgent } = clientMeta(req);
+        const rotation = await refreshTokenService.rotateRefreshToken(presented, { ip, userAgent });
 
-        const newRefreshToken = issueRefreshToken();
-        const rotation = await rotateSession({
-            refreshToken: cleanRefreshToken,
-            newRefreshToken,
-            ...describeRequestOrigin(req)
-        });
-
-        // A superseded token coming back means it is in two places at once. That
-        // is worth acting on, so every session descended from the same sign-in
-        // has already been ended by this point.
-        if (rotation.outcome === SESSION_OUTCOME.REPLAY) {
-            console.warn(
-                `🚨 Refresh token replay detected for user ${rotation.userId}. ` +
-                `Session family ${rotation.familyId} revoked.`
-            );
-            return res.status(401).json({
+        if (!rotation.ok) {
+            if (rotation.familyRevoked) {
+                await agentIdentityService.onUserSessionFamilyRevoked(
+                    rotation.userId || null,
+                    rotation.familyId,
+                    'token_reuse_detected'
+                ).catch(() => {});
+            }
+            return res.status(rotation.status || 401).json({
                 success: false,
-                code: "SESSION_REPLAY_DETECTED",
-                message: "This session was ended for security reasons. Please sign in again."
-            });
-        }
-
-        if (rotation.outcome !== SESSION_OUTCOME.ROTATED) {
-            return res.status(401).json({
-                success: false,
-                code: "SESSION_EXPIRED",
-                message: "Session has expired. Please sign in again."
+                message: rotation.message,
+                errorCode: rotation.code,
+                securityAlarm: rotation.familyRevoked === true
             });
         }
 
@@ -682,7 +689,7 @@ const refreshAccessToken = async (req, res) => {
             return res.status(401).json({ success: false, message: "Invalid refresh token" });
         }
 
-        const user = users[0];
+        const user = rotation.user || users[0];
         if (user.is_active === 0) {
             await revokeUserSessions({
                 userId: user.id,
@@ -691,13 +698,19 @@ const refreshAccessToken = async (req, res) => {
             return res.status(403).json({ success: false, message: "Account has been deactivated" });
         }
 
-        const newAccessToken = issueAccessToken(user, { [SESSION_CLAIM]: rotation.sessionId });
+        const access = generateAccessToken(user, rotation.familyId);
 
-        return sendAuthResponse(res, { 
-            message: "Token refreshed", 
-            accessToken: newAccessToken, 
-            refreshToken: newRefreshToken, 
-            user 
+        return sendAuthResponse(res, {
+            message: "Token refreshed",
+            accessToken: access.token,
+            refreshToken: rotation.refreshToken,
+            familyId: rotation.familyId,
+            user,
+            security: {
+                tokenRotation: true,
+                fingerprintMatch: rotation.fingerprintMatch !== false,
+                legacyMigrated: rotation.legacyMigrated || false
+            }
         });
     } catch (error) {
         console.error("REFRESH TOKEN ERROR:", error);

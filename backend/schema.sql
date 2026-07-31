@@ -46,6 +46,50 @@ CREATE TABLE IF NOT EXISTS users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
+-- REFRESH TOKEN FAMILIES (#1261)
+-- Automatic Token Rotation + reuse detection
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    family_id CHAR(36) NOT NULL,
+    token_hash CHAR(64) NOT NULL,
+    parent_token_hash CHAR(64) NULL,
+    device_fingerprint CHAR(64) NOT NULL,
+    user_agent VARCHAR(512) NULL,
+    ip_hash CHAR(64) NULL,
+    status ENUM('active', 'rotated', 'revoked', 'reuse_detected') NOT NULL DEFAULT 'active',
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    rotated_at DATETIME NULL,
+    revoked_at DATETIME NULL,
+    last_used_at DATETIME NULL,
+    UNIQUE KEY uq_refresh_token_hash (token_hash),
+    INDEX idx_rt_user (user_id),
+    INDEX idx_rt_family (family_id),
+    INDEX idx_rt_status (status),
+    INDEX idx_rt_family_status (family_id, status),
+    INDEX idx_rt_expires (expires_at),
+    CONSTRAINT fk_rt_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS refresh_token_security_events (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NULL,
+    family_id CHAR(36) NULL,
+    event_type VARCHAR(64) NOT NULL,
+    details JSON NULL,
+    ip_hash CHAR(64) NULL,
+    user_agent VARCHAR(512) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_rtse_user (user_id),
+    INDEX idx_rtse_family (family_id),
+    INDEX idx_rtse_type (event_type),
+    INDEX idx_rtse_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
 -- CATEGORIES TABLE (New)
 -- ============================================
 
@@ -59,6 +103,10 @@ CREATE TABLE IF NOT EXISTS categories (
     icon VARCHAR(100),
     level INT DEFAULT 0,
     path VARCHAR(500),
+    -- MPTT (Modified Preorder Tree Traversal) bounds — enable O(range) subtree reads
+    -- alongside the adjacency-list parent_id used by the recursive CTE fetch (#1264)
+    lft INT DEFAULT NULL,
+    rgt INT DEFAULT NULL,
     is_active TINYINT(1) DEFAULT 1,
     display_order INT DEFAULT 0,
     created_by CHAR(36),
@@ -73,8 +121,15 @@ CREATE TABLE IF NOT EXISTS categories (
     INDEX idx_path (path(255)),
     INDEX idx_slug (slug),
     INDEX idx_active (is_active),
-    INDEX idx_deleted_at (deleted_at)
+    INDEX idx_deleted_at (deleted_at),
+    INDEX idx_categories_lft_rgt (lft, rgt),
+    INDEX idx_categories_parent_active (parent_id, is_active, deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Existing installs: add MPTT columns if missing (safe / idempotent pattern)
+-- ALTER TABLE categories ADD COLUMN IF NOT EXISTS lft INT DEFAULT NULL;
+-- ALTER TABLE categories ADD COLUMN IF NOT EXISTS rgt INT DEFAULT NULL;
+-- CREATE INDEX IF NOT EXISTS idx_categories_lft_rgt ON categories (lft, rgt);
 
 -- ============================================
 -- PRODUCTS TABLE (Enhanced)

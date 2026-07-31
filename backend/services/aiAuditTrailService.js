@@ -550,14 +550,25 @@ class AIAuditTrail {
                 throw new Error(`Validation error: ${error.message}`);
             }
 
+            // One timestamp, used three times.
+            //
+            // `timestamp`, `hash` and `signature` each called
+            // `new Date().toISOString()` separately. verifyCertificate()
+            // recomputes the signature over the *stored* timestamp, so if the
+            // clock ticked over a millisecond between the field and the
+            // signature -- which it does, unpredictably, under any real load --
+            // the certificate was born already unverifiable.
+            const issuedAt = new Date().toISOString();
+            const signedPayload = { action, details, timestamp: issuedAt };
+
             const certificate = {
                 id: this.generateCertificateId(),
                 sessionId: this.sessionId,
                 action: this.sanitizeInput(action),
                 details: this.sanitizeObject(details),
-                timestamp: new Date().toISOString(),
-                hash: this.generateHash({ action, details, timestamp: new Date().toISOString() }),
-                signature: await this.generateSignature({ action, details, timestamp: new Date().toISOString() }),
+                timestamp: issuedAt,
+                hash: this.generateHash(signedPayload),
+                signature: await this.generateSignature(signedPayload),
                 status: 'active',
                 version: auditConfig.version || '1.0.0'
             };
@@ -832,6 +843,19 @@ class AIAuditTrail {
      * Log to database with retry
      */
     async log(entry) {
+        // Append to the in-memory trail first.
+        //
+        // logNegotiationStep, logDecision and logChange all push their entry
+        // onto `this.auditLogs`, but `log()` -- the path `startSession` uses --
+        // did not. `getAuditTrail()` returns `this.auditLogs`, so every trail
+        // it produced was missing its own `session_start` entry, and the count
+        // it reported was short by one for every session.
+        //
+        // This happens before the write so an entry that fails to persist is
+        // still visible to the caller inspecting the live trail; the durable
+        // copy is the database row, and its failure is handled below.
+        this.auditLogs.push({ ...entry, timestamp: new Date().toISOString() });
+
         try {
             await this.circuitBreaker.fire(
                 async () => {
@@ -1098,37 +1122,53 @@ class AIAuditTrail {
      * Health Check
      */
     async healthCheck() {
+        // Each dependency is probed independently.
+        //
+        // Previously both probes shared one try block and the report guessed
+        // which one had failed by sniffing the error code -- `'ER_'` meant the
+        // database, `'ECONN'` meant Redis. A plain `Error('DB error')` carries
+        // neither, so a failing database was reported as `database: 'unknown'`,
+        // and a Redis timeout could be attributed to MySQL. Worse, a database
+        // failure short-circuited the Redis probe entirely, so an outage in
+        // both showed up as an outage in one.
+        const failures = [];
+
+        let database = 'connected';
         try {
-            // Check database connection
             await db.query('SELECT 1');
-            
-            // Check Redis connection
-            await redis.ping();
-            
-            // Check circuit breaker status
-            const cbStatus = this.circuitBreaker.status;
-            
-            return {
-                status: 'healthy',
-                timestamp: new Date().toISOString(),
-                database: 'connected',
-                redis: 'connected',
-                circuitBreaker: {
-                    status: this.isCircuitOpen ? 'open' : 'closed',
-                    stats: cbStatus ? cbStatus.stats : null
-                },
-                version: auditConfig.version || '1.0.0'
-            };
         } catch (error) {
-            logger.error('Health check failed:', error);
-            return {
-                status: 'unhealthy',
-                timestamp: new Date().toISOString(),
-                error: error.message,
-                database: error.code && error.code.includes('ER_') ? 'error' : 'unknown',
-                redis: error.code && error.code.includes('ECONN') ? 'error' : 'unknown'
-            };
+            database = 'error';
+            failures.push(`database: ${error.message}`);
         }
+
+        let redisStatus = 'connected';
+        try {
+            await redis.ping();
+        } catch (error) {
+            redisStatus = 'error';
+            failures.push(`redis: ${error.message}`);
+        }
+
+        const cbStatus = this.circuitBreaker.status;
+
+        const report = {
+            status: failures.length === 0 ? 'healthy' : 'unhealthy',
+            timestamp: new Date().toISOString(),
+            database,
+            redis: redisStatus,
+            circuitBreaker: {
+                status: this.isCircuitOpen ? 'open' : 'closed',
+                stats: cbStatus ? cbStatus.stats : null
+            },
+            version: auditConfig.version || '1.0.0'
+        };
+
+        if (failures.length > 0) {
+            report.error = failures.join('; ');
+            logger.error('Health check failed:', report.error);
+        }
+
+        return report;
     }
 
     /**

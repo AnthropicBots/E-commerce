@@ -1,24 +1,20 @@
 # .github/workflows/ci.yml
 #
-# Addresses #1297.
+# Addresses #1297 (parse gate) and #1341 (test + boot gates).
 #
 # The repository had no workflows directory at all, so nothing between a pull
-# request and the default branch ever parsed the code. Eight unparsable files
-# reached `main` as a result, four of them on the server's require path.
+# request and the default branch ever checked the code. Unparsable files reached
+# `main` as a result, several of them on the server's require path.
 #
-# This workflow runs the repo-wide parse gate. It is dependency-free and takes
-# a couple of seconds, so there is no reason for a PR not to run it.
+# Three gates now run on every PR, cheapest first:
 #
-# NOT YET WIRED UP: `backend/` has 20 Jest suites that are currently red on
-# `main` for a separate, pre-existing reason -- several unguarded top-level
-# `require()` calls in server.js and its controllers point at modules that do
-# not exist on disk (e.g. `./middleware/provenanceMiddleware`,
-# `../services/auditTrialService`), so `require('../server')` throws
-# MODULE_NOT_FOUND. That is a different defect class from the parse errors
-# fixed here -- a syntax gate cannot catch it -- and it needs its own issue and
-# its own PR. A `backend-tests` job should be added here as soon as those
-# requires resolve; adding it now would only produce a permanently red check
-# that contributors learn to ignore.
+#   syntax  -- every tracked .js file parses. Dependency-free, a couple of
+#              seconds, catches the "bad merge kept both sides" class outright.
+#   boot    -- `require('backend/server.js')` resolves and builds an Express
+#              app. Catches missing modules, undeclared dependencies and
+#              top-level throws, none of which a parser can see.
+#   tests   -- the Jest suite. The `backend-tests` job that #1297 deferred; the
+#              suites it was waiting on are green as of #1341.
 name: CI
 
 on:
@@ -48,3 +44,55 @@ jobs:
       # not parse fails here in seconds rather than at deploy time.
       - name: Check every tracked .js file parses
         run: node scripts/check-syntax.js
+
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    # No point installing dependencies for a tree that does not parse.
+    needs: syntax
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # `npm ci` rather than `npm install`: it installs exactly the lockfile and
+      # fails if package.json and the lock have drifted, which is how the
+      # undeclared `@socket.io/redis-adapter` dependency stayed invisible.
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      # Every suite mocks config/db and config/redis, so no service containers
+      # are needed. The placeholders in tests/setupEnv.js satisfy the require-
+      # time validation in config/db.js and config/envValidator.js.
+      - name: Run Jest
+        working-directory: backend
+        run: npm test -- --ci --maxWorkers=2
+
+  boot:
+    name: Server boots
+    runs-on: ubuntu-latest
+    needs: syntax
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      # A parse gate cannot see a missing module, an undeclared dependency or a
+      # `ReferenceError: Cannot access 'app' before initialization`. This does,
+      # in about a second, without a database.
+      - name: Require server.js
+        working-directory: backend
+        run: node ../scripts/check-boot.js
