@@ -20,6 +20,19 @@ router.get('/stats', authMiddleware, async (req, res) => {
 });
 
 /**
+ * GET /api/cache/metrics - Prometheus metrics (#1262)
+ * Exposes cache_hits, cache_misses, stampede_prevented_count
+ */
+router.get('/metrics', async (req, res) => {
+    try {
+        res.set('Content-Type', cacheService.getPrometheusRegister().contentType);
+        res.end(await cacheService.getPrometheusMetrics());
+    } catch (error) {
+        res.status(500).json({ success: false, error: 'Failed to export cache metrics' });
+    }
+});
+
+/**
  * DELETE /api/cache/:key - Delete cache entry
  */
 router.delete('/:key', authMiddleware, async (req, res) => {
