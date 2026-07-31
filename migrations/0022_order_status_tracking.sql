@@ -1,62 +1,66 @@
 -- ============================================
--- ORDER STATUS TRACKING MIGRATION
+-- ORDER STATUS TRACKING
 -- ============================================
+--
+-- Folded in from the hand-written change file `order_status_tracking.sql`, which
+-- could not be applied as written:
+--
+--   * it used `ADD COLUMN IF NOT EXISTS` and `ADD INDEX` for columns and
+--     indexes the baseline already declares, and `ADD COLUMN IF NOT EXISTS` is
+--     MariaDB syntax that MySQL rejects outright;
+--   * it re-added `idx_status_created`, which the baseline already defines on
+--     orders, and added second copies of indexes the baseline covers under
+--     other names;
+--   * `order_status_logs.order_id` and `updated_by` were INT against CHAR(36)
+--     parents, so its foreign keys could not be built;
+--   * it used `CREATE OR REPLACE PROCEDURE`, which MySQL does not support.
+--
+-- What is left is the columns and objects the baseline genuinely lacks.
+
+ALTER TABLE orders
+    ADD COLUMN cancellation_reason TEXT NULL,
+    ADD COLUMN shipped_at TIMESTAMP NULL,
+    ADD COLUMN estimated_delivery DATE NULL,
+    ADD COLUMN tracking_url VARCHAR(500) NULL,
+    ADD COLUMN status_changed_by CHAR(36) NULL,
+    ADD INDEX idx_orders_status_changed_by (status_changed_by);
 
 -- ============================================
--- ADD NEW COLUMNS TO ORDERS TABLE
--- ============================================
-
-ALTER TABLE orders 
-ADD COLUMN IF NOT EXISTS cancellation_reason TEXT,
-ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP NULL,
-ADD COLUMN IF NOT EXISTS refunded_at TIMESTAMP NULL,
-ADD COLUMN IF NOT EXISTS shipped_at TIMESTAMP NULL,
-ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP NULL,
-ADD COLUMN IF NOT EXISTS estimated_delivery DATE,
-ADD COLUMN IF NOT EXISTS tracking_url VARCHAR(500),
-ADD COLUMN IF NOT EXISTS status_changed_by INT,
-ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL,
-ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-ADD INDEX idx_status (status),
-ADD INDEX idx_user_id_status (user_id, status),
-ADD INDEX idx_created_at (created_at),
-ADD INDEX idx_updated_at (updated_at),
-ADD INDEX idx_status_created (status, created_at),
-ADD INDEX idx_deleted_at (deleted_at);
-
--- ============================================
--- ORDER STATUS LOGS TABLE
+-- ORDER STATUS LOGS
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS order_status_logs (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    order_id INT NOT NULL,
+    order_id CHAR(36) NOT NULL,
     old_status VARCHAR(50),
     new_status VARCHAR(50) NOT NULL,
     reason TEXT,
-    updated_by INT,
+    updated_by CHAR(36),
     updated_by_name VARCHAR(255),
     ip_address VARCHAR(45),
     user_agent TEXT,
     is_auto TINYINT(1) DEFAULT 0,
     metadata JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
+
     FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
     FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
-    
-    INDEX idx_order_id (order_id),
-    INDEX idx_old_status (old_status),
-    INDEX idx_new_status (new_status),
-    INDEX idx_created_at (created_at),
-    INDEX idx_order_status_created (order_id, created_at),
-    INDEX idx_updated_by (updated_by)
+
+    INDEX idx_order_status_logs_order (order_id),
+    INDEX idx_order_status_logs_new_status (new_status),
+    INDEX idx_order_status_logs_order_created (order_id, created_at),
+    INDEX idx_order_status_logs_status_created (new_status, created_at),
+    INDEX idx_order_status_logs_updated_by (updated_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
 -- ORDER STATUS TRIGGER
 -- ============================================
+-- A status change writes its own log row, so a change made by any path -- admin
+-- action, cron job or direct SQL -- is recorded. `status_changed_by` being NULL
+-- is what marks a change as automatic.
+
+DROP TRIGGER IF EXISTS trg_order_status_change;
 
 DELIMITER //
 
@@ -159,12 +163,16 @@ FROM order_status_logs
 GROUP BY order_id;
 
 -- ============================================
--- STORED PROCEDURE: Get Order Timeline
+-- STORED PROCEDURES
 -- ============================================
+
+DROP PROCEDURE IF EXISTS get_order_timeline;
+DROP PROCEDURE IF EXISTS get_order_status_stats;
+DROP PROCEDURE IF EXISTS cleanup_old_status_logs;
 
 DELIMITER //
 
-CREATE OR REPLACE PROCEDURE get_order_timeline(IN p_order_id INT)
+CREATE PROCEDURE get_order_timeline(IN p_order_id CHAR(36))
 BEGIN
     SELECT 
         id,
@@ -183,15 +191,7 @@ BEGIN
     ORDER BY created_at DESC;
 END //
 
-DELIMITER ;
-
--- ============================================
--- STORED PROCEDURE: Get Order Status Statistics
--- ============================================
-
-DELIMITER //
-
-CREATE OR REPLACE PROCEDURE get_order_status_stats(
+CREATE PROCEDURE get_order_status_stats(
     IN p_start_date DATE,
     IN p_end_date DATE
 )
@@ -217,23 +217,15 @@ BEGIN
     ORDER BY count DESC;
 END //
 
-DELIMITER ;
-
--- ============================================
--- STORED PROCEDURE: Cleanup Old Status Logs
--- ============================================
-
-DELIMITER //
-
-CREATE OR REPLACE PROCEDURE cleanup_old_status_logs(IN p_retention_days INT)
+CREATE PROCEDURE cleanup_old_status_logs(IN p_retention_days INT)
 BEGIN
     DECLARE affected_rows INT;
-    
+
     DELETE FROM order_status_logs
     WHERE created_at < DATE_SUB(NOW(), INTERVAL p_retention_days DAY);
-    
+
     SET affected_rows = ROW_COUNT();
-    
+
     INSERT INTO activity_logs (
         user_id,
         action,
@@ -249,7 +241,7 @@ BEGIN
         JSON_OBJECT('deleted_rows', affected_rows),
         NOW()
     );
-    
+
     SELECT affected_rows as deleted_rows;
 END //
 
@@ -264,13 +256,3 @@ ON SCHEDULE EVERY 1 MONTH
 STARTS CURRENT_DATE + INTERVAL 1 MONTH + INTERVAL 1 HOUR
 DO
     CALL cleanup_old_status_logs(180);
-
--- ============================================
--- INDEXES FOR PERFORMANCE
--- ============================================
-
-CREATE INDEX idx_order_status_logs_order_id_created 
-ON order_status_logs(order_id, created_at);
-
-CREATE INDEX idx_order_status_logs_new_status_created 
-ON order_status_logs(new_status, created_at);
