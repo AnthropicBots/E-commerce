@@ -2,6 +2,8 @@
 module.exports = {
     testEnvironment: 'node',
 
+    setupFiles: ['<rootDir>/tests/setupEnv.js'],
+
     // Transpile the ESM-only packages that Jest's CommonJS runtime cannot load.
     //
     // controllers/authController.js requires `otplib` for 2FA (#1026). otplib

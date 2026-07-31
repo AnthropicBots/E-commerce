@@ -8,6 +8,7 @@ const ENV_CONFIG = {
         { name: 'DB_PASSWORD', type: 'string', message: 'Database password is required' },
         { name: 'DB_NAME', type: 'string', message: 'Database name is required' },
         { name: 'JWT_SECRET', type: 'string', minLength: 32, message: 'JWT secret must be at least 32 characters' },
+        { name: 'JWT_REFRESH_SECRET', type: 'string', minLength: 32, message: 'JWT refresh secret must be at least 32 characters and must differ from JWT_SECRET' },
         { name: 'PORT', type: 'number', message: 'Server port is required' },
         { name: 'FRONTEND_URL', type: 'url', message: 'Frontend URL is required' },
         { name: 'NODE_ENV', type: 'string', message: 'Node environment is required' }

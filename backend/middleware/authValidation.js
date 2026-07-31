@@ -1,5 +1,6 @@
 const { sanitizeString } = require("../utils/helpers");
 const { isValidEmail, isValidOTP, validatePassword } = require("../utils/validators");
+const { isRefreshTokenWellFormed } = require("../utils/tokens");
 
 /**
  * Helper to check for missing required fields.
@@ -120,7 +121,10 @@ const validateRefreshToken = (req, res, next) => {
     return res.status(400).json({ success: false, message: `Refresh token is required` });
   }
 
-  if (typeof refreshToken !== 'string' || refreshToken.split('.').length !== 3) {
+  // The shape is asserted by the module that issues these tokens. Spelling the
+  // expected format out here is what let this check drift into rejecting every
+  // token the service produced.
+  if (!isRefreshTokenWellFormed(sanitizeString(refreshToken))) {
     return res.status(400).json({ success: false, message: "Invalid refresh token format" });
   }
 
