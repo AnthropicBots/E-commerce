@@ -281,6 +281,113 @@ class AgentIdentityService {
             trustScore: trustScores.find(t => t.agentId === agent.agentId)
         }));
     }
+
+    // ============================================
+    // Issue #1261 — Agent session / refresh-token family binding
+    // ============================================
+
+    /**
+     * Bind an agent identity to a human user's refresh-token family.
+     * Enables cascade logout of agent credentials when token reuse is detected.
+     */
+    async bindAgentToTokenFamily(agentId, familyId, metadata = {}) {
+        const agent = await AgentIdentity.findOne({ agentId });
+        if (!agent) {
+            throw new Error('Agent not found');
+        }
+
+        agent.metadata = {
+            ...(agent.metadata || {}),
+            refreshTokenFamilyId: familyId,
+            sessionBoundAt: new Date().toISOString(),
+            deviceFingerprint: metadata.deviceFingerprint || null,
+            lastSessionIp: metadata.ipAddress || null
+        };
+        await agent.save();
+
+        return {
+            agentId: agent.agentId,
+            familyId,
+            bound: true
+        };
+    }
+
+    /**
+     * Verify the agent is still bound to a non-revoked token family.
+     * `isFamilyRevokedFn` should resolve Redis/MySQL revocation state.
+     */
+    async verifyAgentSessionFamily(agentId, isFamilyRevokedFn) {
+        const agent = await AgentIdentity.findOne({ agentId })
+            .select('-privateKey -registrationProof');
+
+        if (!agent) {
+            throw new Error('Agent not found');
+        }
+
+        const familyId = agent.metadata?.refreshTokenFamilyId;
+        if (!familyId) {
+            return {
+                valid: false,
+                reason: 'no_family_bound',
+                agentId
+            };
+        }
+
+        const revoked = typeof isFamilyRevokedFn === 'function'
+            ? await isFamilyRevokedFn(familyId)
+            : false;
+
+        if (revoked || agent.status === 'revoked' || agent.status === 'suspended') {
+            return {
+                valid: false,
+                reason: revoked ? 'family_revoked' : `agent_${agent.status}`,
+                agentId,
+                familyId
+            };
+        }
+
+        return {
+            valid: true,
+            agentId,
+            familyId,
+            status: agent.status
+        };
+    }
+
+    /**
+     * Cascade: clear family bindings for all agents owned by a user
+     * after refresh-token reuse / force re-auth.
+     */
+    async revokeAgentSessionsForUser(ownerId, reason = 'refresh_token_reuse_cascade') {
+        const agents = await AgentIdentity.find({ ownerId });
+        let cleared = 0;
+
+        for (const agent of agents) {
+            if (agent.metadata?.refreshTokenFamilyId) {
+                agent.metadata = {
+                    ...(agent.metadata || {}),
+                    refreshTokenFamilyId: null,
+                    sessionRevokedAt: new Date().toISOString(),
+                    sessionRevokeReason: reason
+                };
+                await agent.save();
+                cleared++;
+            }
+        }
+
+        return { ownerId, cleared, reason };
+    }
+
+    /**
+     * Device fingerprint helper for agent-initiated refresh flows
+     * (User-Agent + Client IP hash) — mirrors human session checks.
+     */
+    buildDeviceFingerprint(userAgent, ipAddress) {
+        return crypto
+            .createHash('sha256')
+            .update(`${userAgent || 'unknown'}|${ipAddress || '0.0.0.0'}`)
+            .digest('hex');
+    }
 }
 
 module.exports = new AgentIdentityService();
