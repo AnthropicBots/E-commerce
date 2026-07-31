@@ -53,7 +53,7 @@ class CertificateService {
         await certificate.save();
 
         // Log audit event
-        const AuditTrailService = require('./auditTrialService');
+        const AuditTrailService = require('./auditTrailService');
         await AuditTrailService.logEvent(
             negotiationId,
             'certificate_issued',

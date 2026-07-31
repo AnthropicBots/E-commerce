@@ -1,5 +1,8 @@
 // backend/middleware/scrapingRateLimiter.js
 const rateLimit = require('express-rate-limit');
+// See middleware/rateLimiter.js for why a custom IP keyGenerator must go
+// through ipKeyGenerator: raw req.ip gives every IPv6 address its own bucket.
+const { ipKeyGenerator } = require('express-rate-limit');
 
 /**
  * Rate limiter for scraping endpoints
@@ -38,7 +41,8 @@ const ipRateLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 5,
     keyGenerator: (req) => {
-        return req.ip || req.connection.remoteAddress;
+        const address = req.ip || req.socket?.remoteAddress;
+        return address ? ipKeyGenerator(address) : 'unknown';
     },
     message: {
         success: false,

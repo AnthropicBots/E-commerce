@@ -6,7 +6,7 @@ const {
     commandHandler, 
     queryHandler, 
     readModelSynchronizer 
-} = require('../services/cqrsService');
+} = require('../services/cqrService');
 
 // ============================================
 // COMMAND ROUTES (Write Operations)
