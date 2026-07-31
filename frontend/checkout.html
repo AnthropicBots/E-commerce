@@ -131,6 +131,13 @@
 
             </h2>
 
+            <!--
+                Saved address book (#1347). Populated by scripts/addresses.js
+                for signed-in shoppers; stays empty and hidden for guests, so
+                guest checkout is unchanged.
+            -->
+            <div id="saved-addresses" hidden></div>
+
             <form id="checkout-form" novalidate>
 
                 <!-- Row -->
@@ -440,6 +447,11 @@
 
     <!-- Checkout Script -->
     <script src="https://js.stripe.com/v3/"></script>
+    <!-- Must load before checkout.js: checkout reads AddressBook.getSelectedId() -->
+    <script
+        defer
+        src="scripts/addresses.js"
+    ></script>
     <script
         defer
         src="scripts/checkout.js"

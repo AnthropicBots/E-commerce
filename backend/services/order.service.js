@@ -260,6 +260,12 @@ const createOrderService = async (connection, orderData) => {
             items,
             promo_code,
             total: claimedTotal,
+            // Optional link back to the saved address book (#1347). The
+            // flattened columns above stay authoritative for what was actually
+            // shipped -- they must not change when the shopper later edits or
+            // deletes the saved address -- and this only records *which* saved
+            // address the order came from.
+            address_id,
         } = orderData;
 
         // validate empty cart
@@ -326,6 +332,7 @@ const createOrderService = async (connection, orderData) => {
                 state,
                 zip,
                 full_address,
+                address_id,
                 shipping_address,
                 payment_method,
                 total,
@@ -341,7 +348,7 @@ const createOrderService = async (connection, orderData) => {
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         `;
 
         const [orderResult] = await connection.query(orderQuery, [
@@ -354,6 +361,7 @@ const createOrderService = async (connection, orderData) => {
             state,
             zip,
             full_address,
+            safeUUID(address_id),
             JSON.stringify({ street: full_address, city, state, zip }),
             payment_method,
             breakdown.total,
