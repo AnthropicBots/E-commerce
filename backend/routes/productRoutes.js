@@ -8,7 +8,9 @@ const {
     createProduct,
     updateProduct,
     deleteProduct,
-    getProductSuggestions
+    getProductSuggestions,
+    getCategoryTree,
+    invalidateCategoryTreeCache
 } = require("../controllers/productController");
 
 const {
@@ -40,6 +42,14 @@ router.get("/status/check", (req, res) => {
 });
 
 router.get("/search-suggestions", getProductSuggestions);
+// Category tree must be registered before "/:id" to avoid param capture
+router.get("/categories/tree", getCategoryTree);
+router.post(
+    "/categories/tree/invalidate",
+    authMiddleware,
+    authorizeRoles("admin"),
+    invalidateCategoryTreeCache
+);
 router.get("/", getProducts);
 router.get("/:id/reviews", getProductReviews);
 router.post("/:id/review", authMiddleware, createProductReview);

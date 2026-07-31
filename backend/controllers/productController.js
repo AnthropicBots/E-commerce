@@ -15,6 +15,8 @@ const MAX_PRODUCT_LIMIT = 50;
 const NORMALIZED_CATEGORY_SQL =
     "LOWER(REPLACE(REPLACE(c.name, '-', ''), ' ', ''))";
 
+const productService = require("../services/productService");
+
 async function getOrCreateCategoryId(categoryName, connection = db) {
     if (!categoryName || typeof categoryName !== 'string') return null;
     const trimmed = categoryName.trim();
@@ -41,6 +43,8 @@ async function getOrCreateCategoryId(categoryName, connection = db) {
             "INSERT INTO categories (name, slug, level, is_active) VALUES (?, ?, 0, 1)",
             [trimmed, slug]
         );
+        // New category changes navigation tree — drop Redis cache
+        await productService.invalidateCategoryTreeCache();
         return result.insertId;
     } catch (err) {
         // If duplicate slug (concurrency safety), fetch it again
@@ -688,6 +692,71 @@ const getProductSuggestions = async (req, res) => {
     }
 };
 
+// ---------- Hierarchical category tree (Issue #1264) ----------
+// Replaces N+1 per-node queries with a single recursive CTE (+ Redis cache).
+const getCategoryTree = async (req, res) => {
+    try {
+        const rootIdRaw = req.query.rootId;
+        const rootId =
+            rootIdRaw === undefined || rootIdRaw === null || rootIdRaw === ""
+                ? null
+                : safeInteger(rootIdRaw, null);
+
+        if (rootIdRaw && (rootId == null || rootId < 1)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid rootId"
+            });
+        }
+
+        const maxDepth = safeInteger(req.query.maxDepth, 10) || 10;
+        const strategy =
+            req.query.strategy === "mptt" ? "mptt" : "cte";
+        const bypassCache =
+            req.query.refresh === "1" || req.query.refresh === "true";
+
+        const { tree, meta } = await productService.getCategoryTree({
+            rootId,
+            maxDepth,
+            strategy,
+            bypassCache
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "Category tree fetched successfully",
+            data: tree,
+            meta
+        });
+    } catch (error) {
+        console.error("Category tree error:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Server error while fetching category tree"
+        });
+    }
+};
+
+/**
+ * Invalidate cached category navigation after explicit category CRUD.
+ * Call from admin category create/update/delete handlers.
+ */
+const invalidateCategoryTreeCache = async (req, res) => {
+    try {
+        await productService.invalidateCategoryTreeCache();
+        return res.status(200).json({
+            success: true,
+            message: "Category tree cache invalidated"
+        });
+    } catch (error) {
+        console.error("Category tree cache invalidation error:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to invalidate category tree cache"
+        });
+    }
+};
+
 
 module.exports = {
     getProducts,
@@ -695,5 +764,7 @@ module.exports = {
     createProduct,
     updateProduct,
     deleteProduct,
-    getProductSuggestions
+    getProductSuggestions,
+    getCategoryTree,
+    invalidateCategoryTreeCache
 };
