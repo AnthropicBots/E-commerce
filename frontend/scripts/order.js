@@ -2,15 +2,9 @@
 let currentOrder = null;
 
 // get order id from url
-const orderId =
-    new URLSearchParams(
-        window.location.search
-    ).get("id");
+const orderId = new URLSearchParams(window.location.search).get("id");
 
-// redirect if missing order id
-if (!orderId) {
-    window.location.href = "shop.html";
-}
+
 
 // elements
 const elements = {
@@ -48,6 +42,71 @@ function formatDate(dateString) {
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit'
+    });
+}
+
+function renderOrderSearchForm() {
+    if (elements.loadingState) {
+        elements.loadingState.style.display = "none";
+    }
+
+    if (elements.orderDetails) {
+        elements.orderDetails.style.display = "none";
+    }
+
+    if (elements.errorState) {
+        elements.errorState.style.display = "none";
+    }
+
+    const card = document.getElementById("order-card");
+
+    card.innerHTML = `
+        <div class="order-search">
+            <h3>Track Your Order</h3>
+
+            <p>
+                Enter your Order ID below to view your order details.
+            </p>
+
+            <input
+                id="order-id-input"
+                type="text"
+                placeholder="Enter your Order ID"
+            >
+
+            <button id="track-order-btn" class="btn">
+                Track Order
+            </button>
+        </div>
+    `;
+
+    document
+        .getElementById("track-order-btn")
+        .addEventListener("click", () => {
+
+            const id = document
+                .getElementById("order-id-input")
+                .value
+                .trim();
+
+            if (!id) {
+                AppUtils.notify(
+                    "Please enter an Order ID",
+                    "warning"
+                );
+                return;
+            }
+
+            window.location.href =
+                `order.html?id=${encodeURIComponent(id)}`;
+        });
+       
+        document
+    .getElementById("order-id-input")
+    .addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            document.getElementById("track-order-btn").click();
+        }
     });
 }
 
@@ -224,133 +283,13 @@ function initSocketOrderTracker(targetOrderId) {
     }
 }
 
-// render order details
-function renderOrderDetails(order) {
-    currentOrder = order;
-
-    // Hide loading, show details
-    if (elements.loadingState) elements.loadingState.style.display = 'none';
-    if (elements.orderDetails) elements.orderDetails.style.display = 'block';
-
-    // Order summary
-    if (elements.orderId) {
-        elements.orderId.textContent = 'Order #' + order.id;
-    }
-    if (elements.orderDate) {
-        elements.orderDate.textContent = formatDate(order.created_at);
-    }
-
-    // Status badge
-    const status = order.status || 'pending';
-    if (elements.statusBadge) {
-        elements.statusBadge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-        elements.statusBadge.className = 'status-badge';
-        elements.statusBadge.classList.add(status.toLowerCase());
-    }
-
-    // Update Interactive Canvas Delivery Map
-    if (!deliveryCanvasTracker) {
-        deliveryCanvasTracker = new DeliveryRouteCanvas("delivery-tracking-canvas");
-    }
-    if (deliveryCanvasTracker) {
-        deliveryCanvasTracker.setStatus(status);
-    }
-
-    // Shipping details
-    if (elements.estimatedDelivery) {
-        elements.estimatedDelivery.textContent = order.estimated_delivery || 'Not available';
-    }
-    if (elements.trackingNumber) {
-        elements.trackingNumber.textContent = order.tracking_number || 'Not available';
-    }
-
-    // Order items
-    if (elements.orderItemsContainer) {
-        const items = order.items || [];
-        if (items.length === 0) {
-            elements.orderItemsContainer.innerHTML = '<p>No items found</p>';
-        } else {
-            const fragment = document.createDocumentFragment();
-            items.forEach(item => {
-                const div = document.createElement('div');
-                div.classList.add('order-item');
-                const price = parseFloat(item.price) || 0;
-                const qty = parseInt(item.quantity) || 1;
-                div.innerHTML = `
-                    <div class="order-item-left">
-                        <div>
-                            <h4>${escapeHTML(item.product_name || 'Product')}</h4>
-                            <p>Quantity: ${qty}</p>
-                        </div>
-                    </div>
-                    <h4>${AppUtils.formatPrice(price * qty)}</h4>
-                `;
-                fragment.appendChild(div);
-            });
-            elements.orderItemsContainer.innerHTML = '';
-            elements.orderItemsContainer.appendChild(fragment);
-        }
-    }
-
-    // Timeline
-    const statuses = ['pending', 'processing', 'shipped', 'delivered'];
-    const currentStatus = status.toLowerCase();
-    const currentStatusIndex = statuses.indexOf(currentStatus);
-
-    // Update each step
-    const stepIds = ['pending-step', 'processing-step', 'shipped-step', 'delivered-step'];
-    stepIds.forEach((stepId, index) => {
-        const stepEl = document.getElementById(stepId);
-        if (!stepEl) return;
-        const isCompleted = index <= currentStatusIndex;
-        const isActive = index === currentStatusIndex;
-
-        stepEl.classList.remove('active-step');
-        if (isActive) {
-            stepEl.classList.add('active-step');
-        } else if (isCompleted) {
-            stepEl.style.opacity = '0.7';
-        } else {
-            stepEl.style.opacity = '0.4';
-        }
-    });
-
-    renderReturnAction(order);
-}
-
-// render the "Request Return" entry point for delivered orders
-function renderReturnAction(order) {
-    const existing = document.getElementById("order-return-action");
-    if (existing) existing.remove();
-
-    if ((order.status || "").toLowerCase() !== "delivered") return;
-    if (!elements.orderDetails) return;
-
-    const wrapper = document.createElement("div");
-    wrapper.id = "order-return-action";
-    wrapper.style.cssText = "text-align: center; margin-top: 16px;";
-    wrapper.innerHTML = `
-        <button type="button" class="btn" style="padding: 10px 24px; border: 2px solid #111; border-radius: 8px; background: transparent; color: #111; cursor: pointer;">
-            <i class="fas fa-undo"></i> Request Return
-        </button>
-    `;
-    wrapper.querySelector("button").addEventListener("click", () => {
-        window.openReturnModal(order);
-    });
-
-    const itemsSection = elements.orderItemsContainer
-        ? elements.orderItemsContainer.closest(".order-items")
-        : null;
-
-    if (itemsSection && itemsSection.parentNode) {
-        itemsSection.parentNode.insertBefore(wrapper, itemsSection.nextSibling);
-    } else {
-        elements.orderDetails.appendChild(wrapper);
-    }
-}
-
-// init
 document.addEventListener("DOMContentLoaded", () => {
+
+    if (!orderId) {
+        renderOrderSearchForm();
+        return;
+    }
+
     fetchOrderStatus();
     initSocketOrderTracker(orderId);
 });
