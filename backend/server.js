@@ -7,7 +7,11 @@ const morgan = require("morgan");
 const timeout = require("connect-timeout");
 const fs = require("fs");
 const path = require("path");
+// Add with other imports
+const aiFeedRoutes = require('./routes/aiFeedRoutes');
 
+// Add AI feed routes
+app.use('/api/ai-feed', aiFeedRoutes);
 const dotenv = require("dotenv");
 const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
