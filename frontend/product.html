@@ -82,6 +82,12 @@
         href="styles/product.css"
     >
 
+    <!-- Product Q&A (#1353) -->
+    <link
+        rel="stylesheet"
+        href="styles/product-qa.css"
+    >
+
     <!-- Icons -->
 
     <link
@@ -698,6 +704,44 @@
 
     <!-- Reviews -->
 
+    <!--
+        Product Q&A (#1353).
+
+        Deliberately above reviews: the review form is closed to anyone who has
+        not already received the product, so a shopper still deciding scrolls
+        past a section they cannot use. Questions are the section that is for
+        them.
+    -->
+    <section
+        id="product-qa"
+        class="section-p1"
+    >
+
+        <h2>Questions &amp; Answers</h2>
+
+        <p class="qa-intro">
+            Ask anything about this product. Other shoppers who own it &mdash; and
+            the seller &mdash; can answer.
+        </p>
+
+        <form id="qa-ask-form" class="qa-ask-form">
+            <label class="sr-only" for="qa-question-input">Your question</label>
+            <textarea
+                id="qa-question-input"
+                name="body"
+                rows="2"
+                maxlength="1000"
+                placeholder="e.g. Does this fit a 15-inch laptop?"
+                required
+            ></textarea>
+            <button type="submit">Ask</button>
+        </form>
+
+        <!-- Rendered by scripts/product-qa.js -->
+        <div id="qa-list" class="qa-list"></div>
+
+    </section>
+
     <section
         id="reviews"
         class="section-p1"
@@ -884,6 +928,11 @@
     <script
         defer
         src="scripts/product.js"
+    ></script>
+
+    <script
+        defer
+        src="scripts/product-qa.js"
     ></script>
 
     <script
