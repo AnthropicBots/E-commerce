@@ -557,22 +557,58 @@ const $$ = (
 //
 // Pass the currency descriptor from a server breakdown to render an amount in
 // the currency it was actually priced in; without one the local configuration
-// is used. The server sends lowercase keys and the local config uppercase, so
-// both are accepted.
-const formatPrice = (
-    price,
-    currency = CONFIG.CURRENCY_INFO
-) => {
+const CURRENCY_STORAGE_KEY = "activeCurrency";
 
-    const symbol =
-        (currency &&
-            (currency.symbol || currency.SYMBOL)) ||
-        CONFIG.CURRENCY;
-
-    return `${symbol}${parseFloat(
-        price || 0
-    ).toFixed(2)}`;
+const getSelectedCurrency = () => {
+    return localStorage.getItem(CURRENCY_STORAGE_KEY) || CONFIG.CURRENCY_INFO.CODE;
 };
+
+const getCurrencyInfo = (code = getSelectedCurrency()) => {
+    return (CONFIG.SUPPORTED_CURRENCIES && CONFIG.SUPPORTED_CURRENCIES[code]) || CONFIG.CURRENCY_INFO;
+};
+
+const setSelectedCurrency = (code) => {
+    if (!CONFIG.SUPPORTED_CURRENCIES || !CONFIG.SUPPORTED_CURRENCIES[code]) return;
+    localStorage.setItem(CURRENCY_STORAGE_KEY, code);
+    window.dispatchEvent(new CustomEvent("currencyUpdated", { detail: { currency: code } }));
+};
+
+const formatPrice = (price, overrideCurrency = null) => {
+    const numericPrice = parseFloat(price || 0);
+    const currCode = typeof overrideCurrency === "string" 
+        ? overrideCurrency 
+        : (overrideCurrency && overrideCurrency.CODE ? overrideCurrency.CODE : getSelectedCurrency());
+    const info = getCurrencyInfo(currCode);
+    const convertedAmount = numericPrice * (info.RATE || 1.0);
+
+    try {
+        return new Intl.NumberFormat(info.LOCALE || "en-US", {
+            style: "currency",
+            currency: info.CODE || "USD",
+            minimumFractionDigits: info.MINOR_UNIT_EXPONENT !== undefined ? info.MINOR_UNIT_EXPONENT : 2
+        }).format(convertedAmount);
+    } catch (e) {
+        return `${info.SYMBOL || "$"}${convertedAmount.toFixed(2)}`;
+    }
+};
+
+const initCurrencySelector = () => {
+    const selector = document.getElementById("currency-selector");
+    if (selector) {
+        selector.value = getSelectedCurrency();
+        if (!selector.dataset.currencyBound) {
+            selector.dataset.currencyBound = "true";
+            selector.addEventListener("change", (e) => {
+                setSelectedCurrency(e.target.value);
+            });
+        }
+    }
+};
+
+if (typeof window !== "undefined") {
+    window.addEventListener("DOMContentLoaded", initCurrencySelector);
+    window.addEventListener("componentsLoaded", initCurrencySelector);
+}
 
 // image fallback constants & handlers
 const FALLBACK_PRODUCT_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'%3E%3Crect width='400' height='400' fill='%23f3f4f6'/%3E%3Cg fill='%239ca3af' text-anchor='middle'%3E%3Cpath d='M160 140c0-11 9-20 20-20s20 9 20 20-9 20-20 20-20-9-20-20zm80 80H160l25-33 15 20 30-40 40 53z'/%3E%3Cpath d='M130 110h140c11 0 20 9 20 20v140c0 11-9 20-20 20H130c-11 0-20-9-20-20V130c0-11 9-20 20-20zm0 160h140V130H130v140z'/%3E%3Ctext x='200' y='310' font-family='sans-serif' font-size='16' font-weight='500'%3ENo Image Available%3C/text%3E%3C/g%3E%3C/svg%3E";
@@ -998,6 +1034,34 @@ const readCartEnvelope = (
     };
 };
 
+const CART_BROADCAST_CHANNEL = 'ecommerce_cart_channel';
+let cartChannel = null;
+
+try {
+    if (typeof BroadcastChannel !== 'undefined') {
+        cartChannel = new BroadcastChannel(CART_BROADCAST_CHANNEL);
+        cartChannel.onmessage = (event) => {
+            if (event && event.data && event.data.type === 'CART_SYNC_BROADCAST') {
+                const currentOwner = getCartOwner();
+                if (event.data.owner === currentOwner) {
+                    const updatedCart = getCart();
+                    dispatchCartUpdated(updatedCart);
+                }
+            }
+        };
+    }
+} catch (err) {
+    console.warn('BroadcastChannel initialization error:', err);
+}
+
+// Cross-Tab Storage Event Fallback for older browsers
+window.addEventListener('storage', (event) => {
+    if (event.key === CONFIG.STORAGE_KEYS.CART) {
+        const updatedCart = getCart();
+        dispatchCartUpdated(updatedCart);
+    }
+});
+
 const writeCartEnvelope = (
     envelope
 ) => {
@@ -1013,6 +1077,18 @@ const writeCartEnvelope = (
     ) {
 
         lastWrittenCart = envelope;
+
+        if (cartChannel) {
+            try {
+                cartChannel.postMessage({
+                    type: 'CART_SYNC_BROADCAST',
+                    owner: envelope.owner,
+                    timestamp: envelope.updatedAt || Date.now()
+                });
+            } catch (e) {
+                // Ignore broadcast post failures
+            }
+        }
     }
 
     return saved;
@@ -1378,10 +1454,54 @@ const cartLinesForBackend = (cart) =>
             qty: item.qty
         }));
 
+const OFFLINE_CART_QUEUE_KEY = "offline_cart_queue";
+
+const getOfflineCartQueue = () => getJSON(OFFLINE_CART_QUEUE_KEY, []);
+const saveOfflineCartQueue = (queue) => setJSON(OFFLINE_CART_QUEUE_KEY, queue);
+
+const enqueueOfflineCartMutation = (cart) => {
+    const queue = getOfflineCartQueue();
+    queue.push({
+        cart: cartLinesForBackend(cart),
+        timestamp: Date.now()
+    });
+    saveOfflineCartQueue(queue);
+};
+
+const processOfflineCartQueue = async () => {
+    if (!navigator.onLine || !isAuthenticated()) return;
+    const queue = getOfflineCartQueue();
+    if (!queue.length) return;
+
+    saveOfflineCartQueue([]);
+
+    try {
+        const currentCart = getCart();
+        const synced = await pushCartToBackend(currentCart);
+        if (synced) {
+            notify("Reconnected: Cart synced to your account", "info");
+        }
+    } catch (error) {
+        console.warn("Failed to sync offline cart queue:", error);
+    }
+};
+
+window.addEventListener("online", () => {
+    processOfflineCartQueue();
+    const currentCart = getCart();
+    dispatchCartUpdated(currentCart);
+});
+
 // Push the whole cart and report whether the account accepted it. /cart/sync is
 // replace-all, so this reconciles the server with the local cart after any
 // mutation — including bulk edits made through saveCart directly.
 const pushCartToBackend = async (cart) => {
+    if (!navigator.onLine) {
+        enqueueOfflineCartMutation(cart);
+        notify("Network offline. Cart saved locally and queued for background sync.", "warning");
+        return true;
+    }
+
     let response = null;
 
     try {
@@ -1394,11 +1514,11 @@ const pushCartToBackend = async (cart) => {
         });
     } catch (error) {
         console.warn("Cart backend sync failed:", error);
+        enqueueOfflineCartMutation(cart);
     }
 
     if (response && response.success) {
         serverAcknowledgedItems = cart;
-
         return true;
     }
 
@@ -1408,8 +1528,6 @@ const pushCartToBackend = async (cart) => {
         "error"
     );
 
-    // Show what the account actually holds rather than leaving the shopper
-    // looking at a change that was refused.
     if (serverAcknowledgedItems) {
         saveCart(serverAcknowledgedItems, { sync: false });
     }

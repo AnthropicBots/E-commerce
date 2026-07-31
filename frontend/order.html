@@ -131,6 +131,23 @@
                     </div>
                 </div>
 
+                <!-- Interactive Delivery Route Canvas -->
+                <div class="delivery-map-container" id="delivery-map-container">
+                    <div class="map-header">
+                        <div class="map-title">
+                            <i class="fas fa-map-marked-alt" aria-hidden="true"></i>
+                            <span>Live Delivery Route Tracker</span>
+                        </div>
+                        <div class="map-live-badge">
+                            <span class="live-dot" aria-hidden="true"></span>
+                            <span id="live-status-text">Live Sync</span>
+                        </div>
+                    </div>
+                    <div class="canvas-wrapper">
+                        <canvas id="delivery-tracking-canvas" width="800" height="220"></canvas>
+                    </div>
+                </div>
+
                 <!-- Timeline -->
                 <div class="tracking-timeline">
                     <div class="tracking-step active-step" id="pending-step">
@@ -240,10 +257,12 @@
         src="scripts/components.js"
     ></script>
 
+    <!-- Socket.IO Client -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
     <!-- Order Script -->
-    <!-- Order Script -->
-<script defer src="scripts/order.js"></script>
-<script defer src="scripts/ui.js"></script>
+    <script defer src="scripts/order.js"></script>
+    <script defer src="scripts/ui.js"></script>
 
 </body>
 </html>

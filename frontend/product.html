@@ -141,41 +141,50 @@
         <div class="zoom-result" id="zoomResult"></div>
     </div>
 
-    <div class="small-image-group">
-        <div class="small-image-col">
-            <img
-                src=""
-                class="small-image"
-                alt="Product Thumbnail"
-                loading="lazy"
-            >
+    <div
+        class="small-image-group"
+        id="product-thumbnail-gallery"
+        aria-label="Product image thumbnails"
+    ></div>
+
+    <div class="product-view-controls">
+        <button type="button" id="toggle-360-view-btn" class="view-360-btn" aria-label="Open 360 Degree View">
+            <i class="fas fa-undo-alt" aria-hidden="true"></i>
+            <span>360° Interactive View</span>
+        </button>
+    </div>
+
+    <div id="product-360-container" class="product-360-viewer" style="display: none;" aria-hidden="true">
+        <div class="product-360-header">
+            <h4><i class="fas fa-cube"></i> 360° Product Rotator</h4>
+            <button type="button" id="close-360-view-btn" class="close-360-btn" aria-label="Close 360 View">
+                <i class="fas fa-times" aria-hidden="true"></i>
+            </button>
         </div>
-        <div class="small-image-col">
-            <img
-                src=""
-                class="small-image"
-                alt="Product Thumbnail"
-                loading="lazy"
-            >
+        <div class="product-360-canvas-wrapper">
+            <!-- Frame Preloader with Progress Bar -->
+            <div id="360-preloader" class="product-360-preloader">
+                <div class="preloader-spinner"></div>
+                <p>Loading 360° View frames...</p>
+                <div class="progress-bar-container">
+                    <div id="360-progress-bar" class="progress-bar-fill"></div>
+                </div>
+            </div>
+            <canvas id="product-360-canvas"></canvas>
+            <div class="product-360-gesture-hint">
+                <i class="fas fa-hand-pointer"></i> Drag or swipe horizontally to rotate 360°
+            </div>
         </div>
-        <div class="small-image-col">
-            <img
-                src=""
-                class="small-image"
-                alt="Product Thumbnail"
-                loading="lazy"
-            >
-        </div>
-        <div class="small-image-col">
-            <img
-                src=""
-                class="small-image"
-                alt="Product Thumbnail"
-                loading="lazy"
-            >
+        <div class="product-360-toolbar">
+            <button type="button" id="btn-360-rotate" class="btn-360-control" title="Auto Rotate"><i class="fas fa-sync"></i> Auto</button>
+            <button type="button" id="btn-360-zoom-in" class="btn-360-control" title="Zoom In"><i class="fas fa-search-plus"></i></button>
+            <button type="button" id="btn-360-zoom-out" class="btn-360-control" title="Zoom Out"><i class="fas fa-search-minus"></i></button>
+            <button type="button" id="btn-360-reset" class="btn-360-control" title="Reset View"><i class="fas fa-undo"></i> Reset</button>
+            <button type="button" id="btn-360-fullscreen" class="btn-360-control" title="Fullscreen Mode"><i class="fas fa-expand"></i></button>
         </div>
     </div>
 </div>
+
 
         <!-- Product Info -->
 

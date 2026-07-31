@@ -125,7 +125,7 @@ const flagRoutes = require('./routes/flagRoutes');
 const { featureFlagService } = require('./services/featureFlagService');
 
 const correlationRoutes = require('./routes/correlationRoutes');
-const { correlationIdMiddleware, logCompletionMiddleware } = require('./middleware/correlationIdMiddleware');
+const { correlationIdMiddleware, logCompletionMiddleware } = require('./middleware/correlationMiddleware');
 
 (async () => {
   await moduleMaturityService.initialize();
@@ -141,8 +141,9 @@ const { correlationIdMiddleware, logCompletionMiddleware } = require('./middlewa
 // Add with other route imports
 // Add with other imports
 const provenanceRoutes = require('./routes/provenanceRoutes');
-const { provenanceService } = require('./services/provenanceService');
-const { provenanceMiddleware } = require('./middleware/provenanceMiddleware');
+// provenanceMiddleware is exported by the service alongside provenanceService;
+// there is no ./middleware/provenanceMiddleware module on disk.
+const { provenanceService, provenanceMiddleware } = require('./services/provenanceService');
 
 const recommendationRoutes = require('./routes/recommendationRoutes');
 const ruleRoutes = require('./routes/ruleRoutes');
@@ -158,6 +159,13 @@ const approvalRoutes = require('./routes/approvalRoutes');
 const rollbackRoutes = require('./routes/rollbackRoutes');
 const securityRoutes = require('./routes/securityRoutes');
 const aiFinancialRoutes = require('./routes/aiFinancialRoutes');
+
+// Both of these were mounted further down (`app.use('/api/experiments', ...)`
+// and `app.use('/api/copywriter', ...)`) but never imported, so startup died
+// with `ReferenceError: experimentRoutes is not defined`. Both route files
+// exist on disk; only the require lines were missing.
+const experimentRoutes = require('./routes/experimentRoutes');
+const copywriterRoutes = require('./routes/copywriterRoutes');
 
 const { detectAgenticFraud } = require('./middleware/agenticFraudMiddleware');
 const { detectBot, addBotDetectionHeaders } = require('./middleware/botProtectionMiddleware');
@@ -330,7 +338,7 @@ app.use("/api/mcp", mcpRoutes);
 
 // Health check endpoint
 app.get("/health", (req, res) => {
-    const { buildHealthResponse } = require("./utils/healthBuilder");
+    const { buildHealthResponse } = require("./utils/healthResponseBuilder");
     const healthData = buildHealthResponse({
         environment: process.env.NODE_ENV || "development",
         uptime: process.uptime(),
@@ -426,7 +434,7 @@ setInterval(processRenewals, 24 * 60 * 60 * 1000); // run daily
 
 // 11. Application Bootstrap Function
 async function bootstrap() {
-    const { logServerStartup } = require('./config/loggerConfig');
+    const { logServerStartup } = require('./utils/serverStartupLogger');
     console.log("Initializing core background services...");
 
     const services = [

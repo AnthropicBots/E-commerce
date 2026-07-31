@@ -1,17 +1,12 @@
-// routes/courierWebhookRoutes.js
-// Courier shipment webhook endpoints (Issue #1157).
-
 const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
 const courierWebhookController = require("../controllers/courierWebhookController");
-const courierWebhookService = require("../services/courierWebhookService");
+const { courierWebhookService } = require("../services/courierWebhookService");
 
 const MAX_PROVIDER_LENGTH = 50;
 
-// Validate the provider path segment before the payload is touched, so an
-// unknown/oversized provider is rejected with a clear 400.
 router.param("provider", (req, res, next, provider) => {
     if (typeof provider !== "string" || provider.length > MAX_PROVIDER_LENGTH) {
         return res.status(400).json({
@@ -29,8 +24,9 @@ router.param("provider", (req, res, next, provider) => {
     next();
 });
 
-// Admin/cron: retry webhooks that were stored but not yet applied. Declared
-// before the "/:provider" route so it isn't captured as a provider name.
+
+router.post("/:provider", courierWebhookController.receiveWebhook);
+
 router.post(
     "/process-pending",
     authMiddleware,
@@ -38,8 +34,39 @@ router.post(
     courierWebhookController.processPending
 );
 
-// Public ingestion endpoint hit by the courier provider. Authenticated by an
-// optional per-provider HMAC signature header rather than a user session.
-router.post("/:provider", courierWebhookController.receiveWebhook);
+// Get DLQ statistics
+router.get(
+    "/dlq/stats",
+    authMiddleware,
+    authorizeRoles("admin", "superadmin", "support"),
+    courierWebhookController.getDLQStats
+);
+
+router.post(
+    "/dlq/retry/:itemId",
+    authMiddleware,
+    authorizeRoles("admin", "superadmin"),
+    courierWebhookController.retryDLQItem
+);
+
+router.get(
+    "/circuit-breaker/status",
+    authMiddleware,
+    authorizeRoles("admin", "superadmin", "support"),
+    courierWebhookController.getCircuitBreakerStatus
+);
+
+router.post(
+    "/circuit-breaker/reset/:provider",
+    authMiddleware,
+    authorizeRoles("admin", "superadmin"),
+    courierWebhookController.resetCircuitBreaker
+);
+
+// Public health check
+router.get(
+    "/health",
+    courierWebhookController.healthCheck
+);
 
 module.exports = router;

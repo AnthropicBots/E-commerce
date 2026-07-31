@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/authMiddleware');
-const { getCorrelationId, createLogger } = require('../middleware/correlationIdMiddleware');
+const { getCorrelationId, createLogger } = require('../middleware/correlationMiddleware');
 
 /**
  * GET /api/correlation/test
