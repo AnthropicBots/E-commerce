@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     `role` ENUM('customer', 'support', 'admin', 'seller') DEFAULT 'customer',
-    refresh_token VARCHAR(255),
     avatar VARCHAR(500),
     phone VARCHAR(20),
     address TEXT,
@@ -662,6 +661,36 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     INDEX idx_user_sessions_expires (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- One row per signed-in device. Rotation on renewal inserts a successor in the
+-- same family and marks the predecessor superseded, so a superseded row that is
+-- presented again is a replay rather than an ordinary expiry.
+--
+-- Only the SHA-256 digest of the refresh token is stored: a copy of this table
+-- does not hand over the ability to impersonate anyone.
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    family_id CHAR(36) NOT NULL,
+    token_hash CHAR(64) NOT NULL UNIQUE,
+    device_label VARCHAR(120),
+    user_agent TEXT,
+    ip_address VARCHAR(45),
+    issued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME DEFAULT NULL,
+    expires_at DATETIME NOT NULL,
+    revoked_at DATETIME DEFAULT NULL,
+    revoked_reason VARCHAR(40) DEFAULT NULL,
+    replaced_by CHAR(36) DEFAULT NULL,
+
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+
+    INDEX idx_auth_sessions_token (token_hash),
+    INDEX idx_auth_sessions_user (user_id),
+    INDEX idx_auth_sessions_family (family_id),
+    INDEX idx_auth_sessions_expires (expires_at),
+    INDEX idx_auth_sessions_live (user_id, revoked_at, expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS login_attempts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
@@ -946,6 +975,9 @@ BEGIN
     DELETE FROM password_reset_tokens WHERE expires_at < NOW() OR used = 1;
     DELETE FROM email_verification_tokens WHERE expires_at < NOW() OR used = 1;
     DELETE FROM user_sessions WHERE expires_at < NOW() OR is_active = 0;
+    -- Superseded rows are kept until they expire; deleting them earlier would
+    -- throw away the evidence that makes a replay recognisable.
+    DELETE FROM auth_sessions WHERE expires_at < NOW();
     DELETE FROM api_tokens WHERE expires_at < NOW() OR is_active = 0;
     
     -- Delete old user interactions

@@ -11,6 +11,12 @@ const {
     getProductSuggestions
 } = require("../controllers/productController");
 
+const { validateProductReview } = require('../middleware/promptInjectionMiddleware');
+
+// Update POST /api/products/review
+router.post('/products/review', authMiddleware, validateProductReview, async (req, res) => {
+  
+});
 const {
     getProductReviews,
     createProductReview,
