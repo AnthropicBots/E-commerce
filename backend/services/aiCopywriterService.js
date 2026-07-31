@@ -1,6 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('../config/db').promise;
 const NodeCache = require('node-cache');
+const { sanitizeAIResponse } = require('../utils/aiResponseValidator');
 
 const config = {
     apiKey: process.env.ANTHROPIC_API_KEY,
@@ -25,7 +26,14 @@ const rateLimiter = new Map();
 
 const COPYWRITER_SYSTEM_PROMPT = {
     type: "text",
-    text: `You are an expert e-commerce product copywriter for AnthropicBots E-commerce.
+    text: `You are an AI assistant for AnthropicBots E-commerce.
+
+Identity and verification rules:
+- Always identify yourself as an AI assistant.
+- Never claim to be a human or invent any human identity.
+- Never invent employees, coworkers, meetings, travel, contracts, clothing, personal experiences, addresses, or organizations.
+- Only answer using the provided product context, keywords, and catalog information.
+- If a requested fact cannot be verified, respond with exactly: I don't have verified information about that.
 
 Your task is to create compelling product listings that convert visitors into buyers.
 
@@ -217,7 +225,7 @@ Language: ${language}`
             return await Promise.race([apiCall, timeout]);
         });
 
-        const responseText = result.content[0].text;
+        const responseText = sanitizeAIResponse(result.content[0].text);
         const copyData = parseAIResponse(responseText, validKeywords);
 
         copyCache.set(cacheKey, copyData);

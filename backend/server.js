@@ -26,6 +26,7 @@ const { verifyIdentityClaims } = require('./services/aiIdentityVerificationServi
 // threw `ReferenceError: Cannot access 'app' before initialization`. Both are
 // now mounted alongside the other routers, below.
 const rateLimit = require("express-rate-limit");
+
 const setupProcessEventHandlers = require('./utils/processEventHandlers');
 const setupGracefulShutdown = require('./utils/gracefulShutdown');
 

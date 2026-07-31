@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const productService = require("../services/productService");
 
 // helper functions
 const {
@@ -41,6 +42,8 @@ async function getOrCreateCategoryId(categoryName, connection = db) {
             "INSERT INTO categories (name, slug, level, is_active) VALUES (?, ?, 0, 1)",
             [trimmed, slug]
         );
+        // Category CRUD → invalidate nested menu cache (#1264)
+        productService.onCategoryMutation({ rebuildMptt: true }).catch(() => {});
         return result.insertId;
     } catch (err) {
         // If duplicate slug (concurrency safety), fetch it again
@@ -300,23 +303,35 @@ const getProducts = async (req, res) => {
 
         const shouldUseFulltext = Boolean(rawSearch) && booleanSearch.length > 0;
 
-        let queryResult;
-        if (shouldUseFulltext) {
-            try {
-                queryResult = await runProductQuery(true);
-            } catch (error) {
-                if (isFulltextUnavailable(error)) {
-                    console.warn(
-                        `FULLTEXT search unavailable (${error.code}); falling back to LIKE`
-                    );
-                    queryResult = await runProductQuery(false);
-                } else {
-                    throw error;
+        const queryResult = await productService.withProductCache(
+            {
+                page,
+                limit,
+                search: rawSearch,
+                category: req.query.category || null,
+                featured: req.query.featured || null,
+                minPrice,
+                maxPrice,
+                sort: sanitizeString(req.query.sort) || 'newest'
+            },
+            async () => {
+                if (shouldUseFulltext) {
+                    try {
+                        return await runProductQuery(true);
+                    } catch (error) {
+                        if (isFulltextUnavailable(error)) {
+                            console.warn(
+                                `FULLTEXT search unavailable (${error.code}); falling back to LIKE`
+                            );
+                            return runProductQuery(false);
+                        }
+                        throw error;
+                    }
                 }
-            }
-        } else {
-            queryResult = await runProductQuery(false);
-        }
+                return runProductQuery(false);
+            },
+            { tags: ['products', 'product-list'] }
+        );
 
         const { total, results } = queryResult;
 
@@ -390,27 +405,34 @@ const getSingleProduct = async (req, res) => {
             });
     }
 
-    const query = `
-        SELECT
-            p.id,
-            p.name,
-            p.description,
-            p.price,
-            p.image,
-            c.name AS category,
-            p.stock,
-            p.featured,
-            p.rating,
-            p.num_reviews
-        FROM products p
-        LEFT JOIN categories c ON p.category_id = c.id
-        WHERE p.id = ? AND p.deleted_at IS NULL
-    `;
-
     try {
-        const [results] = await db.query(query, [id]);
+        // Stampede-safe cache (XFetch + singleflight) — #1262
+        const product = await productService.withProductCache(
+            `detail:${id}`,
+            async () => {
+                const query = `
+                    SELECT
+                        p.id,
+                        p.name,
+                        p.description,
+                        p.price,
+                        p.image,
+                        c.name AS category,
+                        p.stock,
+                        p.featured,
+                        p.rating,
+                        p.num_reviews
+                    FROM products p
+                    LEFT JOIN categories c ON p.category_id = c.id
+                    WHERE p.id = ? AND p.deleted_at IS NULL
+                `;
+                const [results] = await db.query(query, [id]);
+                return results[0] || null;
+            },
+            { tags: [`product:${id}`, 'products'] }
+        );
 
-        if (results.length === 0) {
+        if (!product) {
             return res.status(404).json({
                 success: false,
                 message: "Product not found"
@@ -419,7 +441,7 @@ const getSingleProduct = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            product: results[0]
+            product
         });
     } catch (error) {
         console.error(error);
@@ -510,6 +532,8 @@ const createProduct = async (req, res) => {
                     : 0
             ]
         );
+
+        await productService.invalidateProductCaches(productId);
 
         res.status(201).json({
             success: true,
@@ -613,6 +637,8 @@ const updateProduct = async (req, res) => {
             });
         }
 
+        await productService.invalidateProductCaches(id);
+
         res.status(200).json({
             success: true,
             message: "Product updated successfully"
@@ -655,6 +681,8 @@ const deleteProduct = async (req, res) => {
             });
         }
 
+        await productService.invalidateProductCaches(id);
+
         res.status(200).json({
             success: true,
             message: "Product deleted successfully"
@@ -688,6 +716,56 @@ const getProductSuggestions = async (req, res) => {
     }
 };
 
+/**
+ * Nested category navigation tree — single recursive CTE + Redis cache (#1264).
+ * Query: ?rootId=&maxDepth=5
+ */
+const getCategoryTree = async (req, res) => {
+    try {
+        const maxDepth = safeInteger(req.query.maxDepth, 5);
+        const rootId = req.query.rootId != null && req.query.rootId !== ''
+            ? safeInteger(req.query.rootId, null)
+            : null;
+
+        const result = await productService.getCategoryTree({ rootId, maxDepth });
+
+        return res.status(200).json({
+            success: true,
+            message: "Category tree fetched successfully",
+            cached: result.cached,
+            maxDepth: result.maxDepth,
+            rootId: result.rootId,
+            tree: result.tree
+        });
+    } catch (error) {
+        console.error("Category tree error:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch category tree"
+        });
+    }
+};
+
+/**
+ * Manual cache bust for category menus (admin / after bulk imports).
+ */
+const invalidateCategoryTreeCache = async (req, res) => {
+    try {
+        const result = await productService.onCategoryMutation({ rebuildMptt: true });
+        return res.status(200).json({
+            success: true,
+            message: "Category tree cache invalidated",
+            ...result
+        });
+    } catch (error) {
+        console.error("Category tree invalidation error:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to invalidate category tree cache"
+        });
+    }
+};
+
 
 module.exports = {
     getProducts,
@@ -695,5 +773,7 @@ module.exports = {
     createProduct,
     updateProduct,
     deleteProduct,
-    getProductSuggestions
+    getProductSuggestions,
+    getCategoryTree,
+    invalidateCategoryTreeCache
 };
