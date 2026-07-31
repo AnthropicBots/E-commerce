@@ -1,12 +1,14 @@
 <aside
     id="cart-drawer"
     class="cart-drawer"
-    aria-label="Shopping cart"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="cart-drawer-title"
     aria-hidden="true"
 >
     <div class="cart-drawer-panel">
         <header class="cart-drawer-header">
-            <h3>Your Cart</h3>
+            <h3 id="cart-drawer-title">Your Cart</h3>
             <button
                 type="button"
                 id="close-cart-drawer"
@@ -18,14 +20,23 @@
         </header>
 
         <div
+            id="cart-drawer-live-region"
+            class="sr-only"
+            aria-live="polite"
+            aria-atomic="true"
+        ></div>
+
+        <div
             id="cart-drawer-items"
             class="cart-drawer-items"
+            role="region"
+            aria-label="Cart items list"
         ></div>
 
         <footer class="cart-drawer-footer">
             <div class="cart-drawer-subtotal">
                 <span>Subtotal</span>
-                <strong id="cart-drawer-total">₹0.00</strong>
+                <strong id="cart-drawer-total" aria-live="polite" aria-atomic="true">₹0.00</strong>
             </div>
 
             <a
