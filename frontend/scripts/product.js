@@ -631,6 +631,84 @@ async function toggleWishlist(productId) {
     }
 
     // ============================================
+    const DEFAULT_PRODUCT_IMAGE = "/assets/images/f1.jpg";
+
+    const normalizeProductImage = (image) => {
+        if (!image) {
+            return "";
+        }
+
+        if (typeof image === "string") {
+            return image.trim();
+        }
+
+        if (typeof image === "object") {
+            return String(
+                image.url ||
+                image.src ||
+                image.image ||
+                image.path ||
+                image.file ||
+                ""
+            ).trim();
+        }
+
+        return String(image).trim();
+    };
+
+    const getProductGalleryImages = (product) => {
+        const images = Array.isArray(product?.images)
+            ? product.images.map(normalizeProductImage).filter(Boolean)
+            : [];
+        const fallbackImage = normalizeProductImage(product?.image) || DEFAULT_PRODUCT_IMAGE;
+
+        if (images.length) {
+            return images.filter((src, index, list) => list.indexOf(src) === index);
+        }
+
+        return [fallbackImage];
+    };
+
+    const setMainProductImage = (src, altText = "") => {
+        if (!productElements.mainImage) {
+            return "";
+        }
+
+        const nextSrc = normalizeProductImage(src) || DEFAULT_PRODUCT_IMAGE;
+        const image = productElements.mainImage;
+
+        if (altText) {
+            image.alt = altText;
+        }
+
+        image.classList.add("is-fading");
+
+        const removeFade = () => {
+            image.classList.remove("is-fading");
+        };
+
+        image.addEventListener("load", removeFade, { once: true });
+        image.src = nextSrc;
+
+        if (image.complete) {
+            window.requestAnimationFrame(removeFade);
+        }
+
+        return nextSrc;
+    };
+
+    const setActiveGalleryThumbnail = (gallery, activeIndex) => {
+        if (!gallery) {
+            return;
+        }
+
+        gallery.querySelectorAll(".small-image-col").forEach((thumb, index) => {
+            const isActive = index === activeIndex;
+            thumb.classList.toggle("is-active", isActive);
+            thumb.setAttribute("aria-pressed", String(isActive));
+        });
+    };
+
     // RENDER PRODUCT
     // ============================================
     function renderProduct(
@@ -644,25 +722,24 @@ async function toggleWishlist(productId) {
             return;
         }
 
+        const primaryImage = getProductGalleryImages(product)[0] || DEFAULT_PRODUCT_IMAGE;
+
         // image
         if (
             productElements.mainImage
         ) {
 
-            productElements.mainImage.src =
-                escapeHTML(
-                    product.image
-                    ||
-                    "/assets/images/f1.jpg"
-                );
-
-            productElements.mainImage.alt = escapeHTML(product.name || "Product image");
+            setMainProductImage(
+                primaryImage,
+                product.name || "Product image"
+            );
 
             productElements.mainImage.onerror =
                 () => {
 
+                    productElements.mainImage.classList.remove("is-fading");
                     productElements.mainImage.src =
-                        "/assets/images/f1.jpg";
+                        DEFAULT_PRODUCT_IMAGE;
                 };
         }
 
@@ -792,7 +869,7 @@ function initializeImageZoom() {
     const ZOOM_FACTOR = 2.5;
     let lensSize = 150;
     let isZoomActive = false;
-    let currentImageSrc = image.src;
+    let currentImageSrc = image.getAttribute("src") || image.src;
 
     // Update lens size based on viewport
     function updateLensSize() {
@@ -903,22 +980,6 @@ function initializeImageZoom() {
         }
     });
 
-    // ===== THUMBNAIL CLICK SYNC =====
-    // When thumbnails are clicked, update the zoom image
-    const thumbnails = document.querySelectorAll('.small-image');
-    thumbnails.forEach((thumb) => {
-        thumb.addEventListener('click', () => {
-            const newSrc = thumb.src;
-            if (newSrc && newSrc !== currentImageSrc) {
-                currentImageSrc = newSrc;
-                image.src = newSrc;
-                if (isZoomActive) {
-                    updateZoomBackground();
-                }
-            }
-        });
-    });
-
     // ===== WATCH FOR MAIN IMAGE CHANGES =====
     // Observe image src changes (in case it's changed programmatically)
     const observer = new MutationObserver(() => {
@@ -941,16 +1002,58 @@ function initializeImageZoom() {
 // ========================================
 
     function initializeProductGallery(product) {
-        const thumbnails = document.querySelectorAll(".small-image");
-        if (!thumbnails.length) return;
+        const gallery = document.getElementById("product-thumbnail-gallery");
 
-        thumbnails.forEach((thumb) => {
-            thumb.src = product.image || "/assets/images/f1.jpg";
-            thumb.onclick = () => {
-                if (productElements.mainImage) {
-                    productElements.mainImage.src = thumb.src;
+        if (!gallery) {
+            return;
+        }
+
+        const images = getProductGalleryImages(product);
+        const productName = product?.name || "Product";
+
+        gallery.innerHTML = images
+            .map((src, index) => {
+                const isActive = index === 0;
+                const escapedSrc = escapeHTML(src);
+                const escapedAlt = escapeHTML(`${productName} thumbnail ${index + 1}`);
+
+                return `
+                    <button
+                        type="button"
+                        class="small-image-col${isActive ? " is-active" : ""}"
+                        data-image-index="${index}"
+                        aria-label="View image ${index + 1} of ${images.length}"
+                        aria-pressed="${String(isActive)}"
+                    >
+                        <img
+                            src="${escapedSrc}"
+                            class="small-image"
+                            alt="${escapedAlt}"
+                            loading="lazy"
+                        >
+                    </button>
+                `;
+            })
+            .join("");
+
+        const thumbnails = Array.from(gallery.querySelectorAll(".small-image-col"));
+
+        setActiveGalleryThumbnail(gallery, 0);
+
+        thumbnails.forEach((thumb, index) => {
+            thumb.addEventListener("click", () => {
+                const nextSrc = images[index];
+
+                if (!nextSrc) {
+                    return;
                 }
-            };
+
+                setMainProductImage(
+                    nextSrc,
+                    productName
+                );
+                setActiveGalleryThumbnail(gallery, index);
+            });
         });
     }
 
@@ -1039,6 +1142,7 @@ function initializeImageZoom() {
 // INITIALIZATION
 // ========================================
 
+class Product360Viewer {
     resizeCanvas() {
         if (!this.canvas || !this.canvas.parentElement) return;
         const rect = this.canvas.parentElement.getBoundingClientRect();
@@ -1194,3 +1298,4 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 })();
+

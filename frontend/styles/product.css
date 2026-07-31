@@ -22,10 +22,16 @@
   object-fit: cover;
   background: #f7f7f7;
   border: 1px solid #eee;
+  opacity: 1;
   transition:
+    opacity 220ms ease,
     transform 0.1s ease,
     transform-origin 0.1s ease;
-  will-change: transform;
+  will-change: opacity, transform;
+}
+
+#main-product-image.is-fading {
+  opacity: 0;
 }
 
 @media (hover: none) {
@@ -36,20 +42,60 @@
 
 .small-image-group {
   display: flex;
-  justify-content: space-between;
-  margin-top: 10px;
+  gap: 12px;
+  margin-top: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+}
+
+.small-image-group::-webkit-scrollbar {
+  height: 6px;
+}
+
+.small-image-group::-webkit-scrollbar-thumb {
+  background: rgba(8, 129, 120, 0.25);
+  border-radius: 999px;
 }
 
 .small-image-col {
-  flex-basis: 24%;
+  flex: 0 0 clamp(72px, 16vw, 108px);
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: #fff;
   cursor: pointer;
+  overflow: hidden;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  scroll-snap-align: start;
+}
+
+.small-image-col:hover {
+  transform: translateY(-2px);
+  border-color: rgba(8, 129, 120, 0.45);
+}
+
+.small-image-col:focus-visible {
+  outline: 2px solid rgba(8, 129, 120, 0.3);
+  outline-offset: 2px;
+}
+
+.small-image-col.is-active {
+  border-color: var(--primary-color, #088178);
+  box-shadow: 0 0 0 1px rgba(8, 129, 120, 0.18), 0 8px 20px rgba(8, 129, 120, 0.12);
 }
 
 .small-image-col img {
   width: 100%;
-  height: 120px;
+  height: 100%;
   object-fit: cover;
-  border-radius: 8px;
+  display: block;
+  background: #f7f7f7;
 }
 
 .single-product-details {
@@ -377,6 +423,19 @@ RECOMMENDED PRODUCTS
   }
 }
 
+
+@media (max-width: 1024px) {
+  #main-product-image {
+    max-height: 420px;
+    object-fit: cover;
+  }
+
+  .small-image-col {
+    flex-basis: clamp(64px, 20vw, 88px);
+  }
+}
+
+
 /* =============================
 PRODUCT VARIANTS
 ============================= */
@@ -502,8 +561,8 @@ PRODUCT VARIANTS
     object-fit: cover;
   }
 
-  .small-image-col img {
-    height: 85px;
+  .small-image-col {
+    flex-basis: clamp(64px, 20vw, 88px);
   }
 }
 
@@ -535,7 +594,7 @@ body.dark-theme #main-product-image {
   border-color: #333;
 }
 
-body.dark-theme .small-image-col img {
+body.dark-theme .small-image-col {
   background: #2a2a2a;
 }
 
