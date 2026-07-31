@@ -4,11 +4,28 @@
  */
 
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const db = require("../config/db");
 const { sanitizeString, safeArray } = require("../utils/helpers");
 const { getClearCookieOptions } = require("../config/cookieConfig");
+const {
+    COOKIE_NAMES,
+    REFRESH_COOKIE_PATH,
+    SESSION_CLAIM,
+    issueAccessToken,
+    issueRefreshToken,
+    issueTwoFactorToken,
+    verifyRefreshToken
+} = require("../utils/tokens");
+const {
+    REVOKE_REASON,
+    SESSION_OUTCOME,
+    createSession,
+    revokeSessionById,
+    revokeSessionByToken,
+    revokeUserSessions,
+    rotateSession
+} = require("../services/authSessionService");
 
 // Appwrite SDK
 const { Client, Account, ID, Databases } = require('node-appwrite');
@@ -57,11 +74,6 @@ setInterval(() => {
     }
 }, CLEANUP_INTERVAL);
 
-// ==================== JWT SECRET VALIDATION ====================
-if (!process.env.JWT_SECRET) {
-    throw new Error("JWT_SECRET environment variable is not set");
-}
-
 // ==================== APPWRITE CLIENT ====================
 const appwriteClient = new Client()
     .setEndpoint(process.env.VITE_APPWRITE_ENDPOINT || 'https://fra.cloud.appwrite.io/v1')
@@ -71,16 +83,15 @@ const appwriteAccount = new Account(appwriteClient);
 
 // ==================== HELPER FUNCTIONS ====================
 
-function generateAccessToken(user) {
-    return jwt.sign(
-        { id: user.id, email: user.email, role: user.role },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN || "15m" }
-    );
-}
-
-function generateRefreshToken() {
-    return crypto.randomBytes(40).toString("hex");
+/**
+ * Where the request appears to come from, used to label a session so an account
+ * holder can recognise it later.
+ */
+function describeRequestOrigin(req) {
+    return {
+        ip: req.ip,
+        userAgent: req.headers ? req.headers["user-agent"] : undefined
+    };
 }
 
 function sendAuthResponse(res, { message, accessToken, refreshToken, user }) {
@@ -352,11 +363,7 @@ const login = async (req, res) => {
 
         // Check if 2FA is enabled
         if (user.is_2fa_enabled === 1) {
-            const tempToken = jwt.sign(
-                { id: user.id, email: user.email, role: user.role, is2FA: true },
-                process.env.JWT_SECRET,
-                { expiresIn: "5m" }
-            );
+            const tempToken = issueTwoFactorToken(user);
             return res.status(200).json({
                 success: true,
                 requires2FA: true,
@@ -365,14 +372,18 @@ const login = async (req, res) => {
             });
         }
 
-        const accessToken = generateAccessToken(user);
-        const refreshToken = generateRefreshToken();
+        // A session per device: signing in here leaves any session on another
+        // device untouched.
+        const refreshToken = issueRefreshToken();
+        const { sessionId } = await createSession({
+            userId: user.id,
+            refreshToken,
+            ...describeRequestOrigin(req)
+        });
 
-        // Update refresh token and last login time
-        await db.query(
-            `UPDATE users SET refresh_token = ?, last_login = NOW() WHERE id = ?`, 
-            [refreshToken, user.id]
-        );
+        const accessToken = issueAccessToken(user, { [SESSION_CLAIM]: sessionId });
+
+        await db.query(`UPDATE users SET last_login = NOW() WHERE id = ?`, [user.id]);
 
         return sendAuthResponse(res, { 
             message: "Login successful", 
@@ -390,17 +401,27 @@ const login = async (req, res) => {
 const logout = async (req, res) => {
     try {
         const userId = req.user?.id;
+
+        // End only the session this request belongs to. The session id on the
+        // access token identifies it without the client having to hand back its
+        // refresh token; the body is a fallback for callers that still do.
+        const sessionId = req.user?.[SESSION_CLAIM];
+        if (sessionId) {
+            await revokeSessionById(sessionId, REVOKE_REASON.LOGOUT);
+        } else {
+            const presentedToken = sanitizeString(req.body?.refreshToken);
+            if (presentedToken) {
+                await revokeSessionByToken(presentedToken, REVOKE_REASON.LOGOUT);
+            }
+        }
+
         if (userId) {
-            // Clear refresh token AND update last logout time
-            await db.query(
-                `UPDATE users SET refresh_token = NULL, last_logout = NOW() WHERE id = ?`,
-                [userId]
-            );
+            await db.query(`UPDATE users SET last_logout = NOW() WHERE id = ?`, [userId]);
         }
 
         // Clear cookies using shared cookie options
-        res.clearCookie('accessToken', getClearCookieOptions());
-        res.clearCookie('refreshToken', getClearCookieOptions('/api/auth/refresh'));
+        res.clearCookie(COOKIE_NAMES.accessToken, getClearCookieOptions());
+        res.clearCookie(COOKIE_NAMES.refreshToken, getClearCookieOptions(REFRESH_COOKIE_PATH));
 
         console.log(`🔓 User ${userId} logged out successfully`);
 
@@ -587,24 +608,65 @@ const refreshAccessToken = async (req, res) => {
             return res.status(401).json({ success: false, message: "Refresh token required" });
         }
 
+        // A token without our tag was never issued here, so there is no point
+        // asking the database about it.
+        if (!verifyRefreshToken(cleanRefreshToken)) {
+            return res.status(401).json({ success: false, message: "Invalid refresh token" });
+        }
+
+        const newRefreshToken = issueRefreshToken();
+        const rotation = await rotateSession({
+            refreshToken: cleanRefreshToken,
+            newRefreshToken,
+            ...describeRequestOrigin(req)
+        });
+
+        // A superseded token coming back means it is in two places at once. That
+        // is worth acting on, so every session descended from the same sign-in
+        // has already been ended by this point.
+        if (rotation.outcome === SESSION_OUTCOME.REPLAY) {
+            console.warn(
+                `🚨 Refresh token replay detected for user ${rotation.userId}. ` +
+                `Session family ${rotation.familyId} revoked.`
+            );
+            return res.status(401).json({
+                success: false,
+                code: "SESSION_REPLAY_DETECTED",
+                message: "This session was ended for security reasons. Please sign in again."
+            });
+        }
+
+        if (rotation.outcome !== SESSION_OUTCOME.ROTATED) {
+            return res.status(401).json({
+                success: false,
+                code: "SESSION_EXPIRED",
+                message: "Session has expired. Please sign in again."
+            });
+        }
+
         const [users] = await db.query(
-            `SELECT id, name, email, role, is_active FROM users WHERE refresh_token = ? LIMIT 1`,
-            [cleanRefreshToken]
+            `SELECT id, name, email, role, is_active FROM users WHERE id = ? LIMIT 1`,
+            [rotation.userId]
         );
 
         if (!safeArray(users).length) {
+            await revokeUserSessions({
+                userId: rotation.userId,
+                reason: REVOKE_REASON.ACCOUNT_DISABLED
+            });
             return res.status(401).json({ success: false, message: "Invalid refresh token" });
         }
 
         const user = users[0];
         if (user.is_active === 0) {
+            await revokeUserSessions({
+                userId: user.id,
+                reason: REVOKE_REASON.ACCOUNT_DISABLED
+            });
             return res.status(403).json({ success: false, message: "Account has been deactivated" });
         }
 
-        const newAccessToken = generateAccessToken(user);
-        const newRefreshToken = generateRefreshToken();
-
-        await db.query(`UPDATE users SET refresh_token = ? WHERE id = ?`, [newRefreshToken, user.id]);
+        const newAccessToken = issueAccessToken(user, { [SESSION_CLAIM]: rotation.sessionId });
 
         return sendAuthResponse(res, { 
             message: "Token refreshed", 
