@@ -1,4 +1,7 @@
 -- AI Copy Generations Table
+--
+-- product_id is CHAR(36) to match `products.id`; declared as INT, the foreign
+-- key below could not be built and the whole file failed to apply.
 CREATE TABLE IF NOT EXISTS ai_copy_generations (
     id INT PRIMARY KEY AUTO_INCREMENT,
     keywords JSON NOT NULL,
@@ -11,7 +14,7 @@ CREATE TABLE IF NOT EXISTS ai_copy_generations (
     bullet_points JSON,
     seo_keywords JSON,
     was_used BOOLEAN DEFAULT FALSE,
-    product_id INT NULL,
+    product_id CHAR(36) NULL,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_category (category),
     INDEX idx_timestamp (timestamp),

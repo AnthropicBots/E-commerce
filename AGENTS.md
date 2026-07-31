@@ -12,24 +12,34 @@ Two independent packages (no monorepo tooling):
 
 ## Commands (run from `backend/`)
 
-| Action               | Command                                   |
-| -------------------- | ----------------------------------------- |
-| Dev server (nodemon) | `npm run dev`                             |
-| Start production     | `npm start`                               |
-| Init DB from schema  | `mysql -u root -p ecommerce < schema.sql` |
+| Action                    | Command                  |
+| ------------------------- | ------------------------ |
+| Dev server (nodemon)      | `npm run dev`            |
+| Start production          | `npm start`              |
+| Apply DB migrations       | `npm run migrate`        |
+| Show applied vs pending   | `npm run migrate:status` |
+| Adopt baseline (existing) | `npm run migrate:baseline` |
 
 ## Database
 
 - MySQL 8.0 via docker-compose (`backend/docker-compose.yml`) or local install
 - Five tables: `users`, `products`, `orders`, `order_items`, `wishlist_items`
-- Schema: `backend/schema.sql`
+- Schema comes from the ordered sequence in `migrations/`, applied by
+  `backend/scripts/migrate.js`. Never pipe SQL into `mysql` by hand — the runner
+  records what it applied and checksums it, so out-of-band SQL desynchronises it.
+- `migrations/0001_baseline_schema.sql` is the adopted baseline and is immutable
+- `migrations/README.md` records which definition won for each table that used to
+  be declared more than once, and why
+- `backend/sql/` holds feature schemas not yet folded into the sequence; they are
+  not applied by the runner. New schema changes go in `migrations/`
+- `docs/legacy/ecommerce-mysql-dump.sql` is a historical dump, not a setup step
 - DB uses utf8mb4 charset, connection pool with auto-retry and exponential backoff
 
 ## Setup
 
 1. `cd backend && cp .env.example .env` — edit DB_PASSWORD, JWT_SECRET, FRONTEND_URL
 2. `npm install` in `backend/`
-3. Start MySQL, create `ecommerce` DB, import `schema.sql`
+3. Start MySQL, create an empty `ecommerce` DB, then `npm run migrate`
 4. `npm run dev`
 5. Open frontend with Live Server (right-click `frontend/index.html` → Open with Live Server)
 
