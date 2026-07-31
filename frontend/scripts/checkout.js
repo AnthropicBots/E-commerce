@@ -607,6 +607,14 @@ async function createOrderPayload() {
                 elements.phone.value.trim()
         },
 
+        // Saved address book (#1347). When the shopper picked a saved address,
+        // the id goes along with the form values; the backend merges the two,
+        // letting explicit form edits win, so picking an address and then
+        // changing the phone number does what it looks like it does.
+        addressId:
+            (window.AddressBook && AddressBook.getSelectedId())
+                || null,
+
         address: {
 
             city:

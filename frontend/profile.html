@@ -75,6 +75,12 @@
         href="styles/profile.css"
     >
 
+    <!-- Saved address book (#1347) -->
+    <link
+        rel="stylesheet"
+        href="styles/addresses.css"
+    >
+
     <!-- Icons -->
     <link
         rel="stylesheet"
@@ -281,6 +287,157 @@
         </div>
     </section>
 
+    <!--
+        Saved address book (#1347).
+
+        Before this, the only address on the profile was a single free-text
+        field capped at 200 characters that went nowhere useful, and every
+        checkout meant retyping the delivery address in full.
+    -->
+    <section
+        id="address-book"
+        class="section-p1"
+    >
+        <div class="address-book-inner">
+            <header class="address-book-head">
+                <h2>Saved addresses</h2>
+                <p>
+                    Save the places you order to so checkout can fill itself in.
+                    Your default address is used automatically.
+                </p>
+            </header>
+
+            <!-- Rendered by scripts/addresses.js -->
+            <div id="address-list" class="address-list"></div>
+
+            <form id="address-form" class="address-form" novalidate>
+                <h3>Add an address</h3>
+
+                <div class="address-form-row">
+                    <label class="address-field">
+                        <span>Label</span>
+                        <input
+                            type="text"
+                            name="label"
+                            list="address-label-suggestions"
+                            placeholder="Home"
+                            maxlength="50"
+                        >
+                        <datalist id="address-label-suggestions">
+                            <option value="Home"></option>
+                            <option value="Work"></option>
+                            <option value="Other"></option>
+                        </datalist>
+                    </label>
+
+                    <label class="address-field">
+                        <span>Recipient name<em aria-hidden="true">*</em></span>
+                        <input
+                            type="text"
+                            name="recipientName"
+                            maxlength="255"
+                            required
+                        >
+                    </label>
+
+                    <label class="address-field">
+                        <span>Recipient phone<em aria-hidden="true">*</em></span>
+                        <input
+                            type="tel"
+                            name="recipientPhone"
+                            maxlength="20"
+                            required
+                        >
+                    </label>
+                </div>
+
+                <div class="address-form-row">
+                    <label class="address-field address-field-wide">
+                        <span>Address line 1<em aria-hidden="true">*</em></span>
+                        <input
+                            type="text"
+                            name="addressLine1"
+                            maxlength="255"
+                            required
+                        >
+                    </label>
+
+                    <label class="address-field address-field-wide">
+                        <span>Address line 2</span>
+                        <input
+                            type="text"
+                            name="addressLine2"
+                            maxlength="255"
+                        >
+                    </label>
+                </div>
+
+                <div class="address-form-row">
+                    <label class="address-field">
+                        <span>Landmark</span>
+                        <input
+                            type="text"
+                            name="landmark"
+                            maxlength="255"
+                        >
+                    </label>
+
+                    <label class="address-field">
+                        <span>City<em aria-hidden="true">*</em></span>
+                        <input
+                            type="text"
+                            name="city"
+                            maxlength="100"
+                            required
+                        >
+                    </label>
+
+                    <label class="address-field">
+                        <span>State<em aria-hidden="true">*</em></span>
+                        <input
+                            type="text"
+                            name="state"
+                            maxlength="100"
+                            required
+                        >
+                    </label>
+                </div>
+
+                <div class="address-form-row">
+                    <label class="address-field">
+                        <span>Postal code<em aria-hidden="true">*</em></span>
+                        <input
+                            type="text"
+                            name="postalCode"
+                            maxlength="20"
+                            required
+                        >
+                    </label>
+
+                    <label class="address-field">
+                        <span>Country</span>
+                        <input
+                            type="text"
+                            name="country"
+                            value="India"
+                            maxlength="100"
+                        >
+                    </label>
+
+                    <label class="address-field address-field-checkbox">
+                        <input type="checkbox" name="isDefault">
+                        <span>Use as my default address</span>
+                    </label>
+                </div>
+
+                <button type="submit" class="address-save-btn">
+                    <i class="fas fa-map-marker-alt"></i>
+                    Save address
+                </button>
+            </form>
+        </div>
+    </section>
+
     <!-- Footer -->
     <div id="footer"></div>
 
@@ -329,6 +486,12 @@
     <script
         defer
         src="scripts/sessions.js"
+    ></script>
+
+    <!-- Saved address book (#1347) -->
+    <script
+        defer
+        src="scripts/addresses.js"
     ></script>
     <script defer src="scripts/ui.js"></script>
 

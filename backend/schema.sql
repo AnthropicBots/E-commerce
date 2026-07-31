@@ -1244,3 +1244,59 @@ CREATE TABLE IF NOT EXISTS recently_viewed (
     INDEX idx_recently_viewed_user (user_id),
     INDEX idx_recently_viewed_product (product_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- ============================================
+-- USER ADDRESSES (saved address book, #1347)
+-- ============================================
+--
+-- `users` still carries a single flattened address inline (address, city,
+-- state, zip, country). Nothing reads it, and it cannot express the common
+-- cases: a second address, a different recipient, or a default. This table
+-- replaces it. See migrations/add_user_addresses.sql for the backfill and
+-- for the `orders.address_id` link.
+
+CREATE TABLE IF NOT EXISTS user_addresses (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+
+    label VARCHAR(50) NOT NULL DEFAULT 'Home',
+
+    -- Per-address, not inherited from the account: ordering to a family
+    -- member or an office front desk is ordinary, and the courier needs the
+    -- person who will take the parcel.
+    recipient_name VARCHAR(255) NOT NULL,
+    recipient_phone VARCHAR(20) NOT NULL,
+
+    address_line1 VARCHAR(255) NOT NULL,
+    address_line2 VARCHAR(255),
+    landmark VARCHAR(255),
+    city VARCHAR(100) NOT NULL,
+    state VARCHAR(100) NOT NULL,
+    postal_code VARCHAR(20) NOT NULL,
+    country VARCHAR(100) NOT NULL DEFAULT 'India',
+
+    is_default TINYINT(1) NOT NULL DEFAULT 0,
+    last_used_at DATETIME,
+
+    -- Soft delete: orders.address_id references this table.
+    deleted_at DATETIME,
+    deleted_by CHAR(36),
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_user_addresses_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+
+    -- At most one live default per account, enforced by the database.
+    -- MySQL has no partial indexes; only the default row stores its user_id
+    -- here, and NULLs do not collide in a UNIQUE index.
+    default_marker CHAR(36)
+        GENERATED ALWAYS AS (
+            CASE WHEN is_default = 1 AND deleted_at IS NULL THEN user_id ELSE NULL END
+        ) STORED,
+    UNIQUE KEY uq_user_addresses_one_default (default_marker),
+
+    INDEX idx_user_addresses_user (user_id, deleted_at),
+    INDEX idx_user_addresses_default (user_id, is_default),
+    INDEX idx_user_addresses_last_used (user_id, last_used_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

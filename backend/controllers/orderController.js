@@ -25,6 +25,9 @@ const {
     "../utils/helpers"
 );
 
+// Saved address book (#1347).
+const addressService = require("../services/addressService");
+
 // create order
 const createOrder =
     async (
@@ -35,14 +38,47 @@ const createOrder =
         try {
             connection = await db.getConnection();
 
-            const {
+            let {
                 customer,
                 address,
                 paymentMethod,
                 items,
                 total,
-                promoCode
+                promoCode,
+                // Saved address book (#1347). A signed-in shopper can send an
+                // id instead of retyping the whole address.
+                addressId
             } = req.body;
+
+            // Resolve a saved address into the same flat shape the manual form
+            // posts, so everything below this point is unchanged whichever way
+            // the shopper checked out.
+            //
+            // The lookup is scoped to the calling user by addressService, so an
+            // id belonging to somebody else resolves to null and is rejected as
+            // "not found" rather than silently shipping to a stranger.
+            if (addressId) {
+                const resolved = await addressService.resolveForOrder(
+                    req.user.id,
+                    sanitizeString(addressId)
+                );
+
+                if (!resolved) {
+                    return res.status(404)
+                        .json({
+                            success: false,
+                            message:
+                                "Saved address not found"
+                        });
+                }
+
+                // Anything the client also sent explicitly wins, so a shopper
+                // who picked a saved address and then edited the recipient in
+                // the form gets what they typed.
+                address = { ...resolved.address, ...(address || {}) };
+                customer = { ...resolved.customer, ...(customer || {}) };
+                addressId = resolved.addressId;
+            }
 
             // validation
             if (
@@ -159,6 +195,7 @@ const createOrder =
                         state: sanitizeString(address.state),
                         zip: sanitizeString(address.zip),
                         full_address: sanitizeString(address.fullAddress),
+                        address_id: addressId ? sanitizeString(addressId) : null,
                         payment_method: sanitizeString(paymentMethod).toLowerCase(),
                         total: safeNumber(total),
                         items,
@@ -172,11 +209,21 @@ const createOrder =
             // commit transaction
             await connection.commit();
 
+            // Ordering metadata for the address list, written after the commit
+            // and deliberately not awaited into the order's fate: a failed
+            // timestamp must not fail a placed order. The service swallows its
+            // own errors.
+            if (addressId) {
+                await addressService.markAddressUsed(req.user.id, addressId);
+            }
+
             return res.status(201)
                 .json({
                     success: true,
                     message:
                         "Order placed successfully",
+                    addressId:
+                        addressId || null,
                     orderId:
                         result.orderId,
                     breakdown:
