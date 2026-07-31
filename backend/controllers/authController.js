@@ -533,6 +533,20 @@ const resetPassword = async (req, res) => {
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await db.query(`UPDATE users SET password = ? WHERE email = ?`, [hashedPassword, appwriteUser.email]);
 
+        // A reset is the path someone takes when they may have lost control of
+        // the account, so every existing session goes -- there is no session to
+        // keep here, because the reset is not made from a signed-in device.
+        const [resetUsers] = await db.query(
+            `SELECT id FROM users WHERE email = ? LIMIT 1`,
+            [appwriteUser.email]
+        );
+        if (safeArray(resetUsers).length) {
+            await revokeUserSessions({
+                userId: resetUsers[0].id,
+                reason: REVOKE_REASON.PASSWORD_CHANGED
+            });
+        }
+
         // Cleanup Appwrite session
         try {
             await userAccount.deleteSession('current');
@@ -588,9 +602,20 @@ const changePassword = async (req, res) => {
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await db.query(`UPDATE users SET password = ? WHERE id = ?`, [hashedPassword, userId]);
 
+        // Anyone signed in with the old password loses their session. The device
+        // making the change keeps its own, so changing a password does not sign
+        // you out of the page you are on.
+        const currentSessionId = req.user?.[SESSION_CLAIM];
+        const revokedCount = await revokeUserSessions({
+            userId,
+            exceptSessionId: currentSessionId,
+            reason: REVOKE_REASON.PASSWORD_CHANGED
+        });
+
         return res.status(200).json({ 
             success: true, 
-            message: "Password changed successfully" 
+            message: "Password changed successfully",
+            revokedSessionCount: revokedCount
         });
     } catch (error) {
         console.error("CHANGE PASSWORD ERROR:", error);

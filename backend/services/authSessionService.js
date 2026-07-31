@@ -188,6 +188,31 @@ async function rotateSession({ refreshToken, newRefreshToken, ip, userAgent }) {
 }
 
 /**
+ * Sessions on an account that are neither ended nor expired, newest first.
+ *
+ * Rows that have been rotated away are excluded, so one device appears once
+ * however many times it has renewed. Nothing derived from the token is included.
+ *
+ * @param {string} userId
+ * @returns {Promise<Array<Object>>} Rows with id, device_label, ip_address,
+ *   issued_at, last_used_at and expires_at.
+ */
+async function listActiveSessions(userId) {
+    const [rows] = await db.query(
+        `SELECT id, device_label, ip_address, issued_at, last_used_at, expires_at
+         FROM auth_sessions
+         WHERE user_id = ?
+           AND revoked_at IS NULL
+           AND replaced_by IS NULL
+           AND expires_at > NOW()
+         ORDER BY issued_at DESC`,
+        [userId]
+    );
+
+    return safeArray(rows);
+}
+
+/**
  * End one session, identified by the session id carried on an access token.
  *
  * @returns {Promise<boolean>} Whether a live session was ended.
@@ -200,6 +225,28 @@ async function revokeSessionById(sessionId, reason) {
          SET revoked_at = NOW(), revoked_reason = ?
          WHERE id = ? AND revoked_at IS NULL`,
         [reason, sessionId]
+    );
+
+    return Boolean(result && result.affectedRows > 0);
+}
+
+/**
+ * End one session on behalf of its owner.
+ *
+ * Scoped to `userId` so a session id learned elsewhere cannot be used to sign
+ * another account out.
+ *
+ * @returns {Promise<boolean>} Whether a live session belonging to the account
+ *   was ended.
+ */
+async function revokeSessionForUser({ userId, sessionId, reason }) {
+    if (!sessionId) return false;
+
+    const [result] = await db.query(
+        `UPDATE auth_sessions
+         SET revoked_at = NOW(), revoked_reason = ?
+         WHERE id = ? AND user_id = ? AND revoked_at IS NULL`,
+        [reason, sessionId, userId]
     );
 
     return Boolean(result && result.affectedRows > 0);
@@ -295,9 +342,11 @@ module.exports = {
     SESSION_OUTCOME,
     createSession,
     describeDevice,
+    listActiveSessions,
     revokeFamily,
     revokeSessionById,
     revokeSessionByToken,
+    revokeSessionForUser,
     revokeUserSessions,
     rotateSession
 };
