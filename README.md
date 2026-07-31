@@ -161,10 +161,11 @@ E-commerce/
 │   │   ├── promo.service.js
 │   │   └── recommendationService.js
 │   │
-│   ├── sql/
-│   │   ├── admin_dashboard_schema.sql
-│   │   ├── chat.schema.sql
-│   │   └── promo_schema.sql
+│   ├── sql/               # feature schemas not yet folded into migrations/
+│   │   └── README.md
+│   │
+│   ├── scripts/
+│   │   └── migrate.js
 │   │
 │   ├── utils/
 │   │   ├── helpers.js
@@ -174,7 +175,6 @@ E-commerce/
 │   ├── docker-compose.yml
 │   ├── package-lock.json
 │   ├── package.json
-│   ├── schema.sql
 │   └── server.js
 │
 ├── frontend/
@@ -317,7 +317,8 @@ E-commerce/
 ├── README.md
 ├── SECURITY.md
 ├── TODO.md
-├── ecommerce.sql 
+├── docs/legacy/          # historical mysqldump, reference only — not applied
+├── migrations/           # ordered schema migrations, applied by npm run migrate
 ├── package-lock.json
 ├── package.json   
 ├── skills-lock.json               
@@ -408,15 +409,31 @@ ecommerce
 
 ---
 
-## 5️⃣ Import Database Schema
+## 5️⃣ Apply Database Migrations
 
 Inside the backend folder run:
 
 ```bash
-mysql -u root -p ecommerce < schema.sql
+npm run migrate
 ```
 
-This command creates all required tables.
+This creates every table the application needs, in order, and records what it
+applied in a `schema_migrations` table. Re-running it is safe: already-applied
+migrations are skipped.
+
+To see what would run without changing anything:
+
+```bash
+npm run migrate:status
+```
+
+If your database predates the migration sequence and already has the tables,
+adopt the baseline first so it is not applied a second time:
+
+```bash
+npm run migrate:baseline
+npm run migrate
+```
 
 ---
 
@@ -558,10 +575,11 @@ Solution:
 CREATE DATABASE ecommerce;
 ```
 
-Then import:
+Then apply the migrations:
 
 ```bash
-mysql -u root -p ecommerce < schema.sql
+cd backend
+npm run migrate
 ```
 
 ---

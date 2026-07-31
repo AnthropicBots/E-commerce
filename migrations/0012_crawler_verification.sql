@@ -39,31 +39,30 @@ PARTITION BY RANGE (YEAR(timestamp)) (
 );
 
 -- ============================================
--- BLOCKED IPS TABLE
+-- BLOCKED IPS: AUDIT COLUMNS
 -- ============================================
+--
+-- `blocked_ips` is owned by 0011_crawler_protection.sql. This file used to
+-- redeclare it with a different set of columns, and because both declarations
+-- said IF NOT EXISTS the shape the database ended up with depended on which one
+-- ran first -- silently, with no error either way.
+--
+-- The agreed shape is the union: 0011 keeps `expires_at`, and the audit columns
+-- only this feature needs are added here as an explicit ALTER.
 
-CREATE TABLE IF NOT EXISTS blocked_ips (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    ip_address VARCHAR(45) UNIQUE NOT NULL,
-    reason TEXT,
-    blocked_by INT,
-    unblocked_by INT,
-    blocked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    unblocked_at DATETIME,
-    unblock_reason TEXT,
-    blocked_duration_days INT,
-    is_permanent BOOLEAN DEFAULT FALSE,
-    created_by INT,
-    updated_by INT,
-    deleted_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    
-    INDEX idx_ip (ip_address),
-    INDEX idx_blocked (blocked_at),
-    INDEX idx_is_permanent (is_permanent),
-    INDEX idx_deleted_at (deleted_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+ALTER TABLE blocked_ips
+    ADD COLUMN blocked_by CHAR(36) NULL,
+    ADD COLUMN unblocked_by CHAR(36) NULL,
+    ADD COLUMN unblock_reason TEXT NULL,
+    ADD COLUMN blocked_duration_days INT NULL,
+    ADD COLUMN is_permanent BOOLEAN DEFAULT FALSE,
+    ADD COLUMN created_by CHAR(36) NULL,
+    ADD COLUMN updated_by CHAR(36) NULL,
+    ADD COLUMN deleted_at DATETIME NULL,
+    ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    ADD INDEX idx_blocked_ips_is_permanent (is_permanent),
+    ADD INDEX idx_blocked_ips_deleted_at (deleted_at);
 
 -- ============================================
 -- CRAWLER VERIFICATION DASHBOARD VIEW
@@ -126,12 +125,16 @@ ORDER BY total_requests DESC;
 -- STORED PROCEDURE: Block IP
 -- ============================================
 
+-- MySQL has no `CREATE OR REPLACE PROCEDURE`, so each procedure is dropped
+-- first. The originals used that syntax and never applied at all.
+DROP PROCEDURE IF EXISTS block_ip;
+
 DELIMITER //
 
-CREATE OR REPLACE PROCEDURE block_ip(
+CREATE PROCEDURE block_ip(
     IN p_ip_address VARCHAR(45),
     IN p_reason TEXT,
-    IN p_blocked_by INT,
+    IN p_blocked_by CHAR(36),
     IN p_duration_days INT,
     IN p_is_permanent BOOLEAN
 )
@@ -160,12 +163,14 @@ DELIMITER ;
 -- STORED PROCEDURE: Unblock IP
 -- ============================================
 
+DROP PROCEDURE IF EXISTS unblock_ip;
+
 DELIMITER //
 
-CREATE OR REPLACE PROCEDURE unblock_ip(
+CREATE PROCEDURE unblock_ip(
     IN p_ip_address VARCHAR(45),
     IN p_unblock_reason TEXT,
-    IN p_unblocked_by INT
+    IN p_unblocked_by CHAR(36)
 )
 BEGIN
     UPDATE blocked_ips
@@ -186,9 +191,11 @@ DELIMITER ;
 -- STORED PROCEDURE: Cleanup Old Logs
 -- ============================================
 
+DROP PROCEDURE IF EXISTS cleanup_crawler_logs;
+
 DELIMITER //
 
-CREATE OR REPLACE PROCEDURE cleanup_crawler_logs(IN retention_days INT)
+CREATE PROCEDURE cleanup_crawler_logs(IN retention_days INT)
 BEGIN
     DECLARE affected_rows INT;
     
