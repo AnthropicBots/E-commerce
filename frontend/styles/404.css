@@ -1,0 +1,126 @@
+#notfound-page{
+    min-height: 80vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8f8f8;
+    padding: 40px 20px;
+}
+
+.notfound-box{
+    width: 100%;
+    max-width: 650px;
+    background: #fff;
+    padding: 50px;
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: 0 5px 25px rgba(0,0,0,0.08);
+}
+
+.notfound-icon{
+    width: 100px;
+    height: 100px;
+    margin: auto;
+    border-radius: 50%;
+    background: #088178;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 25px;
+}
+
+.notfound-icon i{
+    color: #fff;
+    font-size: 40px;
+}
+
+.notfound-code{
+    font-size: 64px;
+    font-weight: 800;
+    color: #088178;
+    line-height: 1;
+    margin-bottom: 10px;
+}
+
+.notfound-box h2{
+    margin-bottom: 15px;
+    font-size: 34px;
+}
+
+.notfound-box p{
+    color: #555;
+    line-height: 28px;
+}
+
+.notfound-buttons{
+    margin-top: 35px;
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+}
+
+.notfound-buttons a{
+    background: #088178;
+    color: #fff;
+    text-decoration: none;
+    padding: 14px 24px;
+    border-radius: 6px;
+    transition: 0.3s ease;
+}
+
+.notfound-buttons a:hover{
+    background: #066e67;
+}
+
+.notfound-buttons a.notfound-secondary{
+    background: #fff;
+    color: #088178;
+    border: 2px solid #088178;
+    padding: 12px 22px;
+}
+
+.notfound-buttons a.notfound-secondary:hover{
+    background: #088178;
+    color: #fff;
+}
+
+/* Dark theme support, using the site's existing CSS variables */
+body.dark-theme #notfound-page{
+    background: var(--bg-light);
+}
+
+body.dark-theme .notfound-box{
+    background: var(--card-bg);
+    box-shadow: 0 5px 25px rgba(0,0,0,0.4);
+}
+
+body.dark-theme .notfound-box h2{
+    color: var(--text-dark);
+}
+
+body.dark-theme .notfound-box p{
+    color: var(--text-body);
+}
+
+body.dark-theme .notfound-buttons a.notfound-secondary{
+    background: transparent;
+    color: #88c9c0;
+    border-color: #88c9c0;
+}
+
+body.dark-theme .notfound-buttons a.notfound-secondary:hover{
+    background: #88c9c0;
+    color: var(--white);
+}
+
+@media (max-width: 1024px){
+
+    .notfound-box{
+        padding: 35px 25px;
+    }
+
+    .notfound-buttons{
+        flex-direction: column;
+    }
+
+}

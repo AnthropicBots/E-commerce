@@ -89,11 +89,11 @@ p{
 
 /* layout helpers */
 .section-p1{
-    padding: 40px 80px;
+    padding: 20px 80px;
 }
 
 .section-m1{
-    margin: 40px 0;
+    margin: 60px 0;
 }
 
 /* buttons */
@@ -133,6 +133,22 @@ button.white{
     box-shadow: var(--shadow-soft);
 }
 
+.filter-buttons {
+    padding: 12px 0;
+}
+
+.filter-btn {
+    padding: 7px;
+    border: 0px;
+    border-radius: 7px;
+    outline: none;
+    cursor: pointer;
+}
+
+.filter-btn:hover{
+    background-color: #ccc;
+}
+
 /* global page styles */
 html{
     scroll-behavior: smooth;
@@ -157,6 +173,7 @@ body{
 img{
     max-width: 100%;
     display: block;
+    -webkit-user-select: none;
     user-select: none;
 }
 
@@ -189,7 +206,7 @@ img{
 /* responsive utilities */
 @media(max-width:1024px){
     .section-p1{
-        padding: 30px 20px;
+        padding: 40px 40px;
     }
 
     h1{

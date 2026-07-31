@@ -9,26 +9,33 @@ const elements = {
 
 // CONTACT FORM SUBMISSION
 if (elements.contactForm) {
-    elements.contactForm.addEventListener("submit", (e) => {
+    elements.contactForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         const name = elements.name.value.trim();
         const email = elements.email.value.trim();
         const subject = elements.subject.value.trim();
         const message = elements.message.value.trim();
+if (!name || !email || !subject || !message) {
+    notify("Please fill all fields.", "error");
+    return;
+}
 
-        if (!name || !email || !subject || !message) {
-            notify("Please fill all fields.", "error");
-            return;
-        }
-        
-        const emailRegex = /^[^ ]+@[^ ]+\.[a-z]{2,3}$/;
-        if (!emailRegex.test(email)) {
-            notify("Please enter a valid email.", "error");
-            return;
-        }
-        
-        notify("Message submitted successfully!", "success");
-        elements.contactForm.reset();
+const emailRegex = /^[^ ]+@[^ ]+\.[a-z]{2,3}$/;
+if (!emailRegex.test(email)) {
+    notify("Please enter a valid email.", "error");
+    return;
+}
+
+try {
+    await AppUtils.apiRequest("/contact", {
+        method: "POST",
+        body: JSON.stringify({ name, email, subject, message })
+    });
+    notify("Message submitted successfully!", "success");
+    elements.contactForm.reset();
+} catch (error) {
+    notify("Failed to send message. Please try again.", "error");
+}
     });
 }
 

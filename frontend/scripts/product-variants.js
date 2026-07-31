@@ -62,7 +62,7 @@ function setupVariants(
         productVariants
     ).forEach(
         (key) => {
-            Deletee productVariants[
+            delete productVariants[
                 key
             ];
         }

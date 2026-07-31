@@ -219,6 +219,13 @@ banner
     background-position: center;
     padding-bottom: 30px;
     box-sizing: border-box;
+    transition: all 0.4s ease;
+    overflow: hidden;
+    position: relative;
+}
+
+#banner:hover {
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
 }
 
 #banner h4{
@@ -228,17 +235,28 @@ banner
 
 #banner h2{
     color: var(--white);
-    font-size: 30px;
+    font-size: 36px;
+    font-weight: 800;
     padding: 10px 0;
+    text-shadow: 0 2px 5px rgba(0,0,0,0.2);
 }
 
 #banner h2 span{
     color: #ef3636;
 }
 
+#banner button {
+    margin-top: 15px;
+    transition: all 0.3s ease;
+    font-weight: 700;
+    padding: 12px 30px;
+}
+
 #banner button:hover{
     background: var(--primary-color);
     color: var(--white);
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(8, 129, 120, 0.4);
 }
 /* ==================================================== */
 /* Styling for men and women banner  */
@@ -265,12 +283,14 @@ banner
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
-    border-radius: 4px;
-    transition: var(--transition-fast);
+    border-radius: 8px;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
 }
 
 #collection .banner-box:hover {
-    transform: translate(-5px);
+    transform: translateY(-8px);
+    box-shadow: 0 15px 30px rgba(0,0,0,0.15);
 }
 
 #collection .mens-collection-banner{
@@ -300,12 +320,15 @@ banner
     color: #000;
     background-color: #fff;
     border: none;
+    border-radius: 4px;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: all 0.3s ease;
 }
 #collection button.white:hover{
     background-color: var(--primary-color);
     color: var(--white);
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
 }
 
 /* Mobile Responsiveness Overide Rules  */
@@ -346,6 +369,14 @@ small banners
     background-position: center;
     padding: 30px;
     box-sizing: border-box;
+    border-radius: 8px;
+    transition: all 0.4s ease;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+}
+
+#sm-banner .banner-box:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 15px 30px rgba(0,0,0,0.15);
 }
 
 #sm-banner .banner-box2{
@@ -419,6 +450,13 @@ banner3
     padding: 30px;
     overflow: hidden;
     margin-bottom: 20px;
+    border-radius: 8px;
+    transition: all 0.4s ease;
+}
+
+#banner3 .banner-box:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.15);
 }
 
 #banner3 .banner-box{
@@ -671,6 +709,23 @@ responsive layout
     }
 }
 
+.newsletter-input-group {
+    position: relative;
+    width: 100%;
+    display: flex;
+}
+
+.newsletter-btn-loader {
+    display: none;
+}
+
+.newsletter-feedback-message {
+    display: none;
+    margin-top: 10px;
+    font-size: 14px;
+    width: 100%;
+}
+
 /* Feature boxes */
 body.dark-theme #feature .fe-box {
   background-color: #1e1e1e;
@@ -736,3 +791,75 @@ body.dark-theme .hero-ctas .secondary {
 body.dark-theme #feature .fe-box h6 {
     color: #0a0a0a ;
 }
+
+/* ==================================================== */
+/* Touch-Gesture Carousel & Dynamic Inertia Optimization */
+/* Issue #1272: Scroll Snap, 3D Transforms, Zero CLS   */
+/* ==================================================== */
+
+.touch-carousel-container,
+#featured-products,
+#new-arrivals-container,
+.pro-container.touch-carousel {
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    touch-action: pan-y pinch-zoom;
+    will-change: scroll-position, transform;
+    transform: translate3d(0, 0, 0);
+    backface-visibility: hidden;
+    perspective: 1000px;
+    gap: 20px;
+    padding-bottom: 15px;
+}
+
+/* Disable snap during active drag for smooth dynamic inertia physics */
+.touch-carousel-container.is-dragging,
+#featured-products.is-dragging,
+#new-arrivals-container.is-dragging {
+    scroll-snap-type: none !important;
+    scroll-behavior: auto !important;
+    user-select: none;
+    cursor: grabbing;
+}
+
+/* Hardware accelerated carousel items with scroll snap alignment */
+.touch-carousel-container .pro,
+#featured-products .pro,
+#new-arrivals-container .pro,
+.pro-container.touch-carousel .pro {
+    scroll-snap-align: start;
+    flex: 0 0 calc(280px);
+    width: 280px;
+    max-width: 280px;
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+    backface-visibility: hidden;
+}
+
+/* Custom scrollbar hiding on mobile touch carousels */
+@media (max-width: 768px) {
+    .touch-carousel-container,
+    #featured-products,
+    #new-arrivals-container {
+        padding-left: 15px;
+        padding-right: 15px;
+        scroll-padding-left: 15px;
+    }
+
+    .touch-carousel-container::-webkit-scrollbar,
+    #featured-products::-webkit-scrollbar,
+    #new-arrivals-container::-webkit-scrollbar {
+        height: 4px;
+    }
+
+    .touch-carousel-container::-webkit-scrollbar-thumb,
+    #featured-products::-webkit-scrollbar-thumb,
+    #new-arrivals-container::-webkit-scrollbar-thumb {
+        background: rgba(8, 129, 120, 0.3);
+        border-radius: 4px;
+    }
+}
