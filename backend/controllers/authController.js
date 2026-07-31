@@ -4,11 +4,18 @@
  */
 
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const db = require("../config/db");
 const { sanitizeString, safeArray } = require("../utils/helpers");
 const { getClearCookieOptions } = require("../config/cookieConfig");
+const {
+    COOKIE_NAMES,
+    REFRESH_COOKIE_PATH,
+    issueAccessToken,
+    issueRefreshToken,
+    issueTwoFactorToken,
+    verifyRefreshToken
+} = require("../utils/tokens");
 
 // Appwrite SDK
 const { Client, Account, ID, Databases } = require('node-appwrite');
@@ -57,11 +64,6 @@ setInterval(() => {
     }
 }, CLEANUP_INTERVAL);
 
-// ==================== JWT SECRET VALIDATION ====================
-if (!process.env.JWT_SECRET) {
-    throw new Error("JWT_SECRET environment variable is not set");
-}
-
 // ==================== APPWRITE CLIENT ====================
 const appwriteClient = new Client()
     .setEndpoint(process.env.VITE_APPWRITE_ENDPOINT || 'https://fra.cloud.appwrite.io/v1')
@@ -70,18 +72,6 @@ const appwriteClient = new Client()
 const appwriteAccount = new Account(appwriteClient);
 
 // ==================== HELPER FUNCTIONS ====================
-
-function generateAccessToken(user) {
-    return jwt.sign(
-        { id: user.id, email: user.email, role: user.role },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN || "15m" }
-    );
-}
-
-function generateRefreshToken() {
-    return crypto.randomBytes(40).toString("hex");
-}
 
 function sendAuthResponse(res, { message, accessToken, refreshToken, user }) {
     return res.status(200).json({
@@ -352,11 +342,7 @@ const login = async (req, res) => {
 
         // Check if 2FA is enabled
         if (user.is_2fa_enabled === 1) {
-            const tempToken = jwt.sign(
-                { id: user.id, email: user.email, role: user.role, is2FA: true },
-                process.env.JWT_SECRET,
-                { expiresIn: "5m" }
-            );
+            const tempToken = issueTwoFactorToken(user);
             return res.status(200).json({
                 success: true,
                 requires2FA: true,
@@ -365,8 +351,8 @@ const login = async (req, res) => {
             });
         }
 
-        const accessToken = generateAccessToken(user);
-        const refreshToken = generateRefreshToken();
+        const accessToken = issueAccessToken(user);
+        const refreshToken = issueRefreshToken();
 
         // Update refresh token and last login time
         await db.query(
@@ -399,8 +385,8 @@ const logout = async (req, res) => {
         }
 
         // Clear cookies using shared cookie options
-        res.clearCookie('accessToken', getClearCookieOptions());
-        res.clearCookie('refreshToken', getClearCookieOptions('/api/auth/refresh'));
+        res.clearCookie(COOKIE_NAMES.accessToken, getClearCookieOptions());
+        res.clearCookie(COOKIE_NAMES.refreshToken, getClearCookieOptions(REFRESH_COOKIE_PATH));
 
         console.log(`🔓 User ${userId} logged out successfully`);
 
@@ -587,6 +573,12 @@ const refreshAccessToken = async (req, res) => {
             return res.status(401).json({ success: false, message: "Refresh token required" });
         }
 
+        // A token without our tag was never issued here, so there is no point
+        // asking the database about it.
+        if (!verifyRefreshToken(cleanRefreshToken)) {
+            return res.status(401).json({ success: false, message: "Invalid refresh token" });
+        }
+
         const [users] = await db.query(
             `SELECT id, name, email, role, is_active FROM users WHERE refresh_token = ? LIMIT 1`,
             [cleanRefreshToken]
@@ -601,8 +593,8 @@ const refreshAccessToken = async (req, res) => {
             return res.status(403).json({ success: false, message: "Account has been deactivated" });
         }
 
-        const newAccessToken = generateAccessToken(user);
-        const newRefreshToken = generateRefreshToken();
+        const newAccessToken = issueAccessToken(user);
+        const newRefreshToken = issueRefreshToken();
 
         await db.query(`UPDATE users SET refresh_token = ? WHERE id = ?`, [newRefreshToken, user.id]);
 
