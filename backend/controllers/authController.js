@@ -10,6 +10,13 @@ const db = require("../config/db");
 const { sanitizeString, safeArray } = require("../utils/helpers");
 const { getClearCookieOptions } = require("../config/cookieConfig");
 
+let redis = null;
+try {
+    redis = require("../config/redis");
+} catch (err) {
+    console.warn("Redis unavailable for refresh-token revocation list:", err.message);
+}
+
 // Appwrite SDK
 const { Client, Account, ID, Databases } = require('node-appwrite');
 
@@ -28,6 +35,15 @@ const LOGIN_LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
 // Window in which the failed attempts must accumulate to trip the lockout.
 // Failures older than this roll off so isolated mistakes never reach the threshold.
 const LOGIN_ATTEMPT_WINDOW = 15 * 60 * 1000; // 15 minutes
+
+// Issue #1261 — refresh token rotation / reuse detection
+const REFRESH_TOKEN_TTL_DAYS = parseInt(process.env.REFRESH_TOKEN_TTL_DAYS, 10) || 30;
+const STRICT_DEVICE_FINGERPRINT = process.env.STRICT_DEVICE_FINGERPRINT !== "false";
+const REFRESH_STATUS = {
+    ACTIVE: "active",
+    ROTATED: "rotated",
+    REVOKED: "revoked"
+};
 
 // ==================== VALIDATION PATTERNS ====================
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -71,9 +87,15 @@ const appwriteAccount = new Account(appwriteClient);
 
 // ==================== HELPER FUNCTIONS ====================
 
-function generateAccessToken(user) {
+function generateAccessToken(user, extras = {}) {
     return jwt.sign(
-        { id: user.id, email: user.email, role: user.role },
+        {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+            jti: crypto.randomUUID(),
+            ...extras
+        },
         process.env.JWT_SECRET,
         { expiresIn: process.env.JWT_EXPIRES_IN || "15m" }
     );
@@ -83,12 +105,395 @@ function generateRefreshToken() {
     return crypto.randomBytes(40).toString("hex");
 }
 
-function sendAuthResponse(res, { message, accessToken, refreshToken, user }) {
+function hashToken(token) {
+    return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
+
+function getClientIp(req) {
+    const forwarded = req.headers["x-forwarded-for"];
+    if (typeof forwarded === "string" && forwarded.length) {
+        return forwarded.split(",")[0].trim();
+    }
+    return req.ip || req.socket?.remoteAddress || "0.0.0.0";
+}
+
+/**
+ * Device fingerprint = SHA-256(User-Agent + Client IP)
+ */
+function buildDeviceFingerprint(req) {
+    const ua = String(req.headers["user-agent"] || "unknown");
+    const ip = getClientIp(req);
+    return crypto.createHash("sha256").update(`${ua}|${ip}`).digest("hex");
+}
+
+function refreshExpiryDate() {
+    const d = new Date();
+    d.setDate(d.getDate() + REFRESH_TOKEN_TTL_DAYS);
+    return d;
+}
+
+async function redisSetEx(key, ttlSeconds, value) {
+    if (!redis) return;
+    try {
+        await redis.setex(key, ttlSeconds, value);
+    } catch (err) {
+        console.warn("Redis setex failed:", err.message);
+    }
+}
+
+async function redisExists(key) {
+    if (!redis) return false;
+    try {
+        return (await redis.exists(key)) === 1;
+    } catch (err) {
+        console.warn("Redis exists failed:", err.message);
+        return false;
+    }
+}
+
+async function blacklistFamily(familyId, ttlSeconds = REFRESH_TOKEN_TTL_DAYS * 86400) {
+    await redisSetEx(`rt:family:revoked:${familyId}`, ttlSeconds, "1");
+}
+
+async function blacklistTokenHash(tokenHash, ttlSeconds = REFRESH_TOKEN_TTL_DAYS * 86400) {
+    await redisSetEx(`rt:revoked:${tokenHash}`, ttlSeconds, "1");
+}
+
+async function markUserForceReauth(userId) {
+    const ts = String(Math.floor(Date.now() / 1000));
+    await redisSetEx(`auth:user:revoke_before:${userId}`, REFRESH_TOKEN_TTL_DAYS * 86400, ts);
+    return Number(ts);
+}
+
+async function logSecurityEvent({ userId, familyId, eventType, tokenHash, req, details }) {
+    try {
+        await db.query(
+            `INSERT INTO refresh_token_security_events
+             (user_id, family_id, event_type, token_hash, ip_address, user_agent, details)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+                userId,
+                familyId || null,
+                eventType,
+                tokenHash || null,
+                getClientIp(req),
+                String(req.headers["user-agent"] || "").slice(0, 512),
+                JSON.stringify(details || {})
+            ]
+        );
+    } catch (err) {
+        console.warn("Failed to log refresh-token security event:", err.message);
+    }
+}
+
+/**
+ * Issue a new refresh-token family for a device session (login).
+ */
+async function issueRefreshTokenFamily(user, req) {
+    const familyId = crypto.randomUUID();
+    const rawToken = generateRefreshToken();
+    const tokenHash = hashToken(rawToken);
+    const fingerprint = buildDeviceFingerprint(req);
+    const expiresAt = refreshExpiryDate();
+
+    await db.query(
+        `INSERT INTO refresh_tokens
+         (user_id, family_id, token_hash, parent_token_hash, device_fingerprint,
+          ip_address, user_agent, status, expires_at)
+         VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+        [
+            user.id,
+            familyId,
+            tokenHash,
+            fingerprint,
+            getClientIp(req),
+            String(req.headers["user-agent"] || "").slice(0, 512),
+            REFRESH_STATUS.ACTIVE,
+            expiresAt
+        ]
+    );
+
+    // Keep legacy column in sync for older clients / queries
+    await db.query(
+        `UPDATE users SET refresh_token = ?, last_login = NOW() WHERE id = ?`,
+        [rawToken, user.id]
+    );
+
+    await logSecurityEvent({
+        userId: user.id,
+        familyId,
+        eventType: "family_issued",
+        tokenHash,
+        req,
+        details: { expiresAt }
+    });
+
+    return { rawToken, familyId, tokenHash, fingerprint, expiresAt };
+}
+
+/**
+ * Cascade-revoke an entire refresh-token family (reuse / theft / logout).
+ */
+async function revokeTokenFamily(familyId, userId, reason, req) {
+    await db.query(
+        `UPDATE refresh_tokens
+         SET status = ?, revoked_at = NOW(), revoke_reason = ?
+         WHERE family_id = ? AND status IN (?, ?)`,
+        [REFRESH_STATUS.REVOKED, reason, familyId, REFRESH_STATUS.ACTIVE, REFRESH_STATUS.ROTATED]
+    );
+
+    await blacklistFamily(familyId);
+    await markUserForceReauth(userId);
+
+    // Clear legacy single-token column when this was the user's current token family
+    await db.query(
+        `UPDATE users SET refresh_token = NULL WHERE id = ?`,
+        [userId]
+    );
+
+    // Cascade: detach any AI agent sessions bound to this family (#1261)
+    try {
+        const agentIdentityService = require("../services/agentIdentityService");
+        if (typeof agentIdentityService.revokeAgentSessionsForUser === "function") {
+            await agentIdentityService.revokeAgentSessionsForUser(userId, reason);
+        }
+    } catch (err) {
+        console.warn("Agent session cascade skipped:", err.message);
+    }
+
+    await logSecurityEvent({
+        userId,
+        familyId,
+        eventType: "family_revoked",
+        req,
+        details: { reason }
+    });
+}
+
+/**
+ * Revoke every active/rotated refresh token for a user (all devices).
+ */
+async function revokeAllUserRefreshTokens(userId, reason, req) {
+    const [families] = await db.query(
+        `SELECT DISTINCT family_id FROM refresh_tokens
+         WHERE user_id = ? AND status IN (?, ?)`,
+        [userId, REFRESH_STATUS.ACTIVE, REFRESH_STATUS.ROTATED]
+    );
+
+    for (const row of safeArray(families)) {
+        await revokeTokenFamily(row.family_id, userId, reason, req);
+    }
+
+    await db.query(`UPDATE users SET refresh_token = NULL, last_logout = NOW() WHERE id = ?`, [userId]);
+    await markUserForceReauth(userId);
+}
+
+/**
+ * Automatic Token Rotation with reuse detection.
+ * Returns { accessToken, refreshToken, user, familyId } or throws typed errors.
+ */
+async function rotateRefreshToken(rawRefreshToken, req) {
+    const tokenHash = hashToken(rawRefreshToken);
+
+    if (await redisExists(`rt:revoked:${tokenHash}`)) {
+        const err = new Error("Refresh token revoked");
+        err.code = "RT_REVOKED";
+        throw err;
+    }
+
+    const [rows] = await db.query(
+        `SELECT rt.*, u.name, u.email, u.role, u.is_active
+         FROM refresh_tokens rt
+         INNER JOIN users u ON u.id = rt.user_id
+         WHERE rt.token_hash = ?
+         LIMIT 1`,
+        [tokenHash]
+    );
+
+    if (!safeArray(rows).length) {
+        // Fallback: legacy users.refresh_token column (pre-migration sessions)
+        const [legacyUsers] = await db.query(
+            `SELECT id, name, email, role, is_active FROM users WHERE refresh_token = ? LIMIT 1`,
+            [rawRefreshToken]
+        );
+        if (!safeArray(legacyUsers).length) {
+            const err = new Error("Invalid refresh token");
+            err.code = "RT_INVALID";
+            throw err;
+        }
+        const legacyUser = legacyUsers[0];
+        if (legacyUser.is_active === 0) {
+            const err = new Error("Account has been deactivated");
+            err.code = "RT_INACTIVE";
+            throw err;
+        }
+        const issued = await issueRefreshTokenFamily(legacyUser, req);
+        const accessToken = generateAccessToken(legacyUser, { familyId: issued.familyId });
+        return {
+            accessToken,
+            refreshToken: issued.rawToken,
+            user: legacyUser,
+            familyId: issued.familyId,
+            migrated: true
+        };
+    }
+
+    const record = rows[0];
+    const user = {
+        id: record.user_id,
+        name: record.name,
+        email: record.email,
+        role: record.role,
+        is_active: record.is_active
+    };
+
+    if (user.is_active === 0) {
+        const err = new Error("Account has been deactivated");
+        err.code = "RT_INACTIVE";
+        throw err;
+    }
+
+    if (await redisExists(`rt:family:revoked:${record.family_id}`)) {
+        const err = new Error("Refresh token family revoked");
+        err.code = "RT_FAMILY_REVOKED";
+        throw err;
+    }
+
+    if (record.status === REFRESH_STATUS.REVOKED) {
+        const err = new Error("Refresh token revoked");
+        err.code = "RT_REVOKED";
+        throw err;
+    }
+
+    // --- REUSE DETECTION: previously rotated token presented again ---
+    if (record.status === REFRESH_STATUS.ROTATED) {
+        console.error(
+            `🚨 Refresh token REUSE detected for user ${user.id} family ${record.family_id}`
+        );
+        await revokeTokenFamily(
+            record.family_id,
+            user.id,
+            "refresh_token_reuse_detected",
+            req
+        );
+        await blacklistTokenHash(tokenHash);
+        await logSecurityEvent({
+            userId: user.id,
+            familyId: record.family_id,
+            eventType: "reuse_detected",
+            tokenHash,
+            req,
+            details: { alarm: true, action: "family_cascade_revoked" }
+        });
+
+        const err = new Error(
+            "Refresh token reuse detected. All sessions in this device family have been revoked. Please log in again."
+        );
+        err.code = "RT_REUSE_DETECTED";
+        err.status = 401;
+        throw err;
+    }
+
+    if (new Date(record.expires_at).getTime() < Date.now()) {
+        await db.query(
+            `UPDATE refresh_tokens SET status = ?, revoked_at = NOW(), revoke_reason = ? WHERE id = ?`,
+            [REFRESH_STATUS.REVOKED, "expired", record.id]
+        );
+        const err = new Error("Refresh token expired");
+        err.code = "RT_EXPIRED";
+        throw err;
+    }
+
+    // Device fingerprint matching (UA + IP hash)
+    const currentFingerprint = buildDeviceFingerprint(req);
+    if (STRICT_DEVICE_FINGERPRINT && record.device_fingerprint !== currentFingerprint) {
+        await revokeTokenFamily(
+            record.family_id,
+            user.id,
+            "device_fingerprint_mismatch",
+            req
+        );
+        await logSecurityEvent({
+            userId: user.id,
+            familyId: record.family_id,
+            eventType: "fingerprint_mismatch",
+            tokenHash,
+            req,
+            details: {
+                expected: record.device_fingerprint,
+                actual: currentFingerprint
+            }
+        });
+        const err = new Error(
+            "Device fingerprint mismatch. Session revoked for security. Please log in again."
+        );
+        err.code = "RT_FINGERPRINT_MISMATCH";
+        err.status = 401;
+        throw err;
+    }
+
+    // Rotate: invalidate old, issue new child in same family
+    const newRawToken = generateRefreshToken();
+    const newHash = hashToken(newRawToken);
+    const expiresAt = refreshExpiryDate();
+
+    await db.query(
+        `UPDATE refresh_tokens
+         SET status = ?, rotated_at = NOW(), last_used_at = NOW()
+         WHERE id = ? AND status = ?`,
+        [REFRESH_STATUS.ROTATED, record.id, REFRESH_STATUS.ACTIVE]
+    );
+
+    await db.query(
+        `INSERT INTO refresh_tokens
+         (user_id, family_id, token_hash, parent_token_hash, device_fingerprint,
+          ip_address, user_agent, status, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            user.id,
+            record.family_id,
+            newHash,
+            tokenHash,
+            currentFingerprint,
+            getClientIp(req),
+            String(req.headers["user-agent"] || "").slice(0, 512),
+            REFRESH_STATUS.ACTIVE,
+            expiresAt
+        ]
+    );
+
+    await blacklistTokenHash(tokenHash, Math.max(
+        60,
+        Math.floor((new Date(record.expires_at).getTime() - Date.now()) / 1000)
+    ));
+
+    await db.query(`UPDATE users SET refresh_token = ? WHERE id = ?`, [newRawToken, user.id]);
+
+    await logSecurityEvent({
+        userId: user.id,
+        familyId: record.family_id,
+        eventType: "token_rotated",
+        tokenHash: newHash,
+        req,
+        details: { parent: tokenHash }
+    });
+
+    const accessToken = generateAccessToken(user, { familyId: record.family_id });
+    return {
+        accessToken,
+        refreshToken: newRawToken,
+        user,
+        familyId: record.family_id
+    };
+}
+
+function sendAuthResponse(res, { message, accessToken, refreshToken, user, familyId }) {
     return res.status(200).json({
         success: true,
         message,
         accessToken,
         refreshToken,
+        ...(familyId ? { familyId } : {}),
         user: {
             id: user.id,
             name: user.name,
@@ -365,19 +770,14 @@ const login = async (req, res) => {
             });
         }
 
-        const accessToken = generateAccessToken(user);
-        const refreshToken = generateRefreshToken();
-
-        // Update refresh token and last login time
-        await db.query(
-            `UPDATE users SET refresh_token = ?, last_login = NOW() WHERE id = ?`, 
-            [refreshToken, user.id]
-        );
+        const issued = await issueRefreshTokenFamily(user, req);
+        const accessWithFamily = generateAccessToken(user, { familyId: issued.familyId });
 
         return sendAuthResponse(res, { 
             message: "Login successful", 
-            accessToken, 
-            refreshToken, 
+            accessToken: accessWithFamily, 
+            refreshToken: issued.rawToken,
+            familyId: issued.familyId,
             user 
         });
     } catch (error) {
@@ -390,8 +790,32 @@ const login = async (req, res) => {
 const logout = async (req, res) => {
     try {
         const userId = req.user?.id;
+        const bodyRefresh = sanitizeString(req.body?.refreshToken || "");
+        const cookieRefresh = sanitizeString(req.cookies?.refreshToken || "");
+        const presentedRefresh = bodyRefresh || cookieRefresh;
+
         if (userId) {
-            // Clear refresh token AND update last logout time
+            if (presentedRefresh) {
+                const tokenHash = hashToken(presentedRefresh);
+                const [rows] = await db.query(
+                    `SELECT family_id FROM refresh_tokens WHERE token_hash = ? AND user_id = ? LIMIT 1`,
+                    [tokenHash, userId]
+                );
+                if (safeArray(rows).length) {
+                    await revokeTokenFamily(
+                        rows[0].family_id,
+                        userId,
+                        "user_logout",
+                        req
+                    );
+                } else {
+                    await revokeAllUserRefreshTokens(userId, "user_logout", req);
+                }
+            } else {
+                // No refresh token presented → revoke all device families
+                await revokeAllUserRefreshTokens(userId, "user_logout_all_devices", req);
+            }
+
             await db.query(
                 `UPDATE users SET refresh_token = NULL, last_logout = NOW() WHERE id = ?`,
                 [userId]
@@ -581,40 +1005,45 @@ const changePassword = async (req, res) => {
 const refreshAccessToken = async (req, res) => {
     try {
         const { refreshToken } = req.body;
-        const cleanRefreshToken = sanitizeString(refreshToken);
+        const cleanRefreshToken = sanitizeString(
+            refreshToken || req.cookies?.refreshToken || ""
+        );
 
         if (!cleanRefreshToken) {
             return res.status(401).json({ success: false, message: "Refresh token required" });
         }
 
-        const [users] = await db.query(
-            `SELECT id, name, email, role, is_active FROM users WHERE refresh_token = ? LIMIT 1`,
-            [cleanRefreshToken]
-        );
+        const rotated = await rotateRefreshToken(cleanRefreshToken, req);
 
-        if (!safeArray(users).length) {
-            return res.status(401).json({ success: false, message: "Invalid refresh token" });
-        }
-
-        const user = users[0];
-        if (user.is_active === 0) {
-            return res.status(403).json({ success: false, message: "Account has been deactivated" });
-        }
-
-        const newAccessToken = generateAccessToken(user);
-        const newRefreshToken = generateRefreshToken();
-
-        await db.query(`UPDATE users SET refresh_token = ? WHERE id = ?`, [newRefreshToken, user.id]);
-
-        return sendAuthResponse(res, { 
-            message: "Token refreshed", 
-            accessToken: newAccessToken, 
-            refreshToken: newRefreshToken, 
-            user 
+        return sendAuthResponse(res, {
+            message: "Token refreshed",
+            accessToken: rotated.accessToken,
+            refreshToken: rotated.refreshToken,
+            familyId: rotated.familyId,
+            user: rotated.user
         });
     } catch (error) {
         console.error("REFRESH TOKEN ERROR:", error);
-        return res.status(500).json({ success: false, message: "Server error" });
+
+        const status = error.status || 401;
+        const reuseOrTheft = [
+            "RT_REUSE_DETECTED",
+            "RT_FINGERPRINT_MISMATCH",
+            "RT_FAMILY_REVOKED"
+        ].includes(error.code);
+
+        return res.status(status).json({
+            success: false,
+            message: error.message || "Server error",
+            code: error.code || "RT_ERROR",
+            ...(reuseOrTheft
+                ? {
+                    securityAlarm: true,
+                    action: "reauthenticate",
+                    detail: "Token family revoked. Sign in again on all affected devices."
+                }
+                : {})
+        });
     }
 };
 
@@ -786,4 +1215,16 @@ module.exports._loginGuard = {
     MAX_LOGIN_ATTEMPTS,
     LOGIN_LOCKOUT_DURATION,
     LOGIN_ATTEMPT_WINDOW
+};
+
+// Issue #1261 helpers exposed for unit testing / agent bindings.
+module.exports._refreshTokenSecurity = {
+    hashToken,
+    buildDeviceFingerprint,
+    issueRefreshTokenFamily,
+    rotateRefreshToken,
+    revokeTokenFamily,
+    revokeAllUserRefreshTokens,
+    REFRESH_STATUS,
+    STRICT_DEVICE_FINGERPRINT
 };
