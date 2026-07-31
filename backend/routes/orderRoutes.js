@@ -319,6 +319,26 @@ router.get("/my-orders", authMiddleware, (req, res, next) => {
     next();
 }, orderController.getUserOrders);
 
+// ---------------------------------------------------------------------------
+// Status history (#1351)
+// ---------------------------------------------------------------------------
+//
+// Declared above "/:id" -- Express matches in declaration order, so a
+// parameterised route placed first would capture "reports" as an order id.
+
+// Fulfilment timings. This is what the shipped_at / delivered_at columns were
+// in the schema for; nothing wrote them, so it was never answerable.
+router.get(
+    "/reports/fulfilment",
+    authMiddleware,
+    authorizeRoles("admin"),
+    orderController.getFulfilmentReport
+);
+
+// The order's progress ladder plus the recorded history behind it. Scoped to
+// the order's owner; admins additionally see the actor and internal notes.
+router.get("/:id/timeline", authMiddleware, orderController.getOrderTimeline);
+
 // Get order summary
 router.get("/:id/summary", authMiddleware, orderController.getOrderSummary);
 

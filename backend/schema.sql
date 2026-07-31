@@ -1246,8 +1246,7 @@ CREATE TABLE IF NOT EXISTS recently_viewed (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 -- ============================================
 -- USER ADDRESSES (saved address book, #1347)
--- ============================================
---
+-- =====================================--
 -- `users` still carries a single flattened address inline (address, city,
 -- state, zip, country). Nothing reads it, and it cannot express the common
 -- cases: a second address, a different recipient, or a default. This table
@@ -1299,4 +1298,60 @@ CREATE TABLE IF NOT EXISTS user_addresses (
     INDEX idx_user_addresses_user (user_id, deleted_at),
     INDEX idx_user_addresses_default (user_id, is_default),
     INDEX idx_user_addresses_last_used (user_id, last_used_at)
+=======
+-- ORDER STATUS LOGS (#1351)
+-- ============================================
+--
+-- An order's status was a single mutable field with no history: going
+-- pending -> processing -> shipped -> delivered overwrote three of the four
+-- states, so "when did this ship?" and "who cancelled this?" were both
+-- unanswerable.
+--
+-- migrations/order_status_tracking.sql defined a table for this, but with
+-- INT foreign keys against CHAR(36) primary keys -- MySQL rejects it with
+-- errno 150 and the whole file, trigger and views included, never applied.
+-- See migrations/fix_order_status_logs.sql.
+--
+-- No trigger, deliberately: a trigger fires invisibly and can only see the
+-- row, so it cannot record who changed the status or why -- the two questions
+-- this table exists to answer. The application writes the row explicitly,
+-- inside the same transaction as the status change.
+
+CREATE TABLE IF NOT EXISTS order_status_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+
+    order_id CHAR(36) NOT NULL,
+
+    -- NULL for the first entry: an order coming into existence has no
+    -- previous state.
+    from_status VARCHAR(50),
+    to_status VARCHAR(50) NOT NULL,
+
+    -- NULL when nobody did it -- a courier webhook or a scheduled job.
+    -- SET NULL rather than CASCADE: deleting a staff account must not erase
+    -- the record of what they did.
+    changed_by CHAR(36),
+    changed_by_name VARCHAR(255),
+
+    -- Cannot be inferred from changed_by, since both the admin and customer
+    -- paths populate it, and it is the first thing support asks.
+    source ENUM('admin', 'customer', 'courier', 'system', 'payment') NOT NULL DEFAULT 'system',
+
+    reason VARCHAR(500),
+    metadata JSON,
+
+    -- Kept for support; never returned on the customer-facing endpoint.
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_order_status_logs_order
+        FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    CONSTRAINT fk_order_status_logs_user
+        FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL,
+
+    INDEX idx_order_status_logs_order (order_id, created_at),
+    INDEX idx_order_status_logs_status (to_status, created_at),
+    INDEX idx_order_status_logs_actor (changed_by, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

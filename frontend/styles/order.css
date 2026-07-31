@@ -216,3 +216,162 @@
     height: auto;
     margin: 0 auto;
 }
+/* ============================================================
+   ORDER STATUS TIMELINE (#1351)
+   ============================================================
+   The four tracking steps above were hardcoded with no dates behind them,
+   because an order's status was a single mutable field with no history.
+   These are the dates on the ladder and the activity list underneath it.
+*/
+
+/* Date under each step of the existing ladder. */
+.tracking-step .step-date {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.72rem;
+    color: #8a9299;
+    /* Reserve the line whether or not a step has a date yet, so completing a
+       step does not shift the whole ladder downward. */
+    min-height: 1em;
+}
+
+.tracking-step.current-step .step-circle {
+    box-shadow: 0 0 0 4px rgba(8, 129, 120, 0.18);
+}
+
+.order-timeline {
+    margin: 30px 0;
+}
+
+.timeline-heading {
+    font-size: 1.05rem;
+    margin: 0 0 16px;
+}
+
+.timeline-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    position: relative;
+}
+
+.timeline-entry {
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 14px;
+    padding-bottom: 20px;
+    position: relative;
+}
+
+/* The connecting rail, drawn from each icon down to the next. Omitted on the
+   last entry so the line does not dangle past the final event. */
+.timeline-entry:not(:last-child)::before {
+    content: "";
+    position: absolute;
+    left: 16px;
+    top: 34px;
+    bottom: 0;
+    width: 2px;
+    background: #e6e8eb;
+}
+
+.timeline-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: #f1f3f5;
+    color: #8a9299;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    /* Above the rail, so the line appears to run behind the icons. */
+    position: relative;
+    z-index: 1;
+}
+
+/* The most recent event is the one a shopper opened the page for. */
+.timeline-entry.is-latest .timeline-icon {
+    background: #088178;
+    color: #fff;
+}
+
+.timeline-body {
+    min-width: 0;
+}
+
+.timeline-title {
+    margin: 0;
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #1d2b32;
+}
+
+.timeline-description {
+    margin: 3px 0 0;
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+/* A customer's own stated reason, e.g. why they cancelled. */
+.timeline-reason {
+    margin: 6px 0 0;
+    font-size: 0.85rem;
+    color: #1d2b32;
+    padding: 7px 11px;
+    background: #f8f9fa;
+    border-left: 3px solid #d5d9dd;
+    border-radius: 0 6px 6px 0;
+    overflow-wrap: anywhere;
+}
+
+.timeline-time {
+    display: block;
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: #8a9299;
+}
+
+@media (max-width: 640px) {
+    .timeline-entry {
+        grid-template-columns: 28px 1fr;
+        gap: 11px;
+    }
+
+    .timeline-icon {
+        width: 28px;
+        height: 28px;
+        font-size: 0.75rem;
+    }
+
+    .timeline-entry:not(:last-child)::before {
+        left: 13px;
+        top: 28px;
+    }
+}
+
+/* Dark mode, matching the treatment the other pages received in #1096/#1156. */
+body.dark-mode .timeline-icon {
+    background: #262626;
+    color: #a8a8a8;
+}
+
+body.dark-mode .timeline-entry:not(:last-child)::before {
+    background: #333;
+}
+
+body.dark-mode .timeline-title {
+    color: #e8e8e8;
+}
+
+body.dark-mode .timeline-description,
+body.dark-mode .timeline-time,
+body.dark-mode .tracking-step .step-date {
+    color: #a8a8a8;
+}
+
+body.dark-mode .timeline-reason {
+    background: #1e1e1e;
+    border-left-color: #3a3a3a;
+    color: #d8d8d8;
+}
