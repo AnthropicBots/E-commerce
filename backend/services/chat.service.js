@@ -2,15 +2,11 @@ const db = require("../config/db");
 const logger = require("../utils/logger");
 const { safeArray, safeNumber, sanitizeString, safeUUID } = require("../utils/helpers");
 const NodeCache = require('node-cache');
-const Redis = require('ioredis');
 
-const redis = new Redis({
-    host: process.env.REDIS_HOST || "localhost",
-    port: process.env.REDIS_PORT || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
-    retryStrategy: (times) => Math.min(times * 50, 2000),
-    maxRetriesPerRequest: 3
-});
+// Shared client -- see config/redis.js. This module used to construct its own
+// `new Redis({ ... })`, which meant an extra connection per module and made
+// the module impossible to load without a live Redis (#1341).
+const redis = require("../config/redis");
 
 const MESSAGE_LIMIT = parseInt(process.env.CHAT_MESSAGE_LIMIT) || 1000;
 const SESSION_TTL = parseInt(process.env.CHAT_SESSION_TTL) || 3600; // 1 hour

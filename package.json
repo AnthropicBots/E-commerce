@@ -5,7 +5,8 @@
   "license": "MIT",
   "scripts": {
     "check:syntax": "node scripts/check-syntax.js",
-    "test": "npm run check:syntax",
+    "check:boot": "cd backend && node ../scripts/check-boot.js",
+    "test": "npm run check:syntax && npm run check:boot && npm run test:backend",
     "test:backend": "npm --prefix backend test",
     "start": "npm --prefix backend start",
     "dev": "npm --prefix backend run dev"

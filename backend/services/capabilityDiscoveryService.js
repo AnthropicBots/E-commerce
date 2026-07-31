@@ -145,13 +145,18 @@ class CapabilityDiscoveryService extends EventEmitter {
     }
 
     /**
-     * Register a capability
+     * Register a capability.
+     *
+     * `connection` is optional: when registerService() is registering the
+     * capabilities it was handed, it passes its own transaction so a partial
+     * registration rolls back as one unit. Called on its own, it falls back to
+     * the pool.
+     *
+     * The pre-transaction two-argument signature was left in place above this
+     * one by a bad merge, giving the class two consecutive `registerCapability`
+     * headers and no body for the first (#1341).
      */
-
-    async registerCapability(serviceId, capabilityData) {
-
     async registerCapability(serviceId, capabilityData, connection = null) {
-
         const service = this.services.get(serviceId);
         if (!service) {
             throw new Error(`Service not found: ${serviceId}`);
@@ -604,15 +609,13 @@ class CapabilityDiscoveryService extends EventEmitter {
         }
     }
 
-    async storeService(service) {
-        try {
-            await db.query(
-
+    // Same bad merge as registerCapability above: the pre-transaction signature
+    // was kept alongside the connection-aware one, leaving two `storeService`
+    // headers and an unterminated `db.query(` between them (#1341).
     async storeService(service, connection = db) {
         try {
             await connection.query(
-
-                `INSERT INTO services 
+                `INSERT INTO services
                  (service_id, name, version, description, category,
                   capabilities, dependencies, permissions, endpoints,
                   metadata, status, registered_at, updated_at)
@@ -643,14 +646,11 @@ class CapabilityDiscoveryService extends EventEmitter {
                 ]
             );
         } catch (error) {
+            // Must rethrow: registerService() runs this inside a transaction and
+            // relies on the rejection to roll back. Swallowing it (as the
+            // pre-transaction version did) would commit a half-registered
+            // service.
             console.error('Store service error:', error);
-        }
-    }
-
-    async storeCapability(capability) {
-        try {
-            await db.query(
-
             throw error;
         }
     }
@@ -658,8 +658,7 @@ class CapabilityDiscoveryService extends EventEmitter {
     async storeCapability(capability, connection = db) {
         try {
             await connection.query(
-
-                `INSERT INTO capabilities 
+                `INSERT INTO capabilities
                  (capability_id, service_id, service_name, name, description,
                   version, category, operations, parameters, returns,
                   dependencies, permissions, status, metadata,
@@ -750,8 +749,5 @@ module.exports = {
     CAPABILITY_CATEGORIES,
     DEPENDENCY_TYPES,
     capabilityDiscoveryService: new CapabilityDiscoveryService()
-
-};
-
 };
 

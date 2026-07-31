@@ -13,7 +13,6 @@ const db = require('../config/db').promise;
 
 const Joi = require('joi');
 const winston = require('winston');
-const Redis = require('ioredis');
 const CircuitBreaker = require('opossum');
 const prometheus = require('prom-client');
 const cron = require('node-cron');
@@ -41,12 +40,10 @@ const logger = winston.createLogger({
 // REDIS CACHE
 // ============================================
 
-const redis = new Redis({
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT) || 6379,
-    password: process.env.REDIS_PASSWORD,
-    retryStrategy: (times) => Math.min(times * 50, 2000)
-});
+// Shared client -- see config/redis.js. This module used to construct its own
+// `new Redis({ ... })`, which meant an extra connection per module and made
+// the module impossible to load without a live Redis (#1341).
+const redis = require("../config/redis");
 
 const CACHE_TTL = {
     AGENT: 3600,

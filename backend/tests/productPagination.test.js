@@ -99,12 +99,27 @@ describe("getProducts — sorting", () => {
         stubDb(10, [{ id: 1 }]);
     });
 
+    // Columns are matched with an optional `p.` qualifier.
+    //
+    // The catalogue query grew a `LEFT JOIN categories c`, at which point every
+    // products column had to be qualified (`p.price`, `p.id`) or MySQL would
+    // reject the statement as ambiguous. The production change was correct;
+    // these patterns were not updated with it and asserted on the unqualified
+    // spelling, so all seven of these cases failed on `main` (#1341).
+    //
+    // Tolerating the qualifier keeps the assertion about *ordering semantics*,
+    // which is what this suite is for, instead of about SQL formatting -- so
+    // the next join does not break it again.
+    const col = (name) => `(?:\\w+\\.)?${name}`;
+    const orderBy = (...columns) =>
+        new RegExp(`ORDER BY\\s+${columns.map(([c, dir]) => `${col(c)} ${dir}`).join(", ")}`);
+
     const cases = [
-        ["price-low-high", /ORDER BY\s+price ASC, id DESC/],
-        ["price-high-low", /ORDER BY\s+price DESC, id DESC/],
-        ["popularity", /ORDER BY\s+num_reviews DESC, id DESC/],
-        ["highest-rated", /ORDER BY\s+rating DESC, id DESC/],
-        ["alphabetical-az", /ORDER BY\s+name ASC, id DESC/]
+        ["price-low-high", orderBy(["price", "ASC"], ["id", "DESC"])],
+        ["price-high-low", orderBy(["price", "DESC"], ["id", "DESC"])],
+        ["popularity", orderBy(["num_reviews", "DESC"], ["id", "DESC"])],
+        ["highest-rated", orderBy(["rating", "DESC"], ["id", "DESC"])],
+        ["alphabetical-az", orderBy(["name", "ASC"], ["id", "DESC"])]
     ];
 
     test.each(cases)("maps sort=%s to the expected ORDER BY", async (sort, pattern) => {
@@ -118,13 +133,13 @@ describe("getProducts — sorting", () => {
         const res = mockRes();
         await getProducts({ query: { sort: "not-a-real-sort" } }, res);
         const [sql] = lastProductQuery();
-        expect(sql).toMatch(/ORDER BY\s+id DESC\s+LIMIT/);
+        expect(sql).toMatch(/ORDER BY\s+(?:\w+\.)?id DESC\s+LIMIT/);
     });
 
     test("defaults to newest (id DESC) when no sort is given", async () => {
         const res = mockRes();
         await getProducts({ query: {} }, res);
         const [sql] = lastProductQuery();
-        expect(sql).toMatch(/ORDER BY\s+id DESC\s+LIMIT/);
+        expect(sql).toMatch(/ORDER BY\s+(?:\w+\.)?id DESC\s+LIMIT/);
     });
 });

@@ -3,6 +3,25 @@
 // mapping, idempotency and graceful failure handling without a live MySQL.
 
 jest.mock("../config/db", () => ({ query: jest.fn() }));
+
+// Redis backs the distributed processing lock and the dead-letter queue that
+// #1268 added. Without this mock every ingestWebhook() call sat on a real
+// socket until Jest's 5s timeout, so six of the eleven tests here failed as
+// timeouts rather than assertions (#1341).
+jest.mock("../config/redis", () => ({
+    set: jest.fn().mockResolvedValue("OK"),
+    setex: jest.fn().mockResolvedValue("OK"),
+    get: jest.fn().mockResolvedValue(null),
+    del: jest.fn().mockResolvedValue(1),
+    ping: jest.fn().mockResolvedValue("PONG"),
+    llen: jest.fn().mockResolvedValue(0),
+    lpop: jest.fn().mockResolvedValue(null),
+    rpush: jest.fn().mockResolvedValue(1),
+    ltrim: jest.fn().mockResolvedValue("OK"),
+    lrange: jest.fn().mockResolvedValue([]),
+    lrem: jest.fn().mockResolvedValue(1),
+    expire: jest.fn().mockResolvedValue(1)
+}));
 jest.mock("../utils/logger", () => ({
     info: jest.fn(),
     warn: jest.fn(),
@@ -57,6 +76,11 @@ const basePayload = {
 
 afterEach(() => {
     db.query.mockReset();
+    // The service is a singleton shared by every case in this file, and its
+    // dedupe cache is keyed on provider + event id. Every test here posts the
+    // same `basePayload`, so without this the second case onwards was told its
+    // event had already been processed.
+    service.courierWebhookService.clearProcessedCache();
     delete process.env.COURIER_WEBHOOK_SECRET;
     delete process.env.COURIER_WEBHOOK_SECRET_SHIPROCKET;
 });
@@ -186,6 +210,6 @@ describe("processPendingWebhooks", () => {
 
         const summary = await service.processPendingWebhooks(10);
 
-        expect(summary).toEqual({ total: 1, processed: 1, failed: 0 });
+        expect(summary).toEqual({ total: 1, processed: 1, failed: 0, retried: 0 });
     });
 });

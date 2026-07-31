@@ -121,10 +121,11 @@ function createProductCard(
     const outOfStock = isOutOfStock(stock);
     const outOfStockClass = outOfStock ? 'out-of-stock' : '';
 
-    const wishlistIds = wishlistSet instanceof Set 
-        ? wishlistSet 
-        : (typeof AppUtils !== 'undefined' && AppUtils.getWishlist ? new Set(AppUtils.getWishlist().map(item => String(item.id))) : new Set());
-    const isWishlisted = wishlistIds.has(String(product.id));
+    // The pre-`isProductWishlisted` version of this lookup was left in place
+    // here by a bad merge (#1341): it re-declared `wishlistIds`, which is
+    // already this function's parameter, and `isWishlisted`, already assigned
+    // above -- a SyntaxError that took the whole homepage grid offline. It also
+    // read a `wishlistSet` binding that does not exist in this scope.
 
     return `
         <div class="pro ${outOfStockClass} fade-in" data-id="${product.id}">

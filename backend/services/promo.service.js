@@ -1,18 +1,45 @@
 const db = require("../config/db");
 const { safeArray, safeNumber, sanitizeString } = require("../utils/helpers");
-const Redis = require('ioredis');
 
-const redis = new Redis({
-    host: process.env.REDIS_HOST || "localhost",
-    port: process.env.REDIS_PORT || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
-    retryStrategy: (times) => Math.min(times * 50, 2000),
-    maxRetriesPerRequest: 3
-});
+// Shared client -- see config/redis.js. This module used to construct its own
+// `new Redis({ ... })`, which meant an extra connection per module and made
+// the module impossible to load without a live Redis (#1341).
+const redis = require("../config/redis");
 
 function getPromoUsageKey(promoCode) {
     return `promo:usage:${promoCode}`;
 }
+
+/**
+ * Read a promo's usage counter, degrading to the database when Redis is
+ * unavailable.
+ *
+ * Redis here is a fast counter in front of `promo_codes.used_count`, not the
+ * system of record. Before this, a Redis outage made `redis.get()` reject and
+ * that rejection propagated straight out of `validatePromo()`, so **every**
+ * promo code in the store stopped validating the moment Redis went down --
+ * a cache being unavailable took out checkout discounts entirely.
+ *
+ * The stored `used_count` is the durable value written inside the same
+ * transaction that records the usage, so falling back to it is correct; the
+ * counter can only ever be as stale as the last committed application.
+ *
+ * @param {string} promoCode
+ * @param {object} promo the row already loaded for this code
+ * @returns {Promise<number>}
+ */
+const getUsedCount = async (promoCode, promo) => {
+    try {
+        const cached = await redis.get(getPromoUsageKey(promoCode));
+        if (cached !== null && cached !== undefined) {
+            return parseInt(cached, 10) || 0;
+        }
+    } catch (error) {
+        console.error(`Promo usage counter unavailable for ${promoCode}, falling back to used_count:`, error.message);
+    }
+
+    return safeNumber(promo && promo.used_count);
+};
 
 const getPromoByCode = async (code) => {
     const [results] = await db.query("SELECT * FROM promo_codes WHERE code = ? LIMIT 1", [code]);
@@ -38,9 +65,9 @@ const validatePromo = async (code, cartTotal) => {
         return { valid: false, message: `Minimum order amount of ₹${promo.minimum_order_amount} required` };
     }
 
-    // Check usage limit with Redis counter
-    const usageKey = getPromoUsageKey(code);
-    const usedCount = parseInt(await redis.get(usageKey) || '0');
+    // Check usage limit against the Redis counter, falling back to the stored
+    // used_count if Redis is down.
+    const usedCount = await getUsedCount(code, promo);
     if (promo.usage_limit && usedCount >= promo.usage_limit) {
         return { valid: false, message: "Promo code usage limit has been reached" };
     }
@@ -101,8 +128,8 @@ const applyPromoTransaction = async (promoCode, userId, discountAmount) => {
 
         // Check usage limit with Redis counter for atomic increment
         const usageKey = getPromoUsageKey(promoCode);
-        const usedCount = parseInt(await redis.get(usageKey) || '0');
-        
+        const usedCount = await getUsedCount(promoCode, promo);
+
         if (promo.usage_limit && usedCount >= promo.usage_limit) {
             throw new Error(`Promo code ${promoCode} usage limit reached`);
         }
@@ -231,6 +258,7 @@ const resetPromoUsage = async (promoCode) => {
 
 module.exports = {
     getPromoByCode,
+    getUsedCount,
     validatePromo,
     calculateDiscount,
     applyPromoTransaction,
