@@ -18,16 +18,17 @@ const timeout = require("connect-timeout");
 const fs = require("fs");
 const path = require("path");
 // Add with other imports
-const identityRoutes = require('./routes/identityRoutes');
-const { verifyIdentityClaims } = require('./services/aiIdentityVerificationService');
+const performanceRoutes = require('./routes/performanceRoutes');
+const { agentPerformanceMonitor } = require('./services/agentPerformanceMonitorService');
 
-// Add identity verification middleware
-app.use(verifyIdentityClaims);
+// Initialize performance monitor
+await agentPerformanceMonitor.initialize();
 
-// Add identity routes
-app.use('/api/identity', identityRoutes);
+// Add performance routes
+app.use('/api/performance', performanceRoutes);
 const dotenv = require("dotenv");
 const rateLimit = require("express-rate-limit");
+
 const setupProcessEventHandlers = require('./utils/processEventHandlers');
 const setupGracefulShutdown = require('./utils/gracefulShutdown');
 
