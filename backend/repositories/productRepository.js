@@ -72,7 +72,7 @@ class ProductRepository extends BaseRepository {
     }
 
     /**
-     * Update stock
+     * Update stock (delta can be negative)
      */
     async updateStock(id, quantity) {
         const [result] = await this.db.query(
@@ -80,6 +80,65 @@ class ProductRepository extends BaseRepository {
             [quantity, id]
         );
 
+        this.cache.delete(id);
+        return result.affectedRows > 0;
+    }
+
+    /**
+     * Lock product row and return current stock (#1260)
+     */
+    async getStockForUpdate(id, connection = null) {
+        const db = connection || this.db;
+        const [rows] = await db.query(
+            `SELECT id, stock, name FROM ${this.tableName} WHERE id = ? FOR UPDATE`,
+            [id]
+        );
+        return rows[0] || null;
+    }
+
+    /**
+     * Atomic stock deduction — fails if stock would go negative
+     */
+    async deductStockAtomic(id, quantity, connection = null) {
+        const db = connection || this.db;
+        const qty = Math.abs(Number(quantity) || 0);
+        if (qty <= 0) {
+            return { ok: false, availableStock: null, reason: 'invalid_quantity' };
+        }
+
+        const [result] = await db.query(
+            `UPDATE ${this.tableName}
+             SET stock = stock - ?
+             WHERE id = ? AND stock >= ?`,
+            [qty, id, qty]
+        );
+
+        if (result.affectedRows === 0) {
+            const [rows] = await db.query(
+                `SELECT stock FROM ${this.tableName} WHERE id = ?`,
+                [id]
+            );
+            return {
+                ok: false,
+                availableStock: rows[0] ? Number(rows[0].stock) : 0,
+                reason: 'insufficient_stock'
+            };
+        }
+
+        this.cache.delete(id);
+        return { ok: true, deducted: qty };
+    }
+
+    /**
+     * Restore stock (order cancel / rollback)
+     */
+    async restoreStock(id, quantity, connection = null) {
+        const db = connection || this.db;
+        const qty = Math.abs(Number(quantity) || 0);
+        const [result] = await db.query(
+            `UPDATE ${this.tableName} SET stock = stock + ? WHERE id = ?`,
+            [qty, id]
+        );
         this.cache.delete(id);
         return result.affectedRows > 0;
     }
