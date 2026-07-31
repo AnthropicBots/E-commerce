@@ -59,6 +59,10 @@ CREATE TABLE IF NOT EXISTS categories (
     icon VARCHAR(100),
     level INT DEFAULT 0,
     path VARCHAR(500),
+    -- MPTT (Modified Preorder Tree Traversal) bounds — enable O(range) subtree reads
+    -- alongside the adjacency-list parent_id used by the recursive CTE fetch (#1264)
+    lft INT DEFAULT NULL,
+    rgt INT DEFAULT NULL,
     is_active TINYINT(1) DEFAULT 1,
     display_order INT DEFAULT 0,
     created_by CHAR(36),
@@ -73,8 +77,15 @@ CREATE TABLE IF NOT EXISTS categories (
     INDEX idx_path (path(255)),
     INDEX idx_slug (slug),
     INDEX idx_active (is_active),
-    INDEX idx_deleted_at (deleted_at)
+    INDEX idx_deleted_at (deleted_at),
+    INDEX idx_categories_lft_rgt (lft, rgt),
+    INDEX idx_categories_parent_active (parent_id, is_active, deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Existing installs: add MPTT columns if missing (safe / idempotent pattern)
+-- ALTER TABLE categories ADD COLUMN IF NOT EXISTS lft INT DEFAULT NULL;
+-- ALTER TABLE categories ADD COLUMN IF NOT EXISTS rgt INT DEFAULT NULL;
+-- CREATE INDEX IF NOT EXISTS idx_categories_lft_rgt ON categories (lft, rgt);
 
 -- ============================================
 -- PRODUCTS TABLE (Enhanced)
