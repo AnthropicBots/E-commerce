@@ -7,7 +7,15 @@ const morgan = require("morgan");
 const timeout = require("connect-timeout");
 const fs = require("fs");
 const path = require("path");
+// Add with other imports
+const performanceRoutes = require('./routes/performanceRoutes');
+const { agentPerformanceMonitor } = require('./services/agentPerformanceMonitorService');
 
+// Initialize performance monitor
+await agentPerformanceMonitor.initialize();
+
+// Add performance routes
+app.use('/api/performance', performanceRoutes);
 const dotenv = require("dotenv");
 const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
