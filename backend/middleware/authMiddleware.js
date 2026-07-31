@@ -1,28 +1,28 @@
 // backend/middleware/authMiddleware.js
-const jwt = require('jsonwebtoken');
 
-// JWT_SECRET must be set in environment - throw error if missing
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-    throw new Error('FATAL: JWT_SECRET environment variable is required but not set. Application cannot start without a secure JWT secret.');
-}
+// Importing the token contract validates the token configuration, so a missing
+// or reused secret stops the process at startup instead of surfacing as a
+// mysterious 401 on the first protected request.
+const {
+    COOKIE_NAMES,
+    assertAccessTokenSecret,
+    hasSubjectClaim,
+    verifyAccessToken
+} = require('../utils/tokens');
 
 /**
  * Verify JWT token from Authorization header or cookies fallback
  */
 function authMiddleware(req, res, next) {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-        throw new Error('JWT_SECRET environment variable is required');
-    }
+    assertAccessTokenSecret();
 
     let token = null;
     const authHeader = req.headers.authorization;
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
         token = authHeader.slice(7);
-    } else if (req.cookies && req.cookies.accessToken) {
-        token = req.cookies.accessToken;
+    } else if (req.cookies && req.cookies[COOKIE_NAMES.accessToken]) {
+        token = req.cookies[COOKIE_NAMES.accessToken];
     }
 
     if (!token || token.trim().length === 0) {
@@ -57,9 +57,9 @@ function authMiddleware(req, res, next) {
     }
 
     try {
-        const decoded = jwt.verify(token, secret);
-        
-        if (!decoded || (decoded.userId === undefined && decoded.id === undefined)) {
+        const decoded = verifyAccessToken(token);
+
+        if (!hasSubjectClaim(decoded)) {
             return res.status(401).json({
                 success: false,
                 message: 'Authorization header required'
@@ -80,18 +80,15 @@ function authMiddleware(req, res, next) {
  * Optional auth - doesn't fail if no token
  */
 function optionalAuth(req, res, next) {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-        throw new Error('JWT_SECRET environment variable is required');
-    }
+    assertAccessTokenSecret();
 
     let token = null;
     const authHeader = req.headers.authorization;
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
         token = authHeader.slice(7);
-    } else if (req.cookies && req.cookies.accessToken) {
-        token = req.cookies.accessToken;
+    } else if (req.cookies && req.cookies[COOKIE_NAMES.accessToken]) {
+        token = req.cookies[COOKIE_NAMES.accessToken];
     }
 
     if (!token || token.trim().length === 0) {
@@ -103,8 +100,7 @@ function optionalAuth(req, res, next) {
     }
 
     try {
-        const decoded = jwt.verify(token, secret);
-        req.user = decoded;
+        req.user = verifyAccessToken(token);
     } catch (error) {
         // Ignore invalid tokens for optional auth
     }

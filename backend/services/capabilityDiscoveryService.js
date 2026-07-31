@@ -92,6 +92,22 @@ class CapabilityDiscoveryService extends EventEmitter {
         // Validate service
         this.validateService(service);
 
+        this.services.set(service.id, service);
+        await this.storeService(service);
+
+        // Register capabilities
+        for (const capability of service.capabilities) {
+            await this.registerCapability(service.id, capability);
+        }
+
+        // Rebuild dependency graph
+        this.buildDependencyGraph();
+
+        console.log(`📦 Service registered: ${service.name} (${service.id})`);
+        this.emit('service.registered', { serviceId: service.id, name: service.name });
+
+        return service;
+
         const connection = await db.getConnection();
         await connection.beginTransaction();
 
@@ -131,7 +147,11 @@ class CapabilityDiscoveryService extends EventEmitter {
     /**
      * Register a capability
      */
+
+    async registerCapability(serviceId, capabilityData) {
+
     async registerCapability(serviceId, capabilityData, connection = null) {
+
         const service = this.services.get(serviceId);
         if (!service) {
             throw new Error(`Service not found: ${serviceId}`);
@@ -166,7 +186,11 @@ class CapabilityDiscoveryService extends EventEmitter {
         }
 
         this.capabilities.set(capability.id, capability);
+
+        await this.storeCapability(capability);
+
         await this.storeCapability(capability, connection || db);
+
 
         // Clear cache
         this.clearCache();
@@ -580,9 +604,14 @@ class CapabilityDiscoveryService extends EventEmitter {
         }
     }
 
+    async storeService(service) {
+        try {
+            await db.query(
+
     async storeService(service, connection = db) {
         try {
             await connection.query(
+
                 `INSERT INTO services 
                  (service_id, name, version, description, category,
                   capabilities, dependencies, permissions, endpoints,
@@ -615,6 +644,13 @@ class CapabilityDiscoveryService extends EventEmitter {
             );
         } catch (error) {
             console.error('Store service error:', error);
+        }
+    }
+
+    async storeCapability(capability) {
+        try {
+            await db.query(
+
             throw error;
         }
     }
@@ -622,6 +658,7 @@ class CapabilityDiscoveryService extends EventEmitter {
     async storeCapability(capability, connection = db) {
         try {
             await connection.query(
+
                 `INSERT INTO capabilities 
                  (capability_id, service_id, service_name, name, description,
                   version, category, operations, parameters, returns,
@@ -660,7 +697,9 @@ class CapabilityDiscoveryService extends EventEmitter {
             );
         } catch (error) {
             console.error('Store capability error:', error);
+
             throw error;
+
         }
     }
 
@@ -711,4 +750,8 @@ module.exports = {
     CAPABILITY_CATEGORIES,
     DEPENDENCY_TYPES,
     capabilityDiscoveryService: new CapabilityDiscoveryService()
+
 };
+
+};
+

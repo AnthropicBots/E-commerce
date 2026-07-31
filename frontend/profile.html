@@ -176,6 +176,31 @@
                             Edit Profile
                         </button>
                     </div>
+
+                    <div
+                        id="sessions-card"
+                        class="profile-info-card"
+                    >
+                        <h3>
+                            Signed-In Devices
+                        </h3>
+
+                        <p id="sessions-empty" style="display: none;">
+                            No devices are signed in.
+                        </p>
+
+                        <p id="sessions-error" style="display: none;"></p>
+
+                        <div id="sessions-list"></div>
+
+                        <button
+                            id="revoke-other-sessions-btn"
+                            class="profile-save-btn"
+                        >
+                            <i class="fas fa-sign-out-alt"></i>
+                            Sign Out Other Devices
+                        </button>
+                    </div>
                 </div>
             
                 <!-- Profile Edit -->
@@ -299,6 +324,11 @@
     <script
         defer
         src="scripts/profile.js"
+    ></script>
+
+    <script
+        defer
+        src="scripts/sessions.js"
     ></script>
     <script defer src="scripts/ui.js"></script>
 
