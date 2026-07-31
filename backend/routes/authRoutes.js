@@ -46,9 +46,9 @@ const {
 const db = require("../config/db").promise;
 
 // ======================== ENVIRONMENT VALIDATION ========================
-if (!process.env.JWT_SECRET) {
-    throw new Error("JWT_SECRET environment variable is not set");
-}
+// The token contract checks its own configuration when imported, so a missing
+// or shared secret refuses to start rather than breaking sign-in at runtime.
+require("../utils/tokens");
 
 // ======================== HELPER FUNCTIONS ========================
 
