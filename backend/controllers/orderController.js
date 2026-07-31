@@ -128,7 +128,25 @@ const createOrder =
             // begin transaction
             await connection.beginTransaction();
 
-            // create order via service
+            // Issue #1260: reserve under Redis Redlock + MySQL FOR UPDATE before order write
+            const reservation = await inventoryReservationService.ensureCheckoutReservations(
+                req.user.id,
+                items,
+                connection
+            );
+            if (!reservation.success) {
+                await connection.rollback();
+                return res.status(409).json({
+                    success: false,
+                    code: reservation.code || inventoryReservationService.INSUFFICIENT_STOCK_CODE,
+                    message: reservation.message || "Insufficient stock for checkout",
+                    availableStock: reservation.availableStock,
+                    productId: reservation.productId,
+                    conflicts: reservation.conflicts
+                });
+            }
+
+            // create order via service (also deducts stock atomically)
             const result =
                 await createOrderService(
                     connection,
@@ -147,15 +165,8 @@ const createOrder =
                         promo_code: promoCode ? sanitizeString(promoCode) : null
                     }
                 );
-            
-            // Validate inventory locks
-            const locksValid = await inventoryReservationService.validateCartLocks(req.user.id, items, connection);
-            if (!locksValid) {
-                await connection.rollback();
-                return res.status(400).json({ success: false, message: "Inventory locks expired or insufficient stock" });
-            }
-            
-            // Consume inventory locks
+
+            // Consume inventory locks after successful stock deduction
             await inventoryReservationService.consumeLocks(req.user.id, items, connection);
 
             // commit transaction
@@ -186,6 +197,15 @@ const createOrder =
                         submittedTotal: error.submittedTotal,
                         computedTotal: error.computedTotal
                     });
+            }
+
+            // Stock race that slipped past reservation (order.service throw)
+            if (/insufficient stock/i.test(error.message || "")) {
+                return res.status(409).json({
+                    success: false,
+                    code: inventoryReservationService.INSUFFICIENT_STOCK_CODE,
+                    message: error.message
+                });
             }
 
             console.error(
@@ -658,6 +678,24 @@ const createPaymentIntent = async (req, res) => {
 
         await connection.beginTransaction();
 
+        // Issue #1260: atomic reservation before payment-intent order write
+        const reservation = await inventoryReservationService.ensureCheckoutReservations(
+            req.user.id,
+            items,
+            connection
+        );
+        if (!reservation.success) {
+            await connection.rollback();
+            return res.status(409).json({
+                success: false,
+                code: reservation.code || inventoryReservationService.INSUFFICIENT_STOCK_CODE,
+                message: reservation.message || "Insufficient stock for checkout",
+                availableStock: reservation.availableStock,
+                productId: reservation.productId,
+                conflicts: reservation.conflicts
+            });
+        }
+
         const result = await createOrderService(connection, {
             user_id: req.user.id,
             customer_name: sanitizeString(customer.name),
@@ -673,12 +711,6 @@ const createPaymentIntent = async (req, res) => {
             promo_code: promoCode ? sanitizeString(promoCode) : null
         });
 
-        const locksValid = await inventoryReservationService.validateCartLocks(req.user.id, items, connection);
-        if (!locksValid) {
-            await connection.rollback();
-            return res.status(400).json({ success: false, message: "Inventory locks expired or insufficient stock" });
-        }
-        
         await inventoryReservationService.consumeLocks(req.user.id, items, connection);
 
         // Charge what the engine priced, never what the browser claimed.
@@ -713,6 +745,14 @@ const createPaymentIntent = async (req, res) => {
                 message: error.message,
                 submittedTotal: error.submittedTotal,
                 computedTotal: error.computedTotal
+            });
+        }
+
+        if (/insufficient stock/i.test(error.message || "")) {
+            return res.status(409).json({
+                success: false,
+                code: inventoryReservationService.INSUFFICIENT_STOCK_CODE,
+                message: error.message
             });
         }
 

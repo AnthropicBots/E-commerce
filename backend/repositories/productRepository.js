@@ -173,6 +173,100 @@ class ProductRepository extends BaseRepository {
 
         return rows;
     }
+
+    /**
+     * Lock product row and return stock (Issue #1260).
+     * Must be called inside an open transaction.
+     */
+    async lockForUpdate(id, connection = null) {
+        const db = connection || this.db;
+        const [rows] = await db.query(
+            `SELECT id, name, stock FROM ${this.tableName} WHERE id = ? FOR UPDATE`,
+            [id]
+        );
+        return rows[0] || null;
+    }
+
+    /**
+     * Atomic decrement that refuses to drive stock negative.
+     * Returns { success, availableStock, affectedRows }.
+     */
+    async decrementStockAtomic(id, quantity, connection = null) {
+        const db = connection || this.db;
+        const qty = Number(quantity);
+
+        const product = await this.lockForUpdate(id, db);
+        if (!product) {
+            return { success: false, availableStock: 0, affectedRows: 0, code: 'PRODUCT_NOT_FOUND' };
+        }
+
+        if (Number(product.stock) < qty) {
+            return {
+                success: false,
+                availableStock: Number(product.stock),
+                affectedRows: 0,
+                code: 'INSUFFICIENT_STOCK',
+                productName: product.name
+            };
+        }
+
+        const [result] = await db.query(
+            `UPDATE ${this.tableName}
+             SET stock = stock - ?
+             WHERE id = ? AND stock >= ?`,
+            [qty, id, qty]
+        );
+
+        this.cache.delete(id);
+
+        if (result.affectedRows === 0) {
+            return {
+                success: false,
+                availableStock: 0,
+                affectedRows: 0,
+                code: 'INSUFFICIENT_STOCK',
+                productName: product.name
+            };
+        }
+
+        return {
+            success: true,
+            availableStock: Number(product.stock) - qty,
+            affectedRows: result.affectedRows
+        };
+    }
+
+    /**
+     * Available sellable units = physical stock minus active reservations.
+     */
+    async getAvailableStock(id, connection = null) {
+        const db = connection || this.db;
+        const now = new Date();
+
+        const [products] = await db.query(
+            `SELECT stock FROM ${this.tableName} WHERE id = ? FOR UPDATE`,
+            [id]
+        );
+        if (!products.length) {
+            return { productId: id, totalStock: 0, lockedStock: 0, availableStock: 0 };
+        }
+
+        const [locks] = await db.query(
+            `SELECT COALESCE(SUM(quantity), 0) AS locked_qty
+             FROM inventory_locks
+             WHERE product_id = ? AND expires_at > ?`,
+            [id, now]
+        );
+
+        const totalStock = Number(products[0].stock) || 0;
+        const lockedStock = Number(locks[0]?.locked_qty) || 0;
+        return {
+            productId: id,
+            totalStock,
+            lockedStock,
+            availableStock: Math.max(0, totalStock - lockedStock)
+        };
+    }
 }
 
 module.exports = new ProductRepository();
