@@ -186,4 +186,159 @@ class PreservationUI {
           <div class="stat-label">Recommendations</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">${stats.resources.inProgress || 0}</div
+          <div class="stat-value">${stats.resources?.inProgress || 0}</div>
+          <div class="stat-label">In Progress</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ==========================================================
+  // Everything below this point was missing entirely: the file
+  // was committed truncated in the middle of renderStats()'s
+  // template literal (#1297), so it did not parse and none of
+  // the class ever loaded. init() calls loadInsights() and
+  // setupEventListeners(), and renderItems() emits onclick
+  // handlers referencing assessItem()/viewItem() -- all of
+  // which had no implementation.
+  // ==========================================================
+
+  async loadInsights() {
+    try {
+      const data = await AppUtils.apiRequest(`${this.apiBase}/insights`);
+
+      if (data.success) {
+        this.insights = data.insights;
+        this.renderInsights(data.insights);
+      }
+    } catch (error) {
+      console.error('Error loading insights:', error);
+    }
+  }
+
+  renderInsights(insights) {
+    const container = document.getElementById('insights-container');
+    if (!container) return;
+
+    const entries = AppUtils.safeArray(insights);
+
+    if (!entries.length) {
+      container.innerHTML = '<div class="empty">No insights available yet.</div>';
+      return;
+    }
+
+    container.innerHTML = `
+      <h4>🧠 AI Insights</h4>
+      <ul class="insights-list">
+        ${entries
+          .map((insight) => `<li>${AppUtils.escapeHTML(insight.summary || insight)}</li>`)
+          .join('')}
+      </ul>
+    `;
+  }
+
+  /**
+   * Request a fresh preservation assessment for one heritage item.
+   *
+   * @param {string} heritageId
+   */
+  async assessItem(heritageId) {
+    if (!heritageId) return;
+
+    try {
+      const data = await AppUtils.apiRequest(`${this.apiBase}/assess`, {
+        method: 'POST',
+        body: JSON.stringify({ heritageId })
+      });
+
+      if (data.success) {
+        AppUtils.notify('Assessment complete', 'success');
+        this.loadItems();
+        this.loadStats();
+      } else {
+        AppUtils.notify(data.message || 'Assessment failed', 'error');
+      }
+    } catch (error) {
+      console.error('Error assessing item:', error);
+      AppUtils.notify('Assessment failed', 'error');
+    }
+  }
+
+  /**
+   * Load and display the detail panel for one heritage item.
+   *
+   * @param {string} heritageId
+   */
+  async viewItem(heritageId) {
+    if (!heritageId) return;
+
+    try {
+      const data = await AppUtils.apiRequest(`${this.apiBase}/item/${heritageId}`);
+
+      if (!data.success) {
+        AppUtils.notify(data.message || 'Could not load item', 'error');
+        return;
+      }
+
+      this.currentItem = data.item;
+      this.renderItemDetail(data.item);
+    } catch (error) {
+      console.error('Error loading item:', error);
+      AppUtils.notify('Could not load item', 'error');
+    }
+  }
+
+  renderItemDetail(item) {
+    const container = document.getElementById('item-detail');
+    if (!container || !item) return;
+
+    container.style.display = 'block';
+    container.innerHTML = `
+      <h4>${AppUtils.escapeHTML(item.name || 'Heritage item')}</h4>
+      <p>${AppUtils.escapeHTML(item.description || '')}</p>
+      <dl class="item-meta">
+        <dt>Risk level</dt><dd>${AppUtils.escapeHTML(item.riskLevel || 'unknown')}</dd>
+        <dt>Location</dt><dd>${AppUtils.escapeHTML(item.location || 'unknown')}</dd>
+      </dl>
+      <button type="button" class="btn btn-secondary" id="btn-close-detail">Close</button>
+    `;
+
+    const closeBtn = document.getElementById('btn-close-detail');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        container.style.display = 'none';
+      });
+    }
+  }
+
+  setupEventListeners() {
+    const assessAllBtn = document.getElementById('btn-assess-all');
+    if (assessAllBtn) {
+      assessAllBtn.addEventListener('click', () => this.loadItems());
+    }
+
+    const insightsBtn = document.getElementById('btn-insights');
+    if (insightsBtn) {
+      insightsBtn.addEventListener('click', () => {
+        const container = document.getElementById('insights-container');
+        if (!container) return;
+        const hidden = container.style.display === 'none';
+        container.style.display = hidden ? 'block' : 'none';
+        if (hidden) this.loadInsights();
+      });
+    }
+
+    const statsBtn = document.getElementById('btn-stats');
+    if (statsBtn) {
+      statsBtn.addEventListener('click', () => this.loadStats());
+    }
+  }
+}
+
+// The inline onclick handlers emitted by renderItems() call
+// `window.preservationUI.*`, so the instance has to be reachable there.
+document.addEventListener('DOMContentLoaded', () => {
+  if (document.querySelector('#preservation-container')) {
+    window.preservationUI = new PreservationUI();
+  }
+});
