@@ -1119,3 +1119,229 @@ body.dark-theme .product-360-preloader {
     color: #ffffff;
 }
 
+
+/* ============================================================
+   REVIEW ENGAGEMENT & MODERATION (#1349)
+   ============================================================
+   helpful_count and reported_count were columns with no writer and no reader,
+   so there was nothing to style: no way to say a review was useful, and no way
+   to flag an abusive one. These are the controls for both, plus the rating
+   histogram and the sort/page bar that replace the unbounded, recency-only
+   list.
+*/
+
+.review-breakdown {
+    margin: 12px 0 24px;
+    max-width: 420px;
+}
+
+.rating-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.rating-bar-row {
+    display: grid;
+    /* Fixed label and count columns so the bars all start and end in line;
+       an auto column would ragged-edge them as the counts change width. */
+    grid-template-columns: 56px 1fr 40px;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+}
+
+.rating-bar-label {
+    color: #6c757d;
+    white-space: nowrap;
+}
+
+.rating-bar-track {
+    background: #eceff1;
+    border-radius: 999px;
+    height: 8px;
+    overflow: hidden;
+}
+
+.rating-bar-fill {
+    display: block;
+    height: 100%;
+    background: #088178;
+    border-radius: 999px;
+    transition: width 0.3s ease;
+}
+
+.rating-bar-count {
+    color: #6c757d;
+    text-align: right;
+}
+
+.review-controls {
+    margin-bottom: 18px;
+}
+
+.review-controls-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e6e8eb;
+}
+
+.review-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+}
+
+.review-sort select {
+    padding: 7px 11px;
+    border: 1px solid #d5d9dd;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 14px;
+    background: #fff;
+    color: #1d2b32;
+    cursor: pointer;
+}
+
+.review-count-note {
+    color: #6c757d;
+    font-size: 14px;
+}
+
+.review-pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-top: 18px;
+    font-size: 14px;
+}
+
+.review-pager button {
+    padding: 7px 15px;
+    border: 1px solid #d5d9dd;
+    border-radius: 8px;
+    background: #fff;
+    color: #1d2b32;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.review-pager button:hover:not(:disabled) {
+    background: #088178;
+    border-color: #088178;
+    color: #fff;
+}
+
+/* A disabled pager button must look unavailable, not just fail silently when
+   clicked. */
+.review-pager button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.review-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #f0f2f4;
+}
+
+.review-helpful-btn,
+.review-report-btn {
+    background: transparent;
+    border: 1px solid #d5d9dd;
+    border-radius: 8px;
+    padding: 6px 13px;
+    font-size: 13px;
+    font-family: inherit;
+    color: #6c757d;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.review-helpful-btn:hover {
+    border-color: #088178;
+    color: #088178;
+}
+
+/* The pressed state is carried by aria-pressed for assistive technology; this
+   is its visual counterpart. */
+.review-helpful-btn.is-active {
+    border-color: #088178;
+    background: rgba(8, 129, 120, 0.1);
+    color: #088178;
+    font-weight: 600;
+}
+
+.review-report-btn:hover {
+    border-color: #d64545;
+    color: #d64545;
+}
+
+.review-helpful-btn:focus-visible,
+.review-report-btn:focus-visible,
+.review-pager button:focus-visible,
+.review-sort select:focus-visible {
+    outline: 2px solid #088178;
+    outline-offset: 2px;
+}
+
+.review-own-note,
+.review-reported-note {
+    font-size: 13px;
+    color: #6c757d;
+    font-style: italic;
+}
+
+@media (max-width: 799px) {
+    .review-controls-bar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .review-breakdown {
+        max-width: 100%;
+    }
+}
+
+/* Dark mode, matching the treatment the other pages received in #1096/#1156. */
+body.dark-mode .rating-bar-track {
+    background: #2a2a2a;
+}
+
+body.dark-mode .rating-bar-label,
+body.dark-mode .rating-bar-count,
+body.dark-mode .review-count-note,
+body.dark-mode .review-own-note,
+body.dark-mode .review-reported-note {
+    color: #a8a8a8;
+}
+
+body.dark-mode .review-controls-bar {
+    border-bottom-color: #333;
+}
+
+body.dark-mode .review-actions {
+    border-top-color: #2a2a2a;
+}
+
+body.dark-mode .review-sort select,
+body.dark-mode .review-pager button,
+body.dark-mode .review-helpful-btn,
+body.dark-mode .review-report-btn {
+    background: #1e1e1e;
+    border-color: #3a3a3a;
+    color: #d8d8d8;
+}
