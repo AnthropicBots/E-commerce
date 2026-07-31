@@ -886,12 +886,22 @@ function setupContinueShopping() {
     });
 }
 
+// Cross-tab synchronization & offline reconnection listeners
+window.addEventListener(AppUtils.CART_UPDATED_EVENT, (event) => {
+    cart = AppUtils.getCart();
+    renderCart();
+});
+
+window.addEventListener('online', () => {
+    cart = AppUtils.getCart();
+    renderCart();
+});
+
 // INIT
 document.addEventListener(
     "DOMContentLoaded",
     () => {
         renderCart();
-        // Setup continue shopping after render
         setTimeout(setupContinueShopping, 100);
     }
 );
