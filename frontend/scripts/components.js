@@ -123,27 +123,8 @@ const loadStylesheet = (
     );
 };
 
-const initializeCustomCursor = async () => {
-    await loadStylesheet(
-        "styles/custom-cursor.css"
-    );
-
-    await loadScript(
-        "scripts/custom-cursor.js"
-    );
-};
-
 // initialize components
 async function initializeComponents() {
-    try {
-        await initializeCustomCursor();
-    } catch (error) {
-        console.error(
-            "Failed to load custom cursor:",
-            error
-        );
-    }
-
     const loadTasks = [
         loadComponent(
             "navbar",
