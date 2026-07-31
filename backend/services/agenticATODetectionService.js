@@ -2,6 +2,7 @@
 
 const db = require('../config/db').promise;
 const crypto = require('crypto');
+const authMiddleware = require('../middleware/authMiddleware');
 const tf = require('@tensorflow/tfjs-node');
 const { IsolationForest } = require('isolation-forest');
 const WebSocket = require('ws');
@@ -974,7 +975,7 @@ class AgenticATODetectionService {
     // ============================================
 
     setupAPI(app) {
-        app.get('/api/ato/agents/:agentId/status', async (req, res) => {
+        app.get('/api/ato/agents/:agentId/status', authMiddleware, async (req, res) => {
             try {
                 const status = await this.getAgentStatus(req.params.agentId);
                 res.json({ success: true, data: status });
@@ -983,7 +984,7 @@ class AgenticATODetectionService {
             }
         });
 
-        app.post('/api/ato/agents/:agentId/detect', async (req, res) => {
+        app.post('/api/ato/agents/:agentId/detect', authMiddleware, async (req, res) => {
             try {
                 const detection = await this.detectCompromisedAgent(req.params.agentId, req.body);
                 res.json({ success: true, data: detection });
@@ -992,7 +993,7 @@ class AgenticATODetectionService {
             }
         });
 
-        app.get('/api/ato/alerts', async (req, res) => {
+        app.get('/api/ato/alerts', authMiddleware, async (req, res) => {
             try {
                 const alerts = await this.getAlerts();
                 res.json({ success: true, data: alerts });
@@ -1001,7 +1002,7 @@ class AgenticATODetectionService {
             }
         });
 
-        app.get('/api/ato/statistics', async (req, res) => {
+        app.get('/api/ato/statistics', authMiddleware, async (req, res) => {
             try {
                 const stats = await this.getStatistics();
                 res.json({ success: true, data: stats });
