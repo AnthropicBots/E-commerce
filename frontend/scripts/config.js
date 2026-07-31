@@ -19,6 +19,14 @@ const CURRENCY_INFO = {
     LOCALE: "en-IN"
 };
 
+const SUPPORTED_CURRENCIES = {
+    INR: { CODE: "INR", SYMBOL: "₹", LOCALE: "en-IN", RATE: 1.0, NAME: "Indian Rupee" },
+    USD: { CODE: "USD", SYMBOL: "$", LOCALE: "en-US", RATE: 0.012, NAME: "US Dollar" },
+    EUR: { CODE: "EUR", SYMBOL: "€", LOCALE: "de-DE", RATE: 0.011, NAME: "Euro" },
+    GBP: { CODE: "GBP", SYMBOL: "£", LOCALE: "en-GB", RATE: 0.0094, NAME: "British Pound" },
+    JPY: { CODE: "JPY", SYMBOL: "¥", LOCALE: "ja-JP", RATE: 1.75, NAME: "Japanese Yen" }
+};
+
 const CONFIG = {
     // api base url
     API_BASE: isLocalhost
@@ -39,11 +47,11 @@ const CONFIG = {
     PRODUCTS_PER_PAGE:
         8,
 
-    // currency
+    // multi-currency configuration
     CURRENCY_INFO,
+    SUPPORTED_CURRENCIES,
+    RATES_CACHE_EXPIRATION_MS: 3600000, // 1 hour expiration
 
-    // Kept as a bare symbol string: existing scripts interpolate CONFIG.CURRENCY
-    // directly.
     CURRENCY:
         CURRENCY_INFO.SYMBOL,
 
