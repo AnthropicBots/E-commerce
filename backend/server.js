@@ -18,14 +18,10 @@ const timeout = require("connect-timeout");
 const fs = require("fs");
 const path = require("path");
 // Add with other imports
-const performanceRoutes = require('./routes/performanceRoutes');
-const { agentPerformanceMonitor } = require('./services/agentPerformanceMonitorService');
+const aiFeedRoutes = require('./routes/aiFeedRoutes');
 
-// Initialize performance monitor
-await agentPerformanceMonitor.initialize();
-
-// Add performance routes
-app.use('/api/performance', performanceRoutes);
+// Add AI feed routes
+app.use('/api/ai-feed', aiFeedRoutes);
 const dotenv = require("dotenv");
 const rateLimit = require("express-rate-limit");
 
