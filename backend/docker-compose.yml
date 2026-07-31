@@ -1,25 +1,199 @@
 version: '3.8'
 
 services:
+  # ============================================
+  # DATABASE SERVICE
+  # ============================================
   db:
     image: mysql:8.0
     container_name: ecom-mysql
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_DATABASE: ecommerce
+      MYSQL_DATABASE: ${DB_NAME:-ecommerce}
+      MYSQL_USER: ${DB_USER:-ecom_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_HOST: '%'
     ports:
-      - "3306:3306"
+      - "${DB_PORT:-3306}:3306"
     volumes:
       - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - ./migrations:/docker-entrypoint-initdb.d/migrations:ro
       - db_data:/var/lib/mysql
+      - ./backup:/backup
+    command: 
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max_connections=200
+      - --innodb_buffer_pool_size=256M
+      - --innodb_log_file_size=64M
+      - --slow_query_log=1
+      - --long_query_time=2
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ecom-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
 
+  # ============================================
+  # REDIS SERVICE
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: ecom-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - ecom-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.2'
+          memory: 128M
+
+  # ============================================
+  # ADMINER (Database Management)
+  # ============================================
   adminer:
-    image: adminer
+    image: adminer:latest
     container_name: ecom-adminer
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "${ADMINER_PORT:-8080}:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+      ADMINER_DESIGN: dracula
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - ecom-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  # ============================================
+  # PHPMyAdmin (Alternative)
+  # ============================================
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: ecom-phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "${PHPMYADMIN_PORT:-8081}:80"
+    environment:
+      PMA_HOST: db
+      PMA_USER: root
+      PMA_PASSWORD: ${DB_PASSWORD}
+      UPLOAD_LIMIT: 50M
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - ecom-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    profiles:
+      - tools
+
+  # ============================================
+  # MAILHOG (Email Testing)
+  # ============================================
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: ecom-mailhog
+    restart: unless-stopped
+    ports:
+      - "${MAILHOG_SMTP_PORT:-1025}:1025"
+      - "${MAILHOG_UI_PORT:-8025}:8025"
+    networks:
+      - ecom-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    profiles:
+      - dev
+
+  # ============================================
+  # BACKUP SERVICE
+  # ============================================
+  backup:
+    image: alpine:latest
+    container_name: ecom-backup
+    restart: unless-stopped
+    volumes:
+      - ./backup:/backup
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: |
+      sh -c '
+        echo "0 2 * * * /usr/bin/mysqldump -h db -u root -p$$DB_PASSWORD ecommerce > /backup/backup_$$(date +%Y%m%d_%H%M%S).sql" > /etc/crontab
+        crond -f
+      '
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - ecom-network
+    profiles:
+      - backup
+
+# ============================================
+# NETWORKS
+# ============================================
+networks:
+  ecom-network:
+    driver: bridge
+    name: ecom-network
+
+# ============================================
+# VOLUMES
+# ============================================
 volumes:
   db_data:
+    name: ecom-db-data
+  redis_data:
+    name: ecom-redis-data

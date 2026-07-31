@@ -275,36 +275,12 @@
 
                 </div>
 
-                <!-- Card Details (with required) -->
-                <div id="card-details">
-
-                    <input
-                        type="text"
-                        id="card-number"
-                        placeholder="Card Number"
-                        required
-                    >
-
-                    <div class="form-row">
-
-                        <input
-                            type="text"
-                            id="expiry"
-                            placeholder="MM/YY"
-                            required
-                        >
-                        <small class="field-error" id="card-number-error"></small>
+                <!-- Stripe Card Element -->
+                <div id="card-details" class="stripe-container">
+                    <div id="card-element">
+                        <!-- A Stripe Element will be inserted here. -->
                     </div>
-
-                        <input
-                            type="password"
-                            id="cvv"
-                            placeholder="CVV"
-                            required
-                        >
-
-                    </div>
-
+                    <div id="card-errors" role="alert" class="field-error"></div>
                 </div>
 
                 <!-- Submit -->
@@ -463,7 +439,7 @@
     ></script>
 
     <!-- Checkout Script -->
-
+    <script src="https://js.stripe.com/v3/"></script>
     <script
         defer
         src="scripts/checkout.js"

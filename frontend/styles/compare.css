@@ -1,0 +1,179 @@
+/* ==================== GLASSMORPHIC COMPARISON MATRIX STYLING ==================== */
+
+.compare-page-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.compare-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 16px;
+    padding: 16px 24px;
+    margin-bottom: 30px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+}
+
+.compare-toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.compare-select {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.toggle-diff-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.compare-matrix-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+    padding: 20px;
+}
+
+.compare-matrix-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    min-width: 650px;
+}
+
+.compare-matrix-table th,
+.compare-matrix-table td {
+    padding: 16px 20px;
+    text-align: center;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+    vertical-align: middle;
+}
+
+.compare-matrix-table th:first-child,
+.compare-matrix-table td:first-child {
+    text-align: left;
+    font-weight: 600;
+    position: sticky;
+    left: 0;
+    background: rgba(248, 250, 252, 0.95);
+    backdrop-filter: blur(8px);
+    z-index: 5;
+    min-width: 160px;
+    border-right: 2px solid rgba(226, 232, 240, 0.8);
+}
+
+.compare-product-header {
+    position: relative;
+    padding: 20px 16px;
+    min-width: 220px;
+}
+
+.compare-remove-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    border: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.compare-remove-btn:hover {
+    background: #ef4444;
+    color: #ffffff;
+}
+
+.compare-product-img {
+    width: 100px;
+    height: 100px;
+    object-fit: cover;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.compare-product-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #0f172a;
+}
+
+.highlight-diff {
+    background: rgba(254, 240, 138, 0.4) !important;
+}
+
+.best-value {
+    background: rgba(187, 247, 208, 0.5) !important;
+    font-weight: 700;
+    color: #15803d;
+}
+
+.best-badge {
+    display: inline-block;
+    background: #16a34a;
+    color: #ffffff;
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 10px;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+/* Dark Theme Support */
+body.dark-theme .compare-toolbar,
+body.dark-theme .compare-matrix-wrapper {
+    background: rgba(15, 23, 42, 0.75);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #f8fafc;
+}
+
+body.dark-theme .compare-matrix-table th:first-child,
+body.dark-theme .compare-matrix-table td:first-child {
+    background: rgba(30, 41, 59, 0.95);
+    color: #f8fafc;
+    border-right-color: rgba(51, 65, 85, 0.8);
+}
+
+body.dark-theme .compare-product-title {
+    color: #f8fafc;
+}
+
+body.dark-theme .highlight-diff {
+    background: rgba(113, 63, 18, 0.4) !important;
+}
+
+body.dark-theme .best-value {
+    background: rgba(20, 83, 45, 0.5) !important;
+    color: #4ade80;
+}

@@ -97,9 +97,9 @@ router.post(
 router.get('/status', (req, res) => {
     res.json({
         success: true,
-        status: 'online',
+        service: "MCP",
+        status: "active",
         version: '2.0.0-secure',
-        allowedModules: require('../middleware/mcpSecurity').ALLOWED_MODULES,
         timestamp: new Date().toISOString()
     });
 });

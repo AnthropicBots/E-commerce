@@ -1173,3 +1173,31 @@ class AgentBehavioralBaselineService {
 // ============================================
 
 module.exports = new AgentBehavioralBaselineService();
+
+            console.error('AGENT BASELINE STATISTICS ERROR:', error);
+
+            // Statistics are advisory: a failure here must not take down the
+            // caller, so an empty-but-shaped result is returned instead.
+            return {
+                anomalies: {
+                    total_baselines: 0,
+                    avg_confidence: 0,
+                    compromised_agents: 0,
+                    unique_agents: 0
+                },
+                alerts: {
+                    total_alerts: 0,
+                    pending_alerts: 0
+                },
+                timestamp: new Date().toISOString()
+            };
+        }
+    }
+}
+
+// The file previously ended mid-object-literal inside getStatistics(), with no
+// catch block, no closing brace for the class and no export at all (#1297), so
+// it could neither be parsed nor required.
+module.exports = new AgentBehavioralBaselineService();
+module.exports.AgentBehavioralBaselineService = AgentBehavioralBaselineService;
+

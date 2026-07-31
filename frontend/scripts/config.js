@@ -9,6 +9,24 @@ const isLocalhost =
     hostname.startsWith("192.168.") ||
     hostname.startsWith("172.");
 
+// Mirrors backend/config/currency.js. The minor-unit exponent is here so that
+// anything converting to the smallest unit does not assume a factor of a
+// hundred, and the locale so amounts can be formatted for the right region.
+const CURRENCY_INFO = {
+    CODE: "INR",
+    SYMBOL: "₹",
+    MINOR_UNIT_EXPONENT: 2,
+    LOCALE: "en-IN"
+};
+
+const SUPPORTED_CURRENCIES = {
+    INR: { CODE: "INR", SYMBOL: "₹", LOCALE: "en-IN", RATE: 1.0, NAME: "Indian Rupee" },
+    USD: { CODE: "USD", SYMBOL: "$", LOCALE: "en-US", RATE: 0.012, NAME: "US Dollar" },
+    EUR: { CODE: "EUR", SYMBOL: "€", LOCALE: "de-DE", RATE: 0.011, NAME: "Euro" },
+    GBP: { CODE: "GBP", SYMBOL: "£", LOCALE: "en-GB", RATE: 0.0094, NAME: "British Pound" },
+    JPY: { CODE: "JPY", SYMBOL: "¥", LOCALE: "ja-JP", RATE: 1.75, NAME: "Japanese Yen" }
+};
+
 const CONFIG = {
     // api base url
     API_BASE: isLocalhost
@@ -29,9 +47,20 @@ const CONFIG = {
     PRODUCTS_PER_PAGE:
         8,
 
-    // currency
+    // multi-currency configuration
+    CURRENCY_INFO,
+    SUPPORTED_CURRENCIES,
+    RATES_CACHE_EXPIRATION_MS: 3600000, // 1 hour expiration
+
     CURRENCY:
-        "₹",
+        CURRENCY_INFO.SYMBOL,
+
+    // pricing rules (single source of truth for cart math)
+    PRICING: {
+        TAX_RATE: 0.18,
+        SHIPPING_FEE: 49,
+        FREE_SHIPPING_THRESHOLD: 999
+    },
 
     // storage keys
     STORAGE_KEYS: {
@@ -62,6 +91,14 @@ Object.freeze(
 
 Object.freeze(
     CONFIG.STORAGE_KEYS
+);
+
+Object.freeze(
+    CONFIG.PRICING
+);
+
+Object.freeze(
+    CONFIG.CURRENCY_INFO
 );
 
 // expose globally

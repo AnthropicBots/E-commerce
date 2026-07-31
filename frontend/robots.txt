@@ -1,12 +1,138 @@
+# frontend/robots.txt
+# AI Shopping Agent Friendly Configuration
+
+# ============================================
+# DEFAULT RULES FOR ALL BOTS
+# ============================================
+
 User-agent: *
 Allow: /
+Disallow: /admin/
 Disallow: /admin.html
+Disallow: /dashboard/
 Disallow: /dashboard.html
+Disallow: /profile/
 Disallow: /profile.html
+Disallow: /cart/
 Disallow: /cart.html
+Disallow: /checkout/
 Disallow: /checkout.html
 Disallow: /success.html
+Disallow: /order/
 Disallow: /order.html
+Disallow: /wishlist/
 Disallow: /wishlist.html
+Disallow: /api/
+Disallow: /vercel.html
+Disallow: /robots.html
 
-Sitemap: https://www.bhuvansh.xyz/sitemap.xml
+# ============================================
+# AI SHOPPING AGENTS - FULL ACCESS TO PRODUCTS
+# ============================================
+
+# ClaudeBot - Anthropic's AI Shopping Agent
+User-agent: ClaudeBot
+Allow: /
+Allow: /products/
+Allow: /product/
+Allow: /shop/
+Allow: /mens/
+Allow: /womens/
+Allow: /electronics/
+Allow: /home/
+Allow: /beauty/
+Allow: /categories/
+Allow: /search/
+Disallow: /admin/
+Disallow: /dashboard/
+Disallow: /api/
+Disallow: /checkout/
+Disallow: /cart/
+Disallow: /wishlist/
+Disallow: /profile/
+Crawl-delay: 1
+
+# ChatGPT-User - OpenAI's Shopping Agent
+User-agent: ChatGPT-User
+Allow: /
+Allow: /products/
+Allow: /product/
+Allow: /shop/
+Allow: /mens/
+Allow: /womens/
+Allow: /electronics/
+Allow: /home/
+Allow: /beauty/
+Disallow: /admin/
+Disallow: /dashboard/
+Disallow: /api/
+Disallow: /checkout/
+Disallow: /cart/
+Disallow: /wishlist/
+Disallow: /profile/
+Crawl-delay: 1
+
+# PerplexityBot - Perplexity AI Shopping Agent
+User-agent: PerplexityBot
+Allow: /
+Allow: /products/
+Allow: /product/
+Allow: /shop/
+Allow: /mens/
+Allow: /womens/
+Allow: /electronics/
+Allow: /home/
+Allow: /beauty/
+Disallow: /admin/
+Disallow: /dashboard/
+Disallow: /api/
+Disallow: /checkout/
+Disallow: /cart/
+Disallow: /wishlist/
+Disallow: /profile/
+Crawl-delay: 1
+
+# ============================================
+# SEARCH ENGINES
+# ============================================
+
+# Googlebot - Standard Search Engine
+User-agent: Googlebot
+Allow: /
+Allow: /products/
+Allow: /product/
+Allow: /shop/
+Allow: /mens/
+Allow: /womens/
+Allow: /electronics/
+Allow: /home/
+Allow: /beauty/
+Disallow: /admin/
+Disallow: /dashboard/
+Disallow: /api/
+Disallow: /checkout/
+Disallow: /cart/
+Disallow: /wishlist/
+Disallow: /profile/
+Crawl-delay: 0.5
+
+# Bingbot - Microsoft Search Engine
+User-agent: Bingbot
+Allow: /
+Allow: /products/
+Allow: /product/
+Allow: /shop/
+Disallow: /admin/
+Disallow: /dashboard/
+Disallow: /api/
+Disallow: /checkout/
+Disallow: /cart/
+Disallow: /wishlist/
+Disallow: /profile/
+Crawl-delay: 0.5
+
+# ============================================
+# SITEMAP LOCATION
+# ============================================
+
+Sitemap: https://e-commerce-git-main-bhuvanshs-projects.vercel.app/sitemap.xml

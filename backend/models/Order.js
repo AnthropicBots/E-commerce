@@ -1,3 +1,5 @@
+// Field names mirror the columns the order service writes, so a row read back
+// out of `orders` and an object built here describe the same order.
 class Order {
     constructor(order) {
         this.id = order.id;
@@ -9,6 +11,11 @@ class Order {
         this.zip = order.zip;
         this.fullAddress = order.fullAddress;
         this.paymentMethod = order.paymentMethod;
+        this.subtotal = order.subtotal || 0;
+        this.discount = order.discount || 0;
+        this.discountCode = order.discountCode || null;
+        this.tax = order.tax || 0;
+        this.shippingCost = order.shippingCost || 0;
         this.total = order.total || 0;
         this.status = order.status || "pending";
         this.items = order.items || [];

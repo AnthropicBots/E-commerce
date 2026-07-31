@@ -6,7 +6,7 @@
         name="viewport"
         content="width=device-width, initial-scale=1.0"
     >
-    <link rel="canonical" href="https://www.bhuvansh.xyz/index.html">
+    <link rel="canonical" href="https://e-commerce-git-main-bhuvanshs-projects.vercel.app/index.html">
     <meta
         name="description"
         content="Cara Fashion Store - Modern fashion e-commerce website with trending collections, featured products, and secure shopping experience."
@@ -224,7 +224,7 @@
             </div>
 
             <div class="sort-box">
-                <select id="product-sort">
+                <select id="product-sort" aria-label="Sort Products">
                     <option value="default">
                         Sort Products
                     </option>
@@ -296,7 +296,11 @@
         </p>
     </div>
 
-    <div class="products-grid" id="recently-viewed-container"></div>
+    <div class="carousel-wrapper">
+        <button class="carousel-btn prev" aria-label="Previous products"><i class="fas fa-chevron-left"></i></button>
+        <div class="product-carousel" id="recently-viewed-container"></div>
+        <button class="carousel-btn next" aria-label="Next products"><i class="fas fa-chevron-right"></i></button>
+    </div>
    
 </section>
 
@@ -315,7 +319,11 @@
         </p>
     </div>
 
-    <div class="products-grid" id="recommended-products-container"></div>
+    <div class="carousel-wrapper">
+        <button class="carousel-btn prev" aria-label="Previous products"><i class="fas fa-chevron-left"></i></button>
+        <div class="product-carousel" id="recommended-products-container"></div>
+        <button class="carousel-btn next" aria-label="Next products"><i class="fas fa-chevron-right"></i></button>
+    </div>
    
 
 </section>
@@ -337,10 +345,8 @@
             <span>
                 The best classic dress is on sale at cara
             </span>
-            <button class="banner-btn">
-                <a href="Buy1Get1.html">
+            <button class="banner-btn" onclick="window.location.href='Buy1Get1.html'">
                 View Products
-                </a>
             </button>
         </div>
 
@@ -354,33 +360,30 @@
             <span>
                 The best classic dress is on sale at cara
             </span>
-            <button class="banner-btn">
-                <a href="shop.html">
+            <button class="banner-btn" onclick="window.location.href='shop.html'">
                 Collection
-                </a>
             </button>
         </div>
     </section>
     <!-- Men's & Women's Collection -->
-     <section id = "collection" class = "section-p1 animate-on-scroll">
-            <a href = "mens.html" class = "collection-link">
-                <div class = "banner-box mens-collection-banner">
-                    <h4>NEW ARRIVALS</h4>
-                    <h2>MEN'S COLLECTION</h2>
-                    <span>Style. Comfort. Confidence.</span>
-                    <button class = "white">Shop Now </button>
-                </div>
-            </a>
-             <a href = "womens.html" class = "collection-link">
-                <div class = "banner-box womens-collection-banner">
-                    <h4>NEW ARRIVALS</h4>
-                    <h2>WOMEN'S COLLECTION</h2>
-                    <span>Elegant. Feminine. Fearless</span>
-                    <button class = "white">Shop Now </button>
-                </div>
-            </a>
+    <section id = "collection" class = "section-p1 animate-on-scroll">
+            <a href="mens.html" class="collection-link">
+    <div class="banner-box mens-collection-banner">
+        <h2>MEN'S COLLECTION</h2>
+        <span>Style. Comfort. Confidence.</span>
+        <span class="white">Shop Now</span>
+    </div>
+</a>
+            <a href="womens.html" class="collection-link">
+    <div class="banner-box womens-collection-banner">
+        <h4>NEW ARRIVALS</h4>
+        <h2>WOMEN'S COLLECTION</h2>
+        <span>Elegant. Feminine. Fearless</span>
+        <span class="white">Shop Now</span>
+    </div>
+</a>
 
-     </section>
+    </section>
     <!-- Banner 3 -->
     <section id="banner3" class="animate-on-scroll">
         <!-- <div class="banner-box">
@@ -431,14 +434,20 @@
                 </span>
             </p>
         </div>
-        <form class="form">
-            <input
-                type="email"
-                placeholder="Your email address"
-            >
-            <button class="normal" type="submit">
-                Sign Up
-            </button>
+        <form class="form" id="newsletter-form" novalidate>
+            <div class="newsletter-input-group">
+                <input
+                    type="email"
+                    id="newsletter-email"
+                    placeholder="Your email address"
+                    required
+                >
+                <button class="normal" type="submit" id="newsletter-btn">
+                    <span class="btn-text">Sign Up</span>
+                    <span class="btn-loader"><i class="fas fa-circle-notch fa-spin"></i></span>
+                </button>
+            </div>
+            <div id="newsletter-feedback" class="newsletter-feedback-message"></div>
         </form>
     </section>
 

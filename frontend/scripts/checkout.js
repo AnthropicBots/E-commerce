@@ -70,6 +70,16 @@ const elements = {
             "checkout-shipping"
         ),
 
+    discount:
+        document.getElementById(
+            "checkout-discount"
+        ),
+
+    discountRow:
+        document.getElementById(
+            "checkout-discount-row"
+        ),
+
     total:
         document.getElementById(
             "checkout-total"
@@ -261,16 +271,108 @@ function safeQty(
 }
 
 // CALCULATE TOTALS
-function calculateTotals() {
+async function calculateTotals() {
 
-    return AppUtils.calculateCartTotals(
+    return AppUtils.fetchCartQuote(
         cart,
         appliedCoupon
     );
 }
 
+function renderTotals(
+    totals
+) {
+
+    // The breakdown states the currency it was priced in; trust that over the
+    // local constant so display can never drift from what is charged.
+    const currency =
+        totals.currency;
+
+    if (
+        elements.subtotal
+    ) {
+
+        elements.subtotal.innerText =
+            AppUtils.formatPrice(
+                totals.subtotal,
+                currency
+            );
+    }
+
+    if (
+        elements.tax
+    ) {
+
+        elements.tax.innerText =
+            AppUtils.formatPrice(
+                totals.tax,
+                currency
+            );
+    }
+
+    if (
+        elements.shipping
+    ) {
+
+        elements.shipping.innerText =
+            totals.shipping === 0
+                ? "Free"
+                : AppUtils.formatPrice(
+                    totals.shipping,
+                    currency
+                );
+    }
+
+    const discount =
+        Number(totals.discount) || 0;
+
+    if (
+        elements.discountRow
+    ) {
+
+        elements.discountRow.style.display =
+            discount > 0
+                ? ""
+                : "none";
+    }
+
+    if (
+        elements.discount
+    ) {
+
+        elements.discount.innerText =
+            `-${AppUtils.formatPrice(discount, currency)}`;
+    }
+
+    if (
+        elements.total
+    ) {
+
+        elements.total.innerText =
+            AppUtils.formatPrice(
+                totals.total,
+                currency
+            );
+    }
+}
+
+// Re-price the basket and repaint the summary, returning the figures that were
+// shown so the caller can submit exactly those — the shopper must never be
+// asked to confirm one total and charged another.
+async function refreshSummary() {
+
+    const totals =
+        await calculateTotals();
+
+    renderTotals(
+        totals
+    );
+
+    return totals;
+}
+
 // RENDER CHECKOUT
-function renderCheckout() {
+async function renderCheckout() {
 
     if (
         !elements.checkoutItems
@@ -347,183 +449,141 @@ function renderCheckout() {
     );
 
     const totals =
-        calculateTotals();
+        await refreshSummary();
 
     if (
-        elements.subtotal
+        !totals.isServerQuote
     ) {
 
-        elements.subtotal.innerText =
-            AppUtils.formatPrice(
-                totals.subtotal
-            );
-    }
-
-    if (
-        elements.tax
-    ) {
-
-        elements.tax.innerText =
-            AppUtils.formatPrice(
-                totals.tax
-            );
-    }
-
-    if (
-        elements.shipping
-    ) {
-
-        elements.shipping.innerText =
-            totals.shipping === 0
-                ? "Free"
-                : AppUtils.formatPrice(
-                    totals.shipping
-                );
-    }
-
-    if (
-        elements.total
-    ) {
-
-        elements.total.innerText =
-            AppUtils.formatPrice(
-                totals.total
-            );
+        AppUtils.notify(
+            "Showing estimated totals — we could not reach the server. Your order will be priced when you place it.",
+            "warning"
+        );
     }
 }
 
 renderCheckout();
 
-// PAYMENT METHOD TOGGLE
-elements.paymentMethods.forEach(
-    (
-        method
-    ) => {
-
-        method.addEventListener(
-            "change",
-            () => {
-
-                if (
-                    !elements.cardDetails
-                ) {
-                    return;
+// STRIPE SETUP
+let stripe, elementsStripe, cardElement;
+try {
+    stripe = Stripe('pk_test_TYooMQauvdEDq54NiTphI7jx'); // Placeholder key
+    elementsStripe = stripe.elements();
+    cardElement = elementsStripe.create('card', {
+        style: {
+            base: {
+                color: '#32325d',
+                fontFamily: '"Helvetica Neue", Helvetica, sans-serif',
+                fontSmoothing: 'antialiased',
+                fontSize: '16px',
+                '::placeholder': {
+                    color: '#aab7c4'
                 }
-
-                elements.cardDetails.style.display =
-                    method.value ===
-                    "Card"
-                        ? "block"
-                        : "none";
+            },
+            invalid: {
+                color: '#fa755a',
+                iconColor: '#fa755a'
             }
-        );
+        }
+    });
+    
+    if (elements.cardDetails) {
+        cardElement.mount('#card-element');
+        cardElement.on('change', function(event) {
+            const displayError = document.getElementById('card-errors');
+            if (event.error) {
+                displayError.textContent = event.error.message;
+            } else {
+                displayError.textContent = '';
+            }
+        });
     }
-);
+} catch(e) {
+    console.error("Stripe initialization failed", e);
+}
 
-// VALIDATION
+// PAYMENT METHOD TOGGLE
+elements.paymentMethods.forEach((method) => {
+    method.addEventListener("change", () => {
+        if (!elements.cardDetails) return;
+        elements.cardDetails.style.display = method.value === "card" ? "block" : "none";
+    });
+});
+
 function validateCheckoutForm() {
 
-    if (
-        !elements.fullName.value.trim()
-        ||
-        !elements.email.value.trim()
-        ||
-        !elements.phone.value.trim()
-        ||
-        !elements.city.value.trim()
-        ||
-        !elements.state.value.trim()
-        ||
-        !elements.zip.value.trim()
-        ||
-        !elements.address.value.trim()
-    ) {
+    let isValid = true;
 
-        AppUtils.notify(
-            "Please fill all required fields.",
-            "error"
-        );
+    // helper to show/clear inline errors
+    function showError(fieldId, errorId, message) {
+        const field = document.getElementById(fieldId);
+        const error = document.getElementById(errorId);
+        if (!field.value.trim()) {
+            if (error) error.textContent = message;
+            field.style.border = "1px solid red";
+            isValid = false;
+        } else {
+            if (error) error.textContent = "";
+            field.style.border = "";
+        }
+    }
 
+    // validate each field
+    showError("full-name", "full-name-error", "Full name is required.");
+    showError("email", "email-error", "Email address is required.");
+    showError("phone", "phone-error", "Phone number is required.");
+    showError("city", "city-error", "City is required.");
+    showError("state", "state-error", "State is required.");
+    showError("zip", "zip-error", "ZIP code is required.");
+    showError("address", "address-error", "Address is required.");
+
+    if (!isValid) {
+        AppUtils.notify("Please fill all required fields.", "error");
         return false;
     }
 
     // email validation
-    const emailRegex =
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (
-        !emailRegex.test(
-            elements.email.value.trim()
-        )
-    ) {
-
-        AppUtils.notify(
-            "Enter a valid email address.",
-            "error"
-        );
-
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(elements.email.value.trim())) {
+        document.getElementById("email-error").textContent =
+            "Enter a valid email address.";
+        elements.email.style.border = "1px solid red";
+        AppUtils.notify("Enter a valid email address.", "error");
         return false;
     }
 
     // phone validation
-    const phoneRegex =
-        /^[6-9]\d{9}$/;
-
-    if (
-        !phoneRegex.test(
-            elements.phone.value.trim()
-        )
-    ) {
-
-        AppUtils.notify(
-            "Enter a valid 10-digit phone number.",
-            "error"
-        );
-
+    const phoneRegex = /^[6-9]\d{9}$/;
+    if (!phoneRegex.test(elements.phone.value.trim())) {
+        document.getElementById("phone-error").textContent =
+            "Enter a valid 10-digit phone number.";
+        elements.phone.style.border = "1px solid red";
+        AppUtils.notify("Enter a valid 10-digit phone number.", "error");
         return false;
     }
 
     // zip validation
-    const zipRegex =
-        /^\d{5,6}$/;
-
-    if (
-        !zipRegex.test(
-            elements.zip.value.trim()
-        )
-    ) {
-
-        AppUtils.notify(
-            "Enter a valid ZIP / PIN code.",
-            "error"
-        );
-
+    const zipRegex = /^\d{5,6}$/;
+    if (!zipRegex.test(elements.zip.value.trim())) {
+        document.getElementById("zip-error").textContent =
+            "Enter a valid ZIP / PIN code.";
+        elements.zip.style.border = "1px solid red";
+        AppUtils.notify("Enter a valid ZIP / PIN code.", "error");
         return false;
     }
 
     // payment method
     const selectedPayment =
-        document.querySelector(
-            'input[name="payment"]:checked'
-        );
-
-    if (
-        !selectedPayment
-    ) {
-
-        AppUtils.notify(
-            "Select a payment method.",
-            "error"
-        );
-
+        document.querySelector('input[name="payment"]:checked');
+    if (!selectedPayment) {
+        AppUtils.notify("Select a payment method.", "error");
         return false;
     }
 
     return true;
 }
-
 // CREATE ORDER PAYLOAD
-function createOrderPayload() {
+async function createOrderPayload() {
 
     const selectedPayment =
         document.querySelector(
@@ -531,7 +591,7 @@ function createOrderPayload() {
         );
 
     const totals =
-        calculateTotals();
+        await refreshSummary();
 
     return {
 
@@ -569,6 +629,11 @@ function createOrderPayload() {
         total:
             totals.total,
 
+        // Without this the backend never sees the coupon the shopper applied
+        // and quietly charges them the undiscounted price.
+        promoCode:
+            appliedCoupon || null,
+
         items:
             AppUtils.safeArray(
                 cart
@@ -598,6 +663,33 @@ function createOrderPayload() {
 // PLACE ORDER
 let isSubmitting =
     false;
+
+const TOTAL_MISMATCH_CODE =
+    "ORDER_TOTAL_MISMATCH";
+
+// Turns an unsuccessful API response into an error the submit handler can
+// present. A rejected total is the one failure the shopper can act on, so it
+// keeps the server's wording — which names both figures — and is flagged so
+// the summary gets repainted before they retry.
+function orderFailure(
+    response
+) {
+
+    const failure =
+        new Error(
+            (response && response.message)
+            || "Failed to place order."
+        );
+
+    failure.isTotalMismatch =
+        Boolean(
+            response
+            &&
+            response.code === TOTAL_MISMATCH_CODE
+        );
+
+    return failure;
+}
 
 if (
     elements.checkoutForm
@@ -638,75 +730,92 @@ if (
                     "Processing...";
             }
 
-            const order =
-                createOrderPayload();
+            const order = await createOrderPayload();
+            const selectedPaymentMethod = order.paymentMethod;
+
+            // Whichever branch runs, the id of the order the server created.
+            let placedOrderId = null;
 
             try {
+                if (selectedPaymentMethod === "card") {
+                    // 1. Create Payment Intent
+                    const intentRes = await AppUtils.apiRequest("/orders/create-payment-intent", {
+                        method: "POST",
+                        body: JSON.stringify(order)
+                    });
 
-                const data =
-                    await AppUtils.apiRequest(
-                        "/orders",
-                        {
-                            method: "POST",
-                            body:
-                                JSON.stringify(
-                                    order
-                                )
+                    if (!intentRes.success) {
+                        throw orderFailure(intentRes);
+                    }
+
+                    placedOrderId = intentRes.orderId;
+
+                    // 2. Confirm Card Payment with Stripe
+                    const { error, paymentIntent } = await stripe.confirmCardPayment(intentRes.clientSecret, {
+                        payment_method: {
+                            card: cardElement,
+                            billing_details: {
+                                name: order.customer.name,
+                                email: order.customer.email
+                            }
                         }
-                    );
+                    });
 
+                    if (error) {
+                        // Display error in #card-errors
+                        const displayError = document.getElementById('card-errors');
+                        displayError.textContent = error.message;
+                        throw new Error(error.message);
+                    } else if (paymentIntent.status === 'succeeded') {
+                        AppUtils.notify("Payment successful! Order placed. 🎉", "success");
+                    }
+                } else {
+                    // Fallback for COD/UPI
+                    const data = await AppUtils.apiRequest("/orders", {
+                        method: "POST",
+                        body: JSON.stringify(order)
+                    });
+
+                    if (!data.success) {
+                        throw orderFailure(data);
+                    }
+
+                    placedOrderId = data.orderId;
+
+                    AppUtils.notify("Order placed successfully! 🎉", "success");
+                }
+
+                // clear cart
+                AppUtils.clearCart();
+                AppUtils.removeStorage("appliedCoupon");
+
+                // update ui
                 if (
-                    data.success
+                    typeof updateCartCount ===
+                    "function"
                 ) {
 
-                    AppUtils.notify(
-                        "Order placed successfully! 🎉",
-                        "success"
-                    );
-
-                    // clear cart
-                    AppUtils.clearCart();
-
-                    AppUtils.removeStorage(
-                        "appliedCoupon"
-                    );
-
-                    // update ui
-                    if (
-                        typeof updateCartCount ===
-                        "function"
-                    ) {
-
-                        updateCartCount();
-                    }
-
-                    if (
-                        typeof renderCartDrawer ===
-                        "function"
-                    ) {
-
-                        renderCartDrawer();
-                    }
-
-                    // redirect
-                    setTimeout(
-                        () => {
-
-                            window.location.href =
-                                `success.html?id=${data.orderId}`;
-
-                        },
-                        1200
-                    );
-
-                } else {
-
-                    AppUtils.notify(
-                        data.message ||
-                        "Failed to place order.",
-                        "error"
-                    );
+                    updateCartCount();
                 }
+
+                if (
+                    typeof renderCartDrawer ===
+                    "function"
+                ) {
+
+                    renderCartDrawer();
+                }
+
+                // redirect
+                setTimeout(
+                    () => {
+
+                        window.location.href =
+                            `success.html?id=${placedOrderId}`;
+
+                    },
+                    1200
+                );
 
             } catch (
                 error
@@ -717,10 +826,25 @@ if (
                     error
                 );
 
-                AppUtils.notify(
-                    "Failed to place order.",
-                    "error"
-                );
+                if (
+                    error.isTotalMismatch
+                ) {
+
+                    await refreshSummary();
+
+                    AppUtils.notify(
+                        `${error.message} The summary has been updated — please review it and try again.`,
+                        "error"
+                    );
+
+                } else {
+
+                    AppUtils.notify(
+                        error.message ||
+                        "Failed to place order.",
+                        "error"
+                    );
+                }
 
             } finally {
 
@@ -741,5 +865,11 @@ if (
         }
     );
 }
+
+window.addEventListener("currencyUpdated", () => {
+    if (typeof renderCheckout === "function") {
+        renderCheckout();
+    }
+});
 
 
