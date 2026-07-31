@@ -7,7 +7,15 @@ const morgan = require("morgan");
 const timeout = require("connect-timeout");
 const fs = require("fs");
 const path = require("path");
+// Add with other imports
+const identityRoutes = require('./routes/identityRoutes');
+const { verifyIdentityClaims } = require('./services/aiIdentityVerificationService');
 
+// Add identity verification middleware
+app.use(verifyIdentityClaims);
+
+// Add identity routes
+app.use('/api/identity', identityRoutes);
 const dotenv = require("dotenv");
 const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
