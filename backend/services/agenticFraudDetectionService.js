@@ -1,6 +1,7 @@
-// backend/services/agenticFraudDetectionService.js
 const db = require('../config/db').promise;
 const crypto = require('crypto');
+const { analyzeUserIntent, triggerAgentQuarantine } = require('./promptInjectionDetector');
+const logger = require('../utils/logger');
 
 // ============================================
 // CONFIGURATION
@@ -15,7 +16,6 @@ const AGENTIC_FRAUD_CONFIG = {
         VERY_HIGH: 80
     },
     
-    // Agent identity validation
     identityValidation: {
         requireProvenance: true,
         requireSignature: true,
@@ -29,7 +29,10 @@ const AGENTIC_FRAUD_CONFIG = {
         tooFastInteraction: 20,
         tooSlowInteraction: 10,
         unusualPattern: 25,
-        mandateViolation: 50
+        mandateViolation: 50,
+        promptInjection: 60,
+        contextPoisoning: 50,
+        suspiciousEntities: 30
     },
     
     // Agent types
@@ -47,7 +50,9 @@ const AGENTIC_FRAUD_CONFIG = {
         'openai',
         'google',
         'microsoft',
-        'perplexity'
+        'perplexity',
+        'cohere',
+        'meta'
     ]
 };
 
@@ -61,6 +66,7 @@ class AgenticFraudDetectionService {
         this.agentReputations = new Map();
         this.fraudAlerts = [];
         this.providerCache = new Map();
+        this.quarantinedAgents = new Map();
     }
 
     /**
@@ -74,44 +80,97 @@ class AgenticFraudDetectionService {
             isFraudulent: false,
             flags: [],
             recommendations: [],
+            promptAnalysis: null,
+            quarantineTriggered: false,
             timestamp: new Date().toISOString()
         };
 
-        // 1. Agent Identity Validation
-        const identityResult = await this.validateAgentIdentity(agentData);
-        evaluation.flags.push(...identityResult.flags);
-        evaluation.trustScore += identityResult.score;
+        try {
+            // 1. Prompt Injection Analysis
+            if (context.prompt) {
+                const promptAnalysis = await analyzeUserIntent(
+                    context.prompt,
+                    agentData.agentId,
+                    {
+                        ...context,
+                        isAgentic: true,
+                        agentId: agentData.agentId,
+                        agentType: agentData.type
+                    }
+                );
+                evaluation.promptAnalysis = promptAnalysis;
+                
+                if (!promptAnalysis.safe || promptAnalysis.riskLevel === 'critical') {
+                    evaluation.flags.push({
+                        type: 'prompt_injection_detected',
+                        severity: 'critical',
+                        details: `Prompt injection detected: ${promptAnalysis.riskLevel}`,
+                        patterns: promptAnalysis.detectedPatterns
+                    });
+                    evaluation.trustScore -= AGENTIC_FRAUD_CONFIG.riskSignals.promptInjection;
+                    
+                    if (promptAnalysis.quarantineTriggered) {
+                        evaluation.quarantineTriggered = true;
+                    }
+                }
+            }
 
-        // 2. Agent Provenance Verification
-        const provenanceResult = await this.verifyAgentProvenance(agentData);
-        evaluation.flags.push(...provenanceResult.flags);
-        evaluation.trustScore += provenanceResult.score;
+            // 2. Agent Identity Validation
+            const identityResult = await this.validateAgentIdentity(agentData);
+            evaluation.flags.push(...identityResult.flags);
+            evaluation.trustScore += identityResult.score;
 
-        // 3. Interaction Pattern Analysis
-        const patternResult = await this.analyzeInteractionPatterns(agentData, context);
-        evaluation.flags.push(...patternResult.flags);
-        evaluation.trustScore += patternResult.score;
+            // 3. Agent Provenance Verification
+            const provenanceResult = await this.verifyAgentProvenance(agentData);
+            evaluation.flags.push(...provenanceResult.flags);
+            evaluation.trustScore += provenanceResult.score;
 
-        // 4. Mandate Scope Check
-        const mandateResult = await this.checkMandateScope(agentData, context);
-        evaluation.flags.push(...mandateResult.flags);
-        evaluation.trustScore += mandateResult.score;
+            // 4. Interaction Pattern Analysis
+            const patternResult = await this.analyzeInteractionPatterns(agentData, context);
+            evaluation.flags.push(...patternResult.flags);
+            evaluation.trustScore += patternResult.score;
 
-        // 5. Provider Verification
-        const providerResult = await this.verifyProvider(agentData.provider);
-        evaluation.flags.push(...providerResult.flags);
-        evaluation.trustScore += providerResult.score;
+            // 5. Mandate Scope Check
+            const mandateResult = await this.checkMandateScope(agentData, context);
+            evaluation.flags.push(...mandateResult.flags);
+            evaluation.trustScore += mandateResult.score;
 
-        // Calculate final trust score (0-100)
-        evaluation.trustScore = Math.max(0, Math.min(100, 100 + evaluation.trustScore));
-        evaluation.riskLevel = this.calculateRiskLevel(evaluation.trustScore);
-        evaluation.isFraudulent = evaluation.riskLevel === 'critical';
+            // 6. Provider Verification
+            const providerResult = await this.verifyProvider(agentData.provider);
+            evaluation.flags.push(...providerResult.flags);
+            evaluation.trustScore += providerResult.score;
 
-        // Generate recommendations
-        evaluation.recommendations = this.generateRecommendations(evaluation);
+            evaluation.trustScore = Math.max(0, Math.min(100, 100 + evaluation.trustScore));
+            evaluation.riskLevel = this.calculateRiskLevel(evaluation.trustScore);
+            evaluation.isFraudulent = evaluation.riskLevel === 'critical' || 
+                                     evaluation.quarantineTriggered;
 
-        // Log evaluation
-        await this.logEvaluation(agentData, evaluation, context);
+            evaluation.recommendations = this.generateRecommendations(evaluation);
+
+            if (evaluation.isFraudulent || evaluation.quarantineTriggered) {
+                await triggerAgentQuarantine(
+                    agentData.agentId,
+                    evaluation,
+                    context
+                );
+                this.quarantinedAgents.set(agentData.agentId, {
+                    evaluation,
+                    context,
+                    quarantinedAt: new Date().toISOString()
+                });
+            }
+
+            await this.logEvaluation(agentData, evaluation, context);
+
+        } catch (error) {
+            logger.error('Agent evaluation error:', error);
+            evaluation.flags.push({
+                type: 'evaluation_error',
+                severity: 'high',
+                details: error.message
+            });
+            evaluation.trustScore = Math.max(0, evaluation.trustScore - 20);
+        }
 
         return evaluation;
     }
@@ -143,7 +202,6 @@ class AgenticFraudDetectionService {
                 });
                 score -= AGENTIC_FRAUD_CONFIG.riskSignals.unsignedAgent;
             } else {
-                // Verify signature
                 const signatureValid = await this.verifyAgentSignature(agentData);
                 if (!signatureValid) {
                     flags.push({
@@ -166,6 +224,16 @@ class AgenticFraudDetectionService {
             score -= 15;
         }
 
+        // Check for agent version
+        if (!agentData.version) {
+            flags.push({
+                type: 'missing_agent_version',
+                severity: 'low',
+                details: 'Agent version is missing'
+            });
+            score -= 5;
+        }
+
         return { flags, score };
     }
 
@@ -180,7 +248,6 @@ class AgenticFraudDetectionService {
             return { flags, score };
         }
 
-        // Check for provenance data
         if (!agentData.provenance) {
             flags.push({
                 type: 'missing_provenance',
@@ -191,7 +258,6 @@ class AgenticFraudDetectionService {
             return { flags, score };
         }
 
-        // Check provenance fields
         const requiredFields = ['provider', 'version', 'createdAt'];
         const missingFields = requiredFields.filter(f => !agentData.provenance[f]);
 
@@ -204,7 +270,6 @@ class AgenticFraudDetectionService {
             score -= 15;
         }
 
-        // Check provenance age
         if (agentData.provenance.createdAt) {
             const age = Date.now() - new Date(agentData.provenance.createdAt).getTime();
             const ageDays = age / (1000 * 60 * 60 * 24);
@@ -229,9 +294,8 @@ class AgenticFraudDetectionService {
         const flags = [];
         let score = 0;
 
-        // Check interaction speed
         if (context.interactionSpeed) {
-            if (context.interactionSpeed < 100) { // milliseconds
+            if (context.interactionSpeed < 100) {
                 flags.push({
                     type: 'too_fast_interaction',
                     severity: 'medium',
@@ -248,11 +312,9 @@ class AgenticFraudDetectionService {
             }
         }
 
-        // Check navigation pattern
         if (context.navigationPattern) {
             const pattern = context.navigationPattern;
             
-            // Check for unnatural patterns
             if (pattern.includes('checkout') && !pattern.includes('product') && !pattern.includes('cart')) {
                 flags.push({
                     type: 'unusual_navigation',
@@ -262,7 +324,6 @@ class AgenticFraudDetectionService {
                 score -= AGENTIC_FRAUD_CONFIG.riskSignals.unusualPattern;
             }
 
-            // Check for rapid page transitions
             if (pattern.transitions && pattern.transitions > 10) {
                 flags.push({
                     type: 'rapid_navigation',
@@ -273,16 +334,23 @@ class AgenticFraudDetectionService {
             }
         }
 
-        // Check for programmatic form completion
-        if (context.formCompletionTime) {
-            if (context.formCompletionTime < 1000) {
-                flags.push({
-                    type: 'programmatic_form_completion',
-                    severity: 'high',
-                    details: `Form completed in ${context.formCompletionTime}ms (bot-like)`
-                });
-                score -= 25;
-            }
+        if (context.formCompletionTime && context.formCompletionTime < 1000) {
+            flags.push({
+                type: 'programmatic_form_completion',
+                severity: 'high',
+                details: `Form completed in ${context.formCompletionTime}ms (bot-like)`
+            });
+            score -= 25;
+        }
+
+        // Check for context poisoning indicators
+        if (context.contextPoisoningIndicators && context.contextPoisoningIndicators.length > 0) {
+            flags.push({
+                type: 'context_poisoning_detected',
+                severity: 'critical',
+                details: `Context poisoning indicators: ${context.contextPoisoningIndicators.join(', ')}`
+            });
+            score -= AGENTIC_FRAUD_CONFIG.riskSignals.contextPoisoning;
         }
 
         return { flags, score };
@@ -305,10 +373,8 @@ class AgenticFraudDetectionService {
             return { flags, score };
         }
 
-        // Check mandate scope
         const { action, amount, merchant } = context;
 
-        // Check action permissions
         if (action && !context.mandate.allowedActions.includes(action)) {
             flags.push({
                 type: 'mandate_violation_action',
@@ -318,7 +384,6 @@ class AgenticFraudDetectionService {
             score -= AGENTIC_FRAUD_CONFIG.riskSignals.mandateViolation;
         }
 
-        // Check amount limits
         if (amount && context.mandate.maxAmount && amount > context.mandate.maxAmount) {
             flags.push({
                 type: 'mandate_violation_amount',
@@ -328,7 +393,6 @@ class AgenticFraudDetectionService {
             score -= 35;
         }
 
-        // Check merchant restrictions
         if (merchant && context.mandate.allowedMerchants && 
             !context.mandate.allowedMerchants.includes(merchant)) {
             flags.push({
@@ -359,7 +423,6 @@ class AgenticFraudDetectionService {
             return { flags, score };
         }
 
-        // Check if provider is trusted
         if (!AGENTIC_FRAUD_CONFIG.trustedProviders.includes(provider)) {
             flags.push({
                 type: 'untrusted_provider',
@@ -369,7 +432,6 @@ class AgenticFraudDetectionService {
             score -= 20;
         }
 
-        // Check provider reputation
         const reputation = await this.getProviderReputation(provider);
         if (reputation && reputation.score < 50) {
             flags.push({
@@ -402,7 +464,7 @@ class AgenticFraudDetectionService {
                 return reputation[0];
             }
         } catch (error) {
-            console.error('Provider reputation error:', error);
+            logger.error('Provider reputation error:', error);
         }
 
         return null;
@@ -425,7 +487,7 @@ class AgenticFraudDetectionService {
                 Buffer.from(expectedSignature)
             );
         } catch (error) {
-            console.error('Signature verification error:', error);
+            logger.error('Signature verification error:', error);
             return false;
         }
     }
@@ -450,22 +512,28 @@ class AgenticFraudDetectionService {
             recommendations.push('Block agent access immediately');
             recommendations.push('Alert security team');
             recommendations.push('Require human verification');
+            recommendations.push('Quarantine agent session');
         }
 
         if (evaluation.riskLevel === 'high') {
             recommendations.push('Require additional verification');
             recommendations.push('Rate limit agent actions');
             recommendations.push('Monitor for unusual patterns');
+            recommendations.push('Review prompt content');
         }
 
         if (evaluation.riskLevel === 'medium') {
             recommendations.push('Verify agent identity');
             recommendations.push('Check mandate scope');
             recommendations.push('Log all agent actions');
+            recommendations.push('Enable enhanced monitoring');
         }
 
-        // Specific recommendations based on flags
         for (const flag of evaluation.flags) {
+            if (flag.type === 'prompt_injection_detected') {
+                recommendations.push('Review prompt for injection attempts');
+                recommendations.push('Update security rules');
+            }
             if (flag.type === 'unsigned_agent') {
                 recommendations.push('Require agent to be signed');
             }
@@ -474,6 +542,10 @@ class AgenticFraudDetectionService {
             }
             if (flag.type === 'unknown_provider') {
                 recommendations.push('Verify provider identity');
+            }
+            if (flag.type === 'context_poisoning_detected') {
+                recommendations.push('Review context for poisoning attempts');
+                recommendations.push('Implement additional context validation');
             }
         }
 
@@ -488,8 +560,8 @@ class AgenticFraudDetectionService {
             await db.query(
                 `INSERT INTO agentic_fraud_evaluations 
                  (agent_id, trust_score, risk_level, is_fraudulent, flags,
-                  recommendations, context, timestamp)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+                  recommendations, prompt_analysis, quarantine_triggered, context, timestamp)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
                 [
                     agentData.agentId,
                     evaluation.trustScore,
@@ -497,22 +569,22 @@ class AgenticFraudDetectionService {
                     evaluation.isFraudulent ? 1 : 0,
                     JSON.stringify(evaluation.flags),
                     JSON.stringify(evaluation.recommendations),
+                    JSON.stringify(evaluation.promptAnalysis),
+                    evaluation.quarantineTriggered ? 1 : 0,
                     JSON.stringify(context)
                 ]
             );
 
-            // Store in memory
             this.fraudAlerts.push({
                 agentId: agentData.agentId,
                 ...evaluation
             });
 
-            // Keep last 1000 alerts
             if (this.fraudAlerts.length > 1000) {
                 this.fraudAlerts = this.fraudAlerts.slice(-1000);
             }
         } catch (error) {
-            console.error('Log evaluation error:', error);
+            logger.error('Log evaluation error:', error);
         }
     }
 
@@ -525,7 +597,8 @@ class AgenticFraudDetectionService {
                 `SELECT 
                     AVG(trust_score) as avg_trust,
                     COUNT(*) as total_evaluations,
-                    SUM(CASE WHEN is_fraudulent = 1 THEN 1 ELSE 0 END) as fraud_count
+                    SUM(CASE WHEN is_fraudulent = 1 THEN 1 ELSE 0 END) as fraud_count,
+                    SUM(CASE WHEN quarantine_triggered = 1 THEN 1 ELSE 0 END) as quarantine_count
                  FROM agentic_fraud_evaluations 
                  WHERE agent_id = ? 
                  AND timestamp > DATE_SUB(NOW(), INTERVAL 30 DAY)`,
@@ -538,17 +611,62 @@ class AgenticFraudDetectionService {
 
             const score = evaluations[0].avg_trust || 50;
             const fraudRate = (evaluations[0].fraud_count / evaluations[0].total_evaluations) * 100;
+            const quarantineRate = (evaluations[0].quarantine_count / evaluations[0].total_evaluations) * 100;
+
+            let reputation = 'trusted';
+            if (quarantineRate > 20 || fraudRate > 30) reputation = 'malicious';
+            else if (fraudRate > 10 || quarantineRate > 10) reputation = 'suspicious';
+            else if (fraudRate > 5) reputation = 'neutral';
 
             return {
-                reputation: fraudRate > 20 ? 'suspicious' : 
-                           fraudRate > 5 ? 'neutral' : 'trusted',
+                reputation,
                 score: Math.round(score),
                 totalEvaluations: evaluations[0].total_evaluations,
-                fraudRate: Math.round(fraudRate)
+                fraudRate: Math.round(fraudRate),
+                quarantineRate: Math.round(quarantineRate),
+                isQuarantined: this.quarantinedAgents.has(agentId)
             };
         } catch (error) {
-            console.error('Agent reputation error:', error);
+            logger.error('Agent reputation error:', error);
             return { reputation: 'unknown', score: 50 };
+        }
+    }
+
+    /**
+     * Get quarantined agents
+     */
+    getQuarantinedAgents() {
+        return Array.from(this.quarantinedAgents.entries()).map(([agentId, data]) => ({
+            agentId,
+            ...data
+        }));
+    }
+
+    /**
+     * Release agent from quarantine
+     */
+    async releaseFromQuarantine(agentId, adminId, reason) {
+        try {
+            if (!this.quarantinedAgents.has(agentId)) {
+                throw new Error('Agent not found in quarantine');
+            }
+
+            await db.query(
+                `UPDATE agent_quarantine 
+                 SET status = 'released', 
+                     released_at = NOW(),
+                     released_by = ?,
+                     release_reason = ?
+                 WHERE agent_id = ? AND status = 'active'`,
+                [adminId, reason, agentId]
+            );
+
+            this.quarantinedAgents.delete(agentId);
+            logger.info(`Agent ${agentId} released from quarantine by ${adminId}`);
+            return { success: true };
+        } catch (error) {
+            logger.error('Release from quarantine error:', error);
+            throw error;
         }
     }
 
@@ -564,7 +682,8 @@ class AgenticFraudDetectionService {
                     AVG(trust_score) as avg_trust,
                     SUM(CASE WHEN risk_level = 'critical' THEN 1 ELSE 0 END) as critical_alerts,
                     SUM(CASE WHEN risk_level = 'high' THEN 1 ELSE 0 END) as high_alerts,
-                    SUM(CASE WHEN is_fraudulent = 1 THEN 1 ELSE 0 END) as fraud_detected
+                    SUM(CASE WHEN is_fraudulent = 1 THEN 1 ELSE 0 END) as fraud_detected,
+                    SUM(CASE WHEN quarantine_triggered = 1 THEN 1 ELSE 0 END) as quarantine_count
                  FROM agentic_fraud_evaluations
                  WHERE timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR)`
             );
@@ -574,10 +693,14 @@ class AgenticFraudDetectionService {
                 fraudRate: stats[0].total_evaluations > 0 
                     ? ((stats[0].fraud_detected / stats[0].total_evaluations) * 100).toFixed(2) + '%'
                     : '0%',
+                quarantineRate: stats[0].total_evaluations > 0
+                    ? ((stats[0].quarantine_count / stats[0].total_evaluations) * 100).toFixed(2) + '%'
+                    : '0%',
+                activeQuarantines: this.quarantinedAgents.size,
                 timestamp: new Date().toISOString()
             };
         } catch (error) {
-            console.error('Statistics error:', error);
+            logger.error('Statistics error:', error);
             throw error;
         }
     }
@@ -591,6 +714,7 @@ class AgenticFraudDetectionService {
             agentReputations: this.agentReputations.size,
             fraudAlerts: this.fraudAlerts.length,
             providerCache: this.providerCache.size,
+            quarantinedAgents: this.quarantinedAgents.size,
             config: AGENTIC_FRAUD_CONFIG
         };
     }
