@@ -572,6 +572,123 @@ const verifyErasureReceiptAdmin = async (req, res) => {
     }
 };
 
+// =====================
+// ADMIN IMPERSONATION (#1393)
+// =====================
+const impersonationService = require("../services/impersonationService");
+
+function adminClientMeta(req) {
+    const ip =
+        req.ip ||
+        req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() ||
+        null;
+    const userAgent = req.headers["user-agent"] || "";
+    return { ip, userAgent };
+}
+
+/**
+ * POST /api/admin/impersonate
+ * Body: { userId, reason, ticketId, ttlMinutes? }
+ */
+const startImpersonation = async (req, res) => {
+    try {
+        const { ip, userAgent } = adminClientMeta(req);
+        const result = await impersonationService.mintImpersonationToken({
+            actorAdmin: req.user,
+            subjectUserId: req.body?.userId || req.body?.subjectUserId,
+            reason: req.body?.reason,
+            ticketId: req.body?.ticketId || req.body?.ticket,
+            ttlMinutes: req.body?.ttlMinutes,
+            ip,
+            userAgent
+        });
+
+        logger.info("Admin impersonation minted", {
+            adminId: result.actorAdminId,
+            subjectUserId: result.subjectUserId,
+            grantId: result.grantId,
+            ticketId: result.ticketId
+        });
+
+        return res.status(201).json({
+            success: true,
+            message:
+                "Impersonation token minted. Use as Bearer token; responses include X-Impersonating.",
+            ...result
+        });
+    } catch (error) {
+        logger.error("Admin impersonation mint error:", {
+            error: error.message,
+            adminId: req.user?.id
+        });
+        return res.status(error.status || 500).json({
+            success: false,
+            code: error.code || "IMPERSONATION_ERROR",
+            message: error.message || "Failed to start impersonation"
+        });
+    }
+};
+
+/**
+ * POST /api/admin/impersonate/revoke
+ * Body: { grantId? , jti? }
+ */
+const revokeImpersonation = async (req, res) => {
+    try {
+        const { ip, userAgent } = adminClientMeta(req);
+        const result = await impersonationService.revokeImpersonationGrant({
+            grantId: req.body?.grantId,
+            jti: req.body?.jti,
+            revokedBy: req.user,
+            ip,
+            userAgent
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: result.alreadyRevoked
+                ? "Impersonation grant was already revoked"
+                : "Impersonation grant revoked",
+            ...result
+        });
+    } catch (error) {
+        return res.status(error.status || 500).json({
+            success: false,
+            code: error.code || "IMPERSONATION_ERROR",
+            message: error.message || "Failed to revoke impersonation"
+        });
+    }
+};
+
+/**
+ * GET /api/admin/impersonate/audit
+ */
+const listImpersonationAudit = async (req, res) => {
+    try {
+        const result = await impersonationService.listImpersonationAudit({
+            grantId: req.query.grantId || null,
+            actorAdminId: req.query.actorAdminId || null,
+            subjectUserId: req.query.subjectUserId || null,
+            page: req.query.page,
+            limit: req.query.limit
+        });
+
+        return res.status(200).json({
+            success: true,
+            ...result
+        });
+    } catch (error) {
+        logger.error("Admin impersonation audit list error:", {
+            error: error.message,
+            adminId: req.user?.id
+        });
+        return res.status(500).json({
+            success: false,
+            message: "Failed to list impersonation audit"
+        });
+    }
+};
+
 
 module.exports = {
     getDashboardStats,
@@ -585,5 +702,8 @@ module.exports = {
     getAdminLogs,
     listErasureRequests,
     getErasureRequest,
-    verifyErasureReceiptAdmin
+    verifyErasureReceiptAdmin,
+    startImpersonation,
+    revokeImpersonation,
+    listImpersonationAudit
 };

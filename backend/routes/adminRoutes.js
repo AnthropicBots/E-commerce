@@ -13,7 +13,10 @@ const {
     verifyUserEmail,
     listErasureRequests,
     getErasureRequest,
-    verifyErasureReceiptAdmin
+    verifyErasureReceiptAdmin,
+    startImpersonation,
+    revokeImpersonation,
+    listImpersonationAudit
 } = require("../controllers/admin.controller");
 
 const authMiddleware = require("../middleware/authMiddleware");
@@ -53,5 +56,20 @@ router.get("/logs", getAdminLogs);
 router.get("/erasure-requests", listErasureRequests);
 router.get("/erasure-requests/:id", getErasureRequest);
 router.get("/erasure-receipts/:receiptId", verifyErasureReceiptAdmin);
+
+// ==================== IMPERSONATION (#1393) ====================
+// Mint / revoke must be done as the real admin (not while already impersonating).
+router.post("/impersonate", (req, res, next) => {
+    if (req.user?.impersonation || req.impersonation) {
+        return res.status(403).json({
+            success: false,
+            code: "NESTED_IMPERSONATION_FORBIDDEN",
+            message: "End the current impersonation session before starting another"
+        });
+    }
+    return startImpersonation(req, res, next);
+});
+router.post("/impersonate/revoke", revokeImpersonation);
+router.get("/impersonate/audit", listImpersonationAudit);
 
 module.exports = router;

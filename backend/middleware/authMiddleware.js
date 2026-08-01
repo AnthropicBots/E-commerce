@@ -92,7 +92,11 @@ async function authMiddleware(req, res, next) {
         req.user = decoded;
         req.tokenFamilyId = decoded.fid || null;
         req.tokenJti = decoded.jti || null;
-        next();
+
+        // Time-boxed admin impersonation watermark + audit (#1393).
+        // No-op for normal sessions.
+        const { impersonationMiddleware } = require("./impersonationMiddleware");
+        return impersonationMiddleware(req, res, next);
     } catch (error) {
         return res.status(401).json({
             success: false,
@@ -140,6 +144,20 @@ async function optionalAuth(req, res, next) {
         req.user = decoded;
         req.tokenFamilyId = decoded.fid || null;
         req.tokenJti = decoded.jti || null;
+
+        // Optional auth: validate impersonation quietly; drop the user on failure.
+        if (decoded.impersonation) {
+            const impersonationService = require("../services/impersonationService");
+            const validation = await impersonationService.validateImpersonationClaims(decoded);
+            if (!validation.ok) {
+                delete req.user;
+                delete req.tokenFamilyId;
+                delete req.tokenJti;
+                return next();
+            }
+            const { impersonationMiddleware } = require("./impersonationMiddleware");
+            return impersonationMiddleware(req, res, next);
+        }
     } catch (error) {
         // Ignore invalid tokens for optional auth
     }
