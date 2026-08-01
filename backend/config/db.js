@@ -1,6 +1,11 @@
 const mysql = require("mysql2");
 require("dotenv").config();
 const logger = require("../utils/logger");
+const {
+  recordQueryExecution,
+  QueryBudgetError,
+  runWithQueryBudgetBypass
+} = require("../middleware/queryBudgetMiddleware");
 
 const requiredEnvVars = ["DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME"];
 
@@ -73,8 +78,78 @@ function createPool() {
   pool = mysql.createPool(DB_CONFIG);
   promisePool = pool.promise();
   promisePool.promise = promisePool;
+  installQueryBudgetWrapper(promisePool);
   originalQuery = promisePool.query.bind(promisePool);
   return { pool, promisePool };
+}
+
+/**
+ * Wrap pool + checked-out connections so every SQL statement counts toward the
+ * per-request query budget and slow queries are attributed (#1391).
+ */
+function installQueryBudgetWrapper(pp) {
+  if (!pp || pp.__queryBudgetWrapped) {
+    return pp;
+  }
+
+  const rawQuery = pp.query.bind(pp);
+  const rawExecute = pp.execute ? pp.execute.bind(pp) : null;
+  const rawGetConnection = pp.getConnection.bind(pp);
+
+  async function instrumented(rawFn, args) {
+    const sql = typeof args[0] === "string" ? args[0] : args[0]?.sql;
+    const params = Array.isArray(args[1]) ? args[1] : [];
+
+    // Reserve a budget slot before hitting MySQL (#1391)
+    recordQueryExecution({ phase: "begin", sql, params });
+
+    const startTime = Date.now();
+    try {
+      const result = await rawFn(...args);
+      const durationMs = Date.now() - startTime;
+      recordQueryExecution({ phase: "finish", sql, durationMs, params });
+      return result;
+    } catch (error) {
+      const durationMs = Date.now() - startTime;
+      if (!(error instanceof QueryBudgetError)) {
+        try {
+          recordQueryExecution({ phase: "finish", sql, durationMs, params, error });
+        } catch (_) {
+          /* finish must not mask the original SQL error */
+        }
+      }
+      throw error;
+    }
+  }
+
+  function wrapConnection(connection) {
+    if (!connection || connection.__queryBudgetWrapped) {
+      return connection;
+    }
+    const connQuery = connection.query.bind(connection);
+    const connExecute = connection.execute
+      ? connection.execute.bind(connection)
+      : null;
+
+    connection.query = (...args) => instrumented(connQuery, args);
+    if (connExecute) {
+      connection.execute = (...args) => instrumented(connExecute, args);
+    }
+    connection.__queryBudgetWrapped = true;
+    return connection;
+  }
+
+  pp.query = (...args) => instrumented(rawQuery, args);
+  if (rawExecute) {
+    pp.execute = (...args) => instrumented(rawExecute, args);
+  }
+  pp.getConnection = async (...args) => {
+    const connection = await rawGetConnection(...args);
+    return wrapConnection(connection);
+  };
+
+  pp.__queryBudgetWrapped = true;
+  return pp;
 }
 
 createPool();
@@ -328,12 +403,17 @@ async function query(sql, params = []) {
   pendingQueries++;
   
   try {
-    const [results] = await originalQuery(sql, params);
+    // Goes through the budget-wrapped pool.query (#1391)
+    const [results] = await promisePool.query(sql, params);
     logQuery(sql, params, startTime);
     return [results, null];
   } catch (error) {
     logger.error(`Query error: ${error.message}`);
     logQuery(sql, params, startTime, error);
+
+    if (error instanceof QueryBudgetError || error.code === "QUERY_BUDGET_EXCEEDED") {
+      throw error;
+    }
     
     if (['PROTOCOL_CONNECTION_LOST', 'ECONNRESET', 'ETIMEDOUT'].includes(error.code)) {
       logger.warn('Connection lost during query. Attempting to reconnect...');
@@ -550,6 +630,8 @@ module.exports.shutdown = shutdown;
 module.exports.withTransaction = withTransaction;
 module.exports.DB_CONFIG = DB_CONFIG;
 module.exports.RETRY_CONFIG = RETRY_CONFIG;
+module.exports.runWithQueryBudgetBypass = runWithQueryBudgetBypass;
+module.exports.installQueryBudgetWrapper = installQueryBudgetWrapper;
 
 process.on('uncaughtException', async (error) => {
   logger.error(`Uncaught exception: ${error.message}`);

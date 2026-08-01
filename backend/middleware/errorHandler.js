@@ -62,6 +62,24 @@ const globalErrorHandler = (errorLogStream) => {
       });
     }
 
+    // Handle SQL query budget / slow-query circuit breaker (#1391)
+    if (
+      err.code === "QUERY_BUDGET_EXCEEDED" ||
+      err.code === "QUERY_CIRCUIT_OPEN" ||
+      err.errorCode === "QUERY_BUDGET_EXCEEDED" ||
+      err.errorCode === "QUERY_CIRCUIT_OPEN"
+    ) {
+      const retryAfter = err.retryAfter || 30;
+      res.setHeader("Retry-After", String(retryAfter));
+      return res.status(503).json({
+        success: false,
+        errorCode: err.errorCode || err.code,
+        code: err.errorCode || err.code,
+        message: err.message || "Query budget exceeded. Please retry shortly.",
+        retryAfter
+      });
+    }
+
     // Default error response
     return res.status(err.status || 500).json({
       success: false,

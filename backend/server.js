@@ -218,6 +218,10 @@ app.disable("x-powered-by");
 app.use(correlationIdMiddleware);
 app.use(logCompletionMiddleware);
 
+// Per-request SQL query budget (#1391) — must wrap handlers that touch the pool
+const { queryBudgetMiddleware } = require('./middleware/queryBudgetMiddleware');
+app.use(queryBudgetMiddleware);
+
 // Add response standardization middleware before routes
 app.use(standardizeResponse);
 

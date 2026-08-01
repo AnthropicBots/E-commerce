@@ -689,6 +689,30 @@ const listImpersonationAudit = async (req, res) => {
     }
 };
 
+/**
+ * GET /api/admin/query-budget
+ * Top SQL query-budget offenders + open circuits (#1391).
+ */
+const getQueryBudgetMetrics = async (req, res) => {
+    try {
+        const {
+            getQueryBudgetMetrics: loadMetrics
+        } = require("../middleware/queryBudgetMiddleware");
+        const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+        const metrics = loadMetrics(limit);
+        return res.status(200).json({
+            success: true,
+            message: "Query budget metrics",
+            ...metrics
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message || "Failed to load query budget metrics"
+        });
+    }
+};
+
 
 module.exports = {
     getDashboardStats,
@@ -705,5 +729,6 @@ module.exports = {
     verifyErasureReceiptAdmin,
     startImpersonation,
     revokeImpersonation,
-    listImpersonationAudit
+    listImpersonationAudit,
+    getQueryBudgetMetrics
 };

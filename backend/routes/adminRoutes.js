@@ -16,7 +16,8 @@ const {
     verifyErasureReceiptAdmin,
     startImpersonation,
     revokeImpersonation,
-    listImpersonationAudit
+    listImpersonationAudit,
+    getQueryBudgetMetrics
 } = require("../controllers/admin.controller");
 
 const authMiddleware = require("../middleware/authMiddleware");
@@ -71,5 +72,8 @@ router.post("/impersonate", (req, res, next) => {
 });
 router.post("/impersonate/revoke", revokeImpersonation);
 router.get("/impersonate/audit", listImpersonationAudit);
+
+// SQL query budget / slow-query circuit metrics (#1391)
+router.get("/query-budget", getQueryBudgetMetrics);
 
 module.exports = router;
