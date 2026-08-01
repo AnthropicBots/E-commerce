@@ -55,6 +55,13 @@ Two independent packages (no monorepo tooling):
 - Rate limits: auth endpoints 20 req/15min, API 120 req/min
 - CORS allows: localhost:5500-5502, specific production URLs
 - Graceful shutdown on SIGINT/SIGTERM; exits on unhandled rejection/exception
+- Transactions: always `withTransaction(async (connection) => { ... })` from
+  `config/db`. Use the connection it hands you for every statement in the
+  transaction; returning commits, throwing rolls back, and the connection is
+  released either way. Never issue `START TRANSACTION` as a pool query — the
+  statements after it can land on other connections, so concurrent transactions
+  interleave. Repositories expose the same thing as `repo.transaction(fn)`, which
+  hands the callback a repository bound to the transaction's connection.
 
 ## Frontend conventions
 

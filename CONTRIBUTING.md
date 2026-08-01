@@ -66,6 +66,33 @@ npm install
 - Always handle null/undefined values in frontend.
 - Use utils.js helpers for notifications, API calls, and localStorage.
 
+### Database transactions
+Use ```withTransaction``` from ```backend/config/db```:
+
+```js
+const { withTransaction } = require("../config/db");
+
+const orderId = await withTransaction(async (connection) => {
+    const [result] = await connection.query("INSERT INTO orders ...", params);
+    await connection.query("INSERT INTO order_items ...", moreParams);
+    return result.insertId;
+});
+```
+
+Returning commits, throwing rolls back, and the connection is released on every
+path. Use the connection the callback is handed for every statement in the
+transaction — a query sent to the pool instead goes to a different connection
+and is not part of it.
+
+Never issue ```START TRANSACTION```, ```COMMIT``` or ```ROLLBACK``` as a pool
+query. The pool hands each query whichever connection is free, so the statements
+of one transaction can be spread across several connections while another
+request's statements land in the middle of them.
+
+Do work that is not a database write — HTTP calls, cache updates, sending mail —
+outside the callback. Anything inside it holds a connection and its row locks
+until it finishes.
+
 ---
 
 ## Testing

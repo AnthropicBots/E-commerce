@@ -1,5 +1,6 @@
 // backend/services/outboxService.js
 const db = require('../config/db');
+const { withTransaction } = require('../config/db');
 const crypto = require('crypto');
 const { v5: uuidv5 } = require('uuid');
 
@@ -441,27 +442,27 @@ class OutboxService {
      * Process pending events with per-row optimistic claims
      */
     async processPendingEvents() {
-        let connection;
         try {
             // Unlock stale processors first so retries are eligible
             await this.resetStaleProcessingLocks();
 
-            connection = await db.getConnection();
-            await connection.beginTransaction();
-
-            const [events] = await connection.query(
-                `SELECT * FROM outbox_events 
-                 WHERE status IN (?, ?)
-                 AND attempts < max_attempts
-                 ORDER BY created_at ASC
-                 LIMIT ?
-                 FOR UPDATE SKIP LOCKED`,
-                [OUTBOX_STATUS.PENDING, OUTBOX_STATUS.RETRY, OUTBOX_CONFIG.batchSize]
-            );
-
-            await connection.commit();
-            connection.release();
-            connection = null;
+            // Only the batch claim belongs in the transaction. A handler can be
+            // arbitrarily slow, and running the loop below inside this would
+            // hold both the row locks taken by SKIP LOCKED and a pooled
+            // connection for its whole duration, starving every other
+            // processor.
+            const events = await withTransaction(async (connection) => {
+                const [rows] = await connection.query(
+                    `SELECT * FROM outbox_events 
+                     WHERE status IN (?, ?)
+                     AND attempts < max_attempts
+                     ORDER BY created_at ASC
+                     LIMIT ?
+                     FOR UPDATE SKIP LOCKED`,
+                    [OUTBOX_STATUS.PENDING, OUTBOX_STATUS.RETRY, OUTBOX_CONFIG.batchSize]
+                );
+                return rows;
+            });
 
             if (events.length === 0) {
                 return;
@@ -503,14 +504,6 @@ class OutboxService {
                 await this.processEvent(event);
             }
         } catch (error) {
-            if (connection) {
-                try {
-                    await connection.rollback();
-                } catch (_) { /* ignore */ }
-                try {
-                    connection.release();
-                } catch (_) { /* ignore */ }
-            }
             console.error('Process pending events error:', error);
         }
     }

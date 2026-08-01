@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const { withTransaction } = require("../config/db");
 const { safeArray, safeNumber, sanitizeString } = require("../utils/helpers");
 
 // Shared client -- see config/redis.js. This module used to construct its own
@@ -14,13 +15,13 @@ function getPromoUsageKey(promoCode) {
  * Read a promo's usage counter, degrading to the database when Redis is
  * unavailable.
  *
- * Redis here is a fast counter in front of `promo_codes.used_count`, not the
+ * Redis here is a fast counter in front of `promo_codes.usage_count`, not the
  * system of record. Before this, a Redis outage made `redis.get()` reject and
  * that rejection propagated straight out of `validatePromo()`, so **every**
  * promo code in the store stopped validating the moment Redis went down --
  * a cache being unavailable took out checkout discounts entirely.
  *
- * The stored `used_count` is the durable value written inside the same
+ * The stored `usage_count` is the durable value written inside the same
  * transaction that records the usage, so falling back to it is correct; the
  * counter can only ever be as stale as the last committed application.
  *
@@ -35,10 +36,10 @@ const getUsedCount = async (promoCode, promo) => {
             return parseInt(cached, 10) || 0;
         }
     } catch (error) {
-        console.error(`Promo usage counter unavailable for ${promoCode}, falling back to used_count:`, error.message);
+        console.error(`Promo usage counter unavailable for ${promoCode}, falling back to usage_count:`, error.message);
     }
 
-    return safeNumber(promo && promo.used_count);
+    return safeNumber(promo && promo.usage_count);
 };
 
 const getPromoByCode = async (code) => {
@@ -66,7 +67,7 @@ const validatePromo = async (code, cartTotal) => {
     }
 
     // Check usage limit against the Redis counter, falling back to the stored
-    // used_count if Redis is down.
+    // usage_count if Redis is down.
     const usedCount = await getUsedCount(code, promo);
     if (promo.usage_limit && usedCount >= promo.usage_limit) {
         return { valid: false, message: "Promo code usage limit has been reached" };
@@ -95,90 +96,80 @@ const calculateDiscount = (promo, cartTotal) => {
 };
 
 const applyPromoTransaction = async (promoCode, userId, discountAmount) => {
-    const connection = await db.getConnection();
-    
     try {
-        // Start transaction
-        await connection.beginTransaction();
+        await withTransaction(async (connection) => {
+            // Lock the promo row for update (prevents concurrent usage)
+            const [promoResults] = await connection.query(
+                "SELECT * FROM promo_codes WHERE code = ? FOR UPDATE",
+                [promoCode]
+            );
 
-        // Lock the promo row for update (prevents concurrent usage)
-        const [promoResults] = await connection.query(
-            "SELECT * FROM promo_codes WHERE code = ? FOR UPDATE",
-            [promoCode]
-        );
+            if (promoResults.length === 0) {
+                throw new Error(`Promo code ${promoCode} not found`);
+            }
 
-        if (promoResults.length === 0) {
-            throw new Error(`Promo code ${promoCode} not found`);
-        }
+            const promo = promoResults[0];
 
-        const promo = promoResults[0];
+            // Check if promo is still valid
+            if (!promo.is_active) {
+                throw new Error(`Promo code ${promoCode} is inactive`);
+            }
 
-        // Check if promo is still valid
-        if (!promo.is_active) {
-            throw new Error(`Promo code ${promoCode} is inactive`);
-        }
+            const now = new Date();
+            if (new Date(promo.start_date) > now) {
+                throw new Error(`Promo code ${promoCode} is not yet active`);
+            }
+            if (new Date(promo.expiry_date) < now) {
+                throw new Error(`Promo code ${promoCode} has expired`);
+            }
 
-        const now = new Date();
-        if (new Date(promo.start_date) > now) {
-            throw new Error(`Promo code ${promoCode} is not yet active`);
-        }
-        if (new Date(promo.expiry_date) < now) {
-            throw new Error(`Promo code ${promoCode} has expired`);
-        }
+            // Check usage limit with Redis counter for atomic increment
+            const usageKey = getPromoUsageKey(promoCode);
+            const usedCount = await getUsedCount(promoCode, promo);
 
-        // Check usage limit with Redis counter for atomic increment
-        const usageKey = getPromoUsageKey(promoCode);
-        const usedCount = await getUsedCount(promoCode, promo);
+            if (promo.usage_limit && usedCount >= promo.usage_limit) {
+                throw new Error(`Promo code ${promoCode} usage limit reached`);
+            }
 
-        if (promo.usage_limit && usedCount >= promo.usage_limit) {
-            throw new Error(`Promo code ${promoCode} usage limit reached`);
-        }
+            // Increment usage counter atomically in Redis
+            const newCount = await redis.incr(usageKey);
 
-        // Increment usage counter atomically in Redis
-        const newCount = await redis.incr(usageKey);
-        
-        // If usage limit exceeded, rollback Redis counter
-        if (promo.usage_limit && newCount > promo.usage_limit) {
-            await redis.decr(usageKey);
-            throw new Error(`Promo code ${promoCode} usage limit reached`);
-        }
+            // If usage limit exceeded, rollback Redis counter
+            if (promo.usage_limit && newCount > promo.usage_limit) {
+                await redis.decr(usageKey);
+                throw new Error(`Promo code ${promoCode} usage limit reached`);
+            }
 
-        const expiryDate = new Date(promo.expiry_date);
-        const ttlSeconds = Math.floor((expiryDate - now) / 1000);
-        if (ttlSeconds > 0) {
-            await redis.expire(usageKey, ttlSeconds);
-        }
+            const expiryDate = new Date(promo.expiry_date);
+            const ttlSeconds = Math.floor((expiryDate - now) / 1000);
+            if (ttlSeconds > 0) {
+                await redis.expire(usageKey, ttlSeconds);
+            }
 
-        // Update database usage count
-        await connection.query(
-            `UPDATE promo_codes 
-             SET usage_count = usage_count + 1, 
-                 updated_at = NOW() 
-             WHERE code = ?`,
-            [promoCode]
-        );
+            // Update database usage count
+            await connection.query(
+                `UPDATE promo_codes 
+                 SET usage_count = usage_count + 1, 
+                     updated_at = NOW() 
+                 WHERE code = ?`,
+                [promoCode]
+            );
 
-        // Log promo usage
-        await connection.query(
-            `INSERT INTO promo_usage_logs 
-             (promo_code, user_id, discount_amount, applied_at)
-             VALUES (?, ?, ?, NOW())`,
-            [promoCode, userId, discountAmount]
-        );
-
-        // Commit transaction
-        await connection.commit();
+            // Log promo usage
+            await connection.query(
+                `INSERT INTO promo_usage_logs 
+                 (promo_code, user_id, discount_amount, applied_at)
+                 VALUES (?, ?, ?, NOW())`,
+                [promoCode, userId, discountAmount]
+            );
+        });
 
         console.log(`[AUDIT] Promo ${promoCode} applied by user ${userId} - Discount: ${discountAmount}`);
         return true;
 
     } catch (error) {
-        // Rollback transaction on error
-        await connection.rollback();
         console.error(`Promo application error for ${promoCode}:`, error);
         throw error;
-    } finally {
-        connection.release();
     }
 };
 
