@@ -193,6 +193,16 @@
 
             </div>
 
+            <!--
+                Progress toward free delivery. The figures are the server's;
+                this only holds them.
+            -->
+            <p
+                class="free-shipping-progress"
+                id="free-shipping-progress"
+                aria-live="polite"
+            ></p>
+
             <div class="summary-row discount-row">
 
                 <span>
@@ -333,6 +343,11 @@
     <script
         defer
         src="scripts/cart.js"
+    ></script>
+
+    <script
+        defer
+        src="scripts/cart-restore.js"
     ></script>
      <script defer src="scripts/ui.js"></script>
 

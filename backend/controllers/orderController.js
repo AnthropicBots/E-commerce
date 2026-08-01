@@ -13,6 +13,7 @@ const paymentService = require("../services/payment.service");
 const CURRENCY = require("../config/currency");
 const { generateInvoicePdf } = require("../services/invoice.service");
 const inventoryReservationService = require("../services/inventoryReservationService");
+const stockCounter = require("../services/stockCounterService");
 
 const {
     safeNumber,
@@ -31,6 +32,9 @@ const addressService = require("../services/addressService");
 // Order status history (#1351). Every status change records who, when, from
 // what, and why -- inside the same transaction as the change itself.
 const orderStatusHistoryService = require("../services/orderStatusHistoryService");
+// Delivery options (#1430). Required here only for the error code, so an
+// unrecognised option answers 400 rather than 500.
+const shippingService = require("../services/shipping.service");
 
 // create order
 const createOrder =
@@ -51,7 +55,10 @@ const createOrder =
                 promoCode,
                 // Saved address book (#1347). A signed-in shopper can send an
                 // id instead of retyping the whole address.
-                addressId
+                addressId,
+                // Delivery options (#1430). A code naming one of the offered
+                // methods; the server looks up what it costs.
+                shippingMethod
             } = req.body;
 
             // Resolve a saved address into the same flat shape the manual form
@@ -203,7 +210,10 @@ const createOrder =
                         payment_method: sanitizeString(paymentMethod).toLowerCase(),
                         total: safeNumber(total),
                         items,
-                        promo_code: promoCode ? sanitizeString(promoCode) : null
+                        promo_code: promoCode ? sanitizeString(promoCode) : null,
+                        shipping_method: shippingMethod
+                            ? sanitizeString(shippingMethod)
+                            : null
                     }
                 );
             
@@ -284,6 +294,16 @@ const createOrder =
                     productId: error.productId,
                     availableStock: error.availableStock ?? null,
                     requested: error.requested ?? null
+                });
+            }
+
+            // A delivery option that names nothing is a bad request, not a
+            // server fault, and the message lists what is on offer.
+            if (error.code === shippingService.UNKNOWN_METHOD_CODE) {
+                return res.status(400).json({
+                    success: false,
+                    code: shippingService.UNKNOWN_METHOD_CODE,
+                    message: error.message
                 });
             }
 
@@ -522,19 +542,22 @@ const getOrderStatus = async (req, res) => {
  * for.
  */
 const performOrderStatusUpdate = async (connection, id, currentStatus, newStatus, context = {}) => {
-    // if cancelling a previously un-cancelled order, restore stock
+    // If cancelling a previously un-cancelled order, put the units back on the
+    // counter the sale took them from. Crediting only the product total would
+    // leave the size the shopper actually cancelled permanently short.
     if (newStatus === "cancelled" && currentStatus !== "cancelled") {
         const [items] = await connection.query(
-            "SELECT product_id, qty FROM order_items WHERE order_id = ?",
+            "SELECT product_id, variant_id, qty FROM order_items WHERE order_id = ?",
             [id]
         );
 
         for (const item of safeArray(items)) {
             if (item.product_id) {
-                await connection.query(
-                    "UPDATE products SET stock = stock + ? WHERE id = ?",
-                    [item.qty, item.product_id]
-                );
+                await stockCounter.restoreStock(connection, {
+                    productId: item.product_id,
+                    variantId: item.variant_id,
+                    quantity: item.qty
+                });
             }
         }
     }
@@ -780,7 +803,7 @@ const createPaymentIntent = async (req, res) => {
     try {
         connection = await db.getConnection();
 
-        const { customer, address, items, total, promoCode } = req.body;
+        const { customer, address, items, total, promoCode, shippingMethod } = req.body;
 
         if (!customer || !customer.name || !customer.email) {
             return res.status(400).json({ success: false, message: "Customer information required" });
@@ -827,7 +850,8 @@ const createPaymentIntent = async (req, res) => {
             payment_method: 'card',
             total: safeNumber(total),
             items,
-            promo_code: promoCode ? sanitizeString(promoCode) : null
+            promo_code: promoCode ? sanitizeString(promoCode) : null,
+            shipping_method: shippingMethod ? sanitizeString(shippingMethod) : null
         });
 
         await inventoryReservationService.consumeLocks(req.user.id, items, connection);
@@ -902,6 +926,14 @@ const createPaymentIntent = async (req, res) => {
                 productId: error.productId,
                 availableStock: error.availableStock ?? null,
                 requested: error.requested ?? null
+            });
+        }
+
+        if (error.code === shippingService.UNKNOWN_METHOD_CODE) {
+            return res.status(400).json({
+                success: false,
+                code: shippingService.UNKNOWN_METHOD_CODE,
+                message: error.message
             });
         }
 
@@ -981,6 +1013,10 @@ const exportOrders = async (req, res) => {
  *
  * The administrative roles additionally see the actor, the request metadata
  * and internal reasons; everyone else sees only their own stated reasons.
+ *
+ * The delivery option the order was sold, its charge and the window it was
+ * promised for ride along, because "when is this arriving" is the question the
+ * timeline is opened to answer (#1430).
  */
 const getOrderTimeline = async (req, res) => {
     const id = safeUUID(req.params.id);
@@ -996,7 +1032,9 @@ const getOrderTimeline = async (req, res) => {
     const canReadAnyOrder = hasPermission(req.user, PERMISSIONS.ORDER_READ_ANY);
     const canSeeInternalDetail = isAdminRole(req.user?.role);
 
-    let query = "SELECT id, status, created_at FROM orders WHERE id = ?";
+    let query =
+        "SELECT id, status, created_at, shipping_method, shipping_cost, " +
+        "estimated_delivery_from, estimated_delivery FROM orders WHERE id = ?";
     const params = [id];
 
     if (!canReadAnyOrder) {
@@ -1052,6 +1090,32 @@ const getFulfilmentReport = async (req, res) => {
     }
 };
 
+// What the recovery programme brought back, and which message brought it
+// (#1429). Read straight off the orders that recorded it, so the figure does
+// not move when the reporting code does.
+const getRecoveryReport = async (req, res) => {
+    try {
+        const days = safeInteger(req.query.days, 30);
+
+        const [revenue, byStage] = await Promise.all([
+            cartRecoveryAttribution.getRecoveredRevenue({ days }),
+            cartRecoveryAttribution.getRecoveryByStage({ days })
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            data: { ...revenue, byStage }
+        });
+    } catch (error) {
+        console.error("GET RECOVERY REPORT ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to build the recovery report"
+        });
+    }
+};
+
 module.exports = {
     createOrder,
     getAllOrders,
@@ -1059,6 +1123,7 @@ module.exports = {
     getOrderById,
     getOrderTimeline,
     getFulfilmentReport,
+    getRecoveryReport,
     getOrderStatus,
     updateOrderStatus,
     cancelUserOrder,

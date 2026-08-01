@@ -132,6 +132,7 @@
     "POST /api/auth/reset-password",
     "POST /api/auth/signup",
     "POST /api/auth/verify-signup",
+    "POST /api/cart/restore",
     "POST /api/checkout/quote",
     "POST /api/courier-webhooks/:provider",
     "POST /api/orders/validate",

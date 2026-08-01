@@ -10,6 +10,8 @@ const logger = require("../utils/logger");
 const { validatePromo } = require("./promo.service");
 const pricing = require("./pricing.service");
 const cartLifecycle = require("./cartLifecycleService");
+const shipping = require("./shipping.service");
+const cartRecoveryAttribution = require("./cartRecoveryAttributionService");
 
 // Marks the one failure the client can act on, so controllers can answer with
 // the specific figures instead of a generic server error.
@@ -107,7 +109,7 @@ const resolveItemVariant = async (connection, productId, item, lockRows = true) 
     try {
         if (explicitVariantId > 0) {
             const [rows] = await connection.query(
-                `SELECT id, price, stock FROM product_variants
+                `SELECT id, price, stock, weight FROM product_variants
                  WHERE id = ? AND product_id = ? AND is_active = 1
                  LIMIT 1${rowLock}`,
                 [explicitVariantId, productId],
@@ -140,7 +142,7 @@ const resolveItemVariant = async (connection, productId, item, lockRows = true) 
         }
 
         const [rows] = await connection.query(
-            `SELECT id, price, stock FROM product_variants
+            `SELECT id, price, stock, weight FROM product_variants
              WHERE product_id = ? AND is_active = 1
              AND ${conditions.join(" AND ")}
              LIMIT 2${rowLock}`,
@@ -168,6 +170,9 @@ const resolveItemVariant = async (connection, productId, item, lockRows = true) 
  * enforcement; the quote endpoint runs it read-only, where an out-of-stock
  * item should still be priced rather than rejected.
  *
+ * Each line carries the variant it resolved to, so the sale, the order record
+ * and any later return all name the same counter.
+ *
  * @param {Object} connection - pool or transactional connection
  * @param {Array<Object>} items
  * @param {{ lockRows?: boolean, enforceStock?: boolean }} [options]
@@ -186,7 +191,7 @@ const resolveOrderLines = async (connection, items, options = {}) => {
         }
 
         const [productResults] = await connection.query(
-            `SELECT id, name, price, stock, image FROM products WHERE id = ?
+            `SELECT id, name, price, stock, image, weight FROM products WHERE id = ?
              LIMIT 1${rowLock}`,
             [productId],
         );
@@ -199,7 +204,24 @@ const resolveOrderLines = async (connection, items, options = {}) => {
         const product = safeResults[0];
         const qty = Math.max(1, safeInteger(item.qty, 1));
 
-        if (enforceStock && safeInteger(product.stock) < qty) {
+        // `lockRows` is off for read-only pricing (a quote holds no rows);
+        // order creation keeps it on so neither the price nor the quantity can
+        // move under the transaction.
+        const variant = await stockCounter.resolveVariant(
+            connection,
+            productId,
+            item,
+            { lockRows },
+        );
+
+        // The order has to be covered by the quantity it will actually draw
+        // down. Checking the product total for a line that names a variant is
+        // what let a size with two left go out ten at a time on the strength of
+        // its siblings.
+        const { stock: availableStock, variantId } =
+            stockCounter.resolveAvailableStock(product, variant);
+
+        if (enforceStock && availableStock < qty) {
             throw new Error(
                 `Insufficient stock for ${sanitizeString(product.name)}`,
             );
@@ -209,13 +231,11 @@ const resolveOrderLines = async (connection, items, options = {}) => {
         // product price is only a fallback. This keeps order totals correct
         // for variants that are priced differently from their parent.
         let realPrice = safeNumber(product.price);
-
-        const variant = await resolveItemVariant(
-            connection,
-            productId,
-            item,
-            lockRows,
-        );
+        // Carried through so shipping rules can be written over how heavy a
+        // basket is. Null when nothing has recorded a weight, which is most of
+        // the catalogue; the shipping service decides what to assume rather
+        // than a zero being invented here.
+        let realWeight = product.weight === null ? null : safeNumber(product.weight);
 
         if (variant && variant.price !== null && variant.price !== undefined) {
             const variantPrice = safeNumber(variant.price);
@@ -225,11 +245,21 @@ const resolveOrderLines = async (connection, items, options = {}) => {
             }
         }
 
+        if (variant && variant.weight !== null && variant.weight !== undefined) {
+            const variantWeight = safeNumber(variant.weight);
+
+            if (variantWeight > 0) {
+                realWeight = variantWeight;
+            }
+        }
+
         resolvedLines.push({
             id: safeUUID(product.id),
+            variantId,
             name: sanitizeString(product.name),
             image: sanitizeString(product.image),
             price: realPrice,
+            weight: realWeight,
             qty,
             color: sanitizeString(item.color),
             size: sanitizeString(item.size),
@@ -261,12 +291,21 @@ const createOrderService = async (connection, orderData) => {
             items,
             promo_code,
             total: claimedTotal,
+            // The delivery option the shopper chose (#1430). A code, never a
+            // rate: what it costs is looked up and priced here, so a client
+            // cannot influence its own delivery charge. Absent, the default
+            // option applies and the basket prices exactly as it did before
+            // checkout offered a choice.
+            shipping_method,
             // Optional link back to the saved address book (#1347). The
             // flattened columns above stay authoritative for what was actually
             // shipped -- they must not change when the shopper later edits or
             // deletes the saved address -- and this only records *which* saved
             // address the order came from.
             address_id,
+            // Abandoned-cart recovery (#1429). The reference to the restore
+            // link this basket came back through, if it came back through one.
+            recovery_ref,
         } = orderData;
 
         // validate empty cart
@@ -294,10 +333,38 @@ const createOrderService = async (connection, orderData) => {
             appliedPromo = promoValidation.promo;
         }
 
+        // Priced against the address the parcel is actually going to, not
+        // against whatever destination the browser used to fetch its quote. A
+        // client that quotes a cheap destination and ships to an expensive one
+        // is caught here, as a total that does not match.
+        const { subtotal: preDiscountSubtotal } =
+            pricing.priceLineItems(validatedItems);
+        const promoValue = appliedPromo
+            ? pricing.applyDiscount(appliedPromo, preDiscountSubtotal)
+            : { amount: 0, isShippingWaived: false };
+
+        const delivery = await shipping.quoteOptions({
+            postDiscountSubtotal: preDiscountSubtotal - promoValue.amount,
+            isShippingWaived: promoValue.isShippingWaived,
+            selectedCode: shipping_method,
+            destination: { pincode: zip, city, state },
+            weightKg: shipping.basketWeightKg(validatedItems),
+        });
+
         const breakdown = pricing.quote({
             items: validatedItems,
             promo: appliedPromo,
             promoCode: appliedPromo ? appliedPromo.code : null,
+            shippingMethod: delivery.selected,
+        });
+
+        // The delivery promise is recorded, not recomputed on read. It is a
+        // commitment made now, and an operator retuning an option next month
+        // must not silently move the date this order was sold on. Null when
+        // the chosen option states no window.
+        const estimate = await shipping.estimateDelivery({
+            methodCode: delivery.selected.code,
+            destination: { pincode: zip, city, state },
         });
 
         const verification = pricing.verifyClaimedTotal(
@@ -321,6 +388,17 @@ const createOrderService = async (connection, orderData) => {
         const crypto = require("crypto");
         const orderId = crypto.randomUUID();
 
+        // Resolved on this connection, inside the caller's transaction: an
+        // order that rolls back must not leave a claim that it was recovered.
+        // A reference that does not check out costs the order nothing -- it is
+        // simply not attributed.
+        const { recoveryTokenId, recoveredCartId } =
+            await cartRecoveryAttribution.resolveAttribution({
+                recoveryRef: recovery_ref,
+                userId: user_id,
+                connection,
+            });
+
         // create order
         const orderQuery = `
             INSERT INTO orders (
@@ -340,16 +418,21 @@ const createOrderService = async (connection, orderData) => {
                 status,
                 subtotal,
                 tax,
+                shipping_method,
                 shipping_cost,
+                estimated_delivery_from,
+                estimated_delivery,
                 discount,
                 discount_code,
                 promo_code,
+                recovery_token_id,
+                recovered_cart_id,
                 discount_amount,
                 final_amount,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         `;
 
         const [orderResult] = await connection.query(orderQuery, [
@@ -369,31 +452,44 @@ const createOrderService = async (connection, orderData) => {
             "pending",
             breakdown.subtotal,
             breakdown.tax,
+            delivery.selected.code,
             breakdown.shipping,
+            estimate ? estimate.from : null,
+            estimate ? estimate.to : null,
             discountAmount,
             appliedPromoCode,
             appliedPromoCode,
+            recoveryTokenId,
+            recoveredCartId,
             discountAmount,
             breakdown.total,
         ]);
 
         // insert into order_items
+        //
+        // The variant is recorded on the line, not merely implied by the colour
+        // and size text. A return has to credit the counter the sale drew down,
+        // and re-deriving that months later from free-text attributes is a
+        // guess. Sentinel zero becomes NULL: the column is a foreign key, and
+        // no variant has id 0.
         for (const item of validatedItems) {
             const itemQuery = `
                 INSERT INTO order_items (
                     order_id,
                     product_id,
+                    variant_id,
                     name,
                     price,
                     qty,
                     color,
                     size,
                     total
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
             await connection.query(itemQuery, [
                 orderId,
                 item.id,
+                item.variantId > NO_VARIANT_ID ? item.variantId : null,
                 item.name,
                 item.price,
                 item.qty,
@@ -403,21 +499,19 @@ const createOrderService = async (connection, orderData) => {
             ]);
         }
 
-        // reduce stock safely
+        // Reduce the same counter the availability check was made against, on
+        // this connection so the movement shares the order's fate. The
+        // sufficiency test lives in the UPDATE's WHERE clause rather than in a
+        // read before it, so two checkouts racing for the last unit cannot both
+        // pass: the loser changes no rows and is refused here.
         for (const item of validatedItems) {
-            const stockQuery = `UPDATE products SET stock = stock - ? WHERE id = ? 
-            AND stock >= ? `;
+            const movement = await stockCounter.deductStock(connection, {
+                productId: item.id,
+                variantId: item.variantId,
+                quantity: item.qty,
+            });
 
-            const [result] = await connection.query(
-                stockQuery,
-                [
-                    item.qty,
-                    item.id,
-                    item.qty
-                ]
-            );
-
-            if (result.affectedRows === 0) {
+            if (!movement.ok) {
                 throw new Error(
                     `Insufficient stock for ${item.name}`
                 );
@@ -478,6 +572,10 @@ const createOrderService = async (connection, orderData) => {
             }
         }
 
+        if (recoveredCartId) {
+            logger.info(`Order ${orderId} recovered cart ${recoveredCartId}`);
+        }
+
         logger.info(`Order created successfully: ${orderId} by user ${user_id || 'guest'}`);
 
         // Return order summary
@@ -519,6 +617,7 @@ const getOrderSummaryById = async (connection, orderId) => {
                 o.status,
                 o.subtotal,
                 o.tax,
+                o.shipping_method,
                 o.shipping_cost,
                 o.discount_amount,
                 o.final_amount,
@@ -842,6 +941,9 @@ const generateOrderSummaryService = async (orderId) => {
             discountAmount: order.discount_amount || 0,
             tax: order.tax || 0,
             shipping: order.shipping_cost || 0,
+            // Null on orders placed before checkout offered a choice. Nothing
+            // recorded how those were sent, so nothing claims to know.
+            shippingMethod: order.shipping_method || null,
             total: order.final_amount || order.total,
             timeline: await getOrderTimeline(orderId)
         };

@@ -396,6 +396,78 @@ describe('getTimeline', () => {
     });
 });
 
+// The delivery promise on the timeline (#1430). The dates are read back from
+// the order rather than recomputed, so an option retuned since the order was
+// placed cannot move a date the shopper was already given.
+describe('the delivery promise', () => {
+    function orderWithDelivery(overrides = {}) {
+        return {
+            id: ORDER,
+            status: 'processing',
+            shipping_method: 'standard',
+            shipping_cost: '49.00',
+            estimated_delivery_from: '2026-08-04',
+            estimated_delivery: '2026-08-07',
+            ...overrides
+        };
+    }
+
+    it('reports the recorded window and what was paid for it', async () => {
+        await expect(
+            service.describeDelivery(orderWithDelivery())
+        ).resolves.toMatchObject({
+            charge: 49,
+            estimate: { from: '2026-08-04', to: '2026-08-07' }
+        });
+    });
+
+    it('says nothing for an order placed before there was a choice', async () => {
+        // Nothing recorded how those were sent, so nothing claims to know.
+        await expect(
+            service.describeDelivery(orderWithDelivery({ shipping_method: null }))
+        ).resolves.toBeNull();
+    });
+
+    it.each(['delivered', 'cancelled', 'refunded'])(
+        'drops the estimate once the order is %s',
+        async (status) => {
+            // A delivered order has a real date and a cancelled one has no
+            // delivery at all. "Arriving Thursday" against either is worse
+            // than showing nothing.
+            const delivery = await service.describeDelivery(
+                orderWithDelivery({ status })
+            );
+
+            expect(delivery.estimate).toBeNull();
+            expect(delivery.method.code).toBe('standard');
+        }
+    );
+
+    it('keeps showing an option the store no longer offers', async () => {
+        // The order was genuinely sold under it, so the code stands in for a
+        // label rather than rendering blank.
+        const delivery = await service.describeDelivery(
+            orderWithDelivery({ shipping_method: 'retired-overnight' })
+        );
+
+        expect(delivery.method).toEqual({
+            code: 'retired-overnight',
+            label: 'retired-overnight'
+        });
+    });
+
+    it('omits the estimate when the order recorded no window', async () => {
+        const delivery = await service.describeDelivery(
+            orderWithDelivery({
+                estimated_delivery_from: null,
+                estimated_delivery: null
+            })
+        );
+
+        expect(delivery.estimate).toBeNull();
+    });
+});
+
 describe('getLastTransitionTo', () => {
     it('answers "when did this ship" without walking the history', async () => {
         db.query.mockResolvedValueOnce([[{ created_at: '2026-02-01 10:00:00' }]]);

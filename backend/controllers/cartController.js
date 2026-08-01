@@ -1,5 +1,5 @@
 const promisePool = require("../config/db");
-const { safeInteger, safeUUID } = require("../utils/helpers");
+const { safeInteger, safeUUID, sanitizeString } = require("../utils/helpers");
 const inventoryReservationService = require("../services/inventoryReservationService");
 const {
     CART_OWNERSHIP,
