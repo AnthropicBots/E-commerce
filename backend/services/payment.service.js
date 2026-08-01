@@ -1,22 +1,32 @@
 let stripeInstance = null;
 
+const chaosProxy = require("./chaosProxy");
+const CURRENCY = require("../config/currency");
+
 const getStripe = () => {
     if (!stripeInstance) {
         const apiKey = process.env.STRIPE_SECRET_KEY;
         if (!apiKey) {
             throw new Error("STRIPE_SECRET_KEY is not defined in the environment variables.");
         }
-        stripeInstance = require('stripe')(apiKey);
+        stripeInstance = require("stripe")(apiKey);
     }
     return stripeInstance;
 };
 
-const CURRENCY = require('../config/currency');
-
 /**
  * Payment Service Abstraction
- * This wrapper encapsulates Stripe logic to allow easier testing and 
+ * This wrapper encapsulates Stripe logic to allow easier testing and
  * future migration to other payment providers if needed.
+ *
+ * Resilience (#1398)
+ * ------------------
+ * createPaymentIntent runs through chaosProxy.withPaymentChaos so that:
+ *   - CHAOS_ENABLED + CHAOS_PAYMENT can inject latency / 500s in non-prod
+ *   - timeouts + retries follow RESILIENCE_POLICY.payment
+ *   - failures always return { success: false, error: <user-facing> }
+ * Controllers should pair this with chaosProxy.chargeWithLockRelease so
+ * inventory locks are released when payment fails.
  */
 
 /**
@@ -36,28 +46,32 @@ const toMinorUnits = (amount, minorUnitExponent = CURRENCY.minorUnitExponent) =>
 };
 
 const createPaymentIntent = async (amount, currency = CURRENCY.code, metadata = {}) => {
-    try {
-        const stripe = getStripe();
-        const paymentIntent = await stripe.paymentIntents.create({
-            amount: toMinorUnits(amount),
-            // Stripe wants the ISO code lowercased; the configuration holds it
-            // in its canonical uppercase form.
-            currency: String(currency).toLowerCase(),
-            metadata,
-        });
-        
-        return {
-            success: true,
-            clientSecret: paymentIntent.client_secret,
-            paymentIntentId: paymentIntent.id
-        };
-    } catch (error) {
-        console.error('Error creating payment intent:', error);
-        return {
-            success: false,
-            error: error.message
-        };
-    }
+    return chaosProxy.withPaymentChaos(async () => {
+        try {
+            const stripe = getStripe();
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: toMinorUnits(amount),
+                // Stripe wants the ISO code lowercased; the configuration holds it
+                // in its canonical uppercase form.
+                currency: String(currency).toLowerCase(),
+                metadata
+            });
+
+            return {
+                success: true,
+                clientSecret: paymentIntent.client_secret,
+                paymentIntentId: paymentIntent.id
+            };
+        } catch (error) {
+            console.error("Error creating payment intent:", error);
+            return {
+                success: false,
+                error: error.message,
+                code: "PAYMENT_PROVIDER_ERROR",
+                status: 500
+            };
+        }
+    });
 };
 
 const constructWebhookEvent = (rawBody, signature) => {
@@ -70,7 +84,7 @@ const constructWebhookEvent = (rawBody, signature) => {
         );
         return { success: true, event };
     } catch (error) {
-        console.error('Webhook signature verification failed.', error.message);
+        console.error("Webhook signature verification failed.", error.message);
         return { success: false, error: error.message };
     }
 };

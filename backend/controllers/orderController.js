@@ -774,10 +774,28 @@ const createPaymentIntent = async (req, res) => {
         // Charge what the engine priced, never what the browser claimed.
         const chargeableTotal = result.breakdown.total;
 
-        const paymentIntentResult = await paymentService.createPaymentIntent(chargeableTotal, CURRENCY.code, { orderId: result.orderId, userId: req.user.id });
+        // Charge via chaos-aware payment helper so injected / real failures
+        // always release inventory locks and roll back the order txn (#1398).
+        const chaosProxy = require("../services/chaosProxy");
+        const paymentIntentResult = await chaosProxy.chargeWithLockRelease({
+            charge: () =>
+                paymentService.createPaymentIntent(chargeableTotal, CURRENCY.code, {
+                    orderId: result.orderId,
+                    userId: req.user.id
+                }),
+            rollback: async () => {
+                await connection.rollback();
+            },
+            releaseLocks: async () => {
+                await inventoryReservationService.releaseUserLocks(req.user.id);
+            }
+        });
         if (!paymentIntentResult.success) {
-            await connection.rollback();
-            return res.status(500).json({ success: false, message: paymentIntentResult.error });
+            return res.status(paymentIntentResult.status || 500).json({
+                success: false,
+                message: paymentIntentResult.error || "Payment service temporarily unavailable. Please try again.",
+                code: paymentIntentResult.code || "PAYMENT_UNAVAILABLE"
+            });
         }
 
         await connection.query("UPDATE orders SET payment_intent_id = ? WHERE id = ?", [paymentIntentResult.paymentIntentId, result.orderId]);
