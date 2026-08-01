@@ -29,6 +29,15 @@ const {
     deleteSession,
     deleteOtherSessions
 } = require("../controllers/sessionController");
+const {
+    registerOptions: webauthnRegisterOptions,
+    registerVerify: webauthnRegisterVerify,
+    loginOptions: webauthnLoginOptions,
+    loginVerify: webauthnLoginVerify,
+    listCredentials: webauthnListCredentials,
+    renameCredential: webauthnRenameCredential,
+    deleteCredential: webauthnDeleteCredential
+} = require("../controllers/webauthnController");
 // ======================== MIDDLEWARE ========================
 const authMiddleware = require("../middleware/authMiddleware");
 const {
@@ -227,6 +236,78 @@ router.get(
     "/erasure/:requestId",
     authMiddleware,
     getMyErasureStatus
+);
+
+// ======================== WEBAUTHN / PASSKEYS (#1385) ========================
+
+/**
+ * POST /api/auth/webauthn/register/options
+ * Start passkey registration (authenticated)
+ */
+router.post(
+    "/webauthn/register/options",
+    authMiddleware,
+    webauthnRegisterOptions
+);
+
+/**
+ * POST /api/auth/webauthn/register/verify
+ * Finish passkey registration
+ */
+router.post(
+    "/webauthn/register/verify",
+    authMiddleware,
+    webauthnRegisterVerify
+);
+
+/**
+ * POST /api/auth/webauthn/login/options
+ * Start passwordless passkey login
+ */
+router.post(
+    "/webauthn/login/options",
+    loginLimiter,
+    webauthnLoginOptions
+);
+
+/**
+ * POST /api/auth/webauthn/login/verify
+ * Finish passkey login → same JWT refresh family as password login
+ */
+router.post(
+    "/webauthn/login/verify",
+    loginLimiter,
+    webauthnLoginVerify
+);
+
+/**
+ * GET /api/auth/webauthn/credentials
+ * List passkeys for the current user
+ */
+router.get(
+    "/webauthn/credentials",
+    authMiddleware,
+    webauthnListCredentials
+);
+
+/**
+ * PATCH /api/auth/webauthn/credentials/:id
+ * Rename a passkey device label
+ */
+router.patch(
+    "/webauthn/credentials/:id",
+    authMiddleware,
+    webauthnRenameCredential
+);
+
+/**
+ * DELETE /api/auth/webauthn/credentials/:id
+ * Remove a passkey
+ */
+router.delete(
+    "/webauthn/credentials/:id",
+    authMiddleware,
+    webauthnDeleteCredential
 );
 
 // ======================== SESSION ROUTES ========================

@@ -420,6 +420,29 @@
 
                 </form>
 
+                <div
+                    id="passkey-settings"
+                    style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #e5e5e5;"
+                >
+                    <h3 style="margin-bottom: 0.5rem;">Passkeys</h3>
+                    <p style="font-size: 0.9rem; color: #666; margin-bottom: 1rem;">
+                        Passwordless sign-in with a device passkey. Password login still works.
+                    </p>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                        <input
+                            type="text"
+                            id="passkey-device-name"
+                            placeholder="Device name (e.g. Laptop)"
+                            maxlength="120"
+                            style="flex: 1; min-width: 160px;"
+                        >
+                        <button type="button" id="passkey-register-btn">
+                            Add Passkey
+                        </button>
+                    </div>
+                    <ul id="passkey-list" style="list-style: none; padding: 0; margin: 0;"></ul>
+                </div>
+
             </div>
 
         </div>

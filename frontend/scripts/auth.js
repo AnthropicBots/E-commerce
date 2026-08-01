@@ -27,6 +27,7 @@ const elements = {
     dropdown: document.getElementById("profile-dropdown"),
     logoutBtn: document.getElementById("logout-btn"),
     rememberMe: document.getElementById("remember-me"),
+    passkeyLoginBtn: document.getElementById("passkey-login-btn"),
 };
 
 // ==================== VALIDATION REGEX ====================
@@ -218,6 +219,157 @@ async function loginUser(email, password) {
     return await AppUtils.apiRequest("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password })
+    });
+}
+
+// ==================== WEBAUTHN / PASSKEYS (#1385) ====================
+function bufferToBase64url(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let str = "";
+    bytes.forEach((b) => {
+        str += String.fromCharCode(b);
+    });
+    return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64urlToBuffer(base64url) {
+    const pad = "=".repeat((4 - (base64url.length % 4)) % 4);
+    const base64 = (base64url + pad).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(base64);
+    const buffer = new ArrayBuffer(raw.length);
+    const view = new Uint8Array(buffer);
+    for (let i = 0; i < raw.length; i += 1) {
+        view[i] = raw.charCodeAt(i);
+    }
+    return buffer;
+}
+
+function isWebAuthnAvailable() {
+    return typeof window !== "undefined"
+        && window.PublicKeyCredential
+        && typeof navigator.credentials?.create === "function";
+}
+
+function publicKeyCredentialToJSON(cred) {
+    if (!cred) return null;
+    const response = cred.response;
+    const json = {
+        id: cred.id,
+        rawId: bufferToBase64url(cred.rawId),
+        type: cred.type,
+        clientExtensionResults: cred.getClientExtensionResults?.() || {},
+        response: {}
+    };
+    if (response.clientDataJSON) {
+        json.response.clientDataJSON = bufferToBase64url(response.clientDataJSON);
+    }
+    if (response.attestationObject) {
+        json.response.attestationObject = bufferToBase64url(response.attestationObject);
+        json.response.transports = response.getTransports?.() || [];
+    }
+    if (response.authenticatorData) {
+        json.response.authenticatorData = bufferToBase64url(response.authenticatorData);
+    }
+    if (response.signature) {
+        json.response.signature = bufferToBase64url(response.signature);
+    }
+    if (response.userHandle) {
+        json.response.userHandle = bufferToBase64url(response.userHandle);
+    }
+    return json;
+}
+
+function preparationOptionsToPublicKey(options) {
+    const publicKey = { ...options };
+    publicKey.challenge = base64urlToBuffer(options.challenge);
+    if (options.user?.id) {
+        publicKey.user = {
+            ...options.user,
+            id: base64urlToBuffer(options.user.id)
+        };
+    }
+    if (Array.isArray(options.excludeCredentials)) {
+        publicKey.excludeCredentials = options.excludeCredentials.map((c) => ({
+            ...c,
+            id: base64urlToBuffer(c.id)
+        }));
+    }
+    if (Array.isArray(options.allowCredentials)) {
+        publicKey.allowCredentials = options.allowCredentials.map((c) => ({
+            ...c,
+            id: base64urlToBuffer(c.id)
+        }));
+    }
+    return publicKey;
+}
+
+async function registerPasskey(deviceName) {
+    if (!isWebAuthnAvailable()) {
+        throw new Error("Passkeys are not supported in this browser");
+    }
+    const optRes = await AppUtils.apiRequest("/auth/webauthn/register/options", {
+        method: "POST",
+        body: JSON.stringify({})
+    });
+    if (!optRes?.success || !optRes.options) {
+        throw new Error(optRes?.message || "Could not start passkey registration");
+    }
+    const credential = await navigator.credentials.create({
+        publicKey: preparationOptionsToPublicKey(optRes.options)
+    });
+    return AppUtils.apiRequest("/auth/webauthn/register/verify", {
+        method: "POST",
+        body: JSON.stringify({
+            response: publicKeyCredentialToJSON(credential),
+            deviceName: deviceName || "Passkey"
+        })
+    });
+}
+
+async function loginWithPasskey(email) {
+    if (!isWebAuthnAvailable()) {
+        throw new Error("Passkeys are not supported in this browser");
+    }
+    const optRes = await AppUtils.apiRequest("/auth/webauthn/login/options", {
+        method: "POST",
+        body: JSON.stringify({ email })
+    });
+    if (!optRes?.success || !optRes.options) {
+        throw new Error(optRes?.message || "Could not start passkey login");
+    }
+    if (
+        Array.isArray(optRes.options.allowCredentials)
+        && optRes.options.allowCredentials.length === 0
+    ) {
+        throw new Error("No passkey registered for this account. Sign in with password first, then add a passkey in Settings.");
+    }
+    const assertion = await navigator.credentials.get({
+        publicKey: preparationOptionsToPublicKey(optRes.options)
+    });
+    return AppUtils.apiRequest("/auth/webauthn/login/verify", {
+        method: "POST",
+        body: JSON.stringify({
+            email,
+            challengeSubject: optRes.challengeSubject,
+            response: publicKeyCredentialToJSON(assertion)
+        })
+    });
+}
+
+async function listPasskeys() {
+    return AppUtils.apiRequest("/auth/webauthn/credentials", { method: "GET" });
+}
+
+async function renamePasskey(id, deviceName) {
+    return AppUtils.apiRequest(`/auth/webauthn/credentials/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ deviceName })
+    });
+}
+
+async function deletePasskey(id) {
+    return AppUtils.apiRequest(`/auth/webauthn/credentials/${encodeURIComponent(id)}`, {
+        method: "DELETE"
     });
 }
 
@@ -511,6 +663,47 @@ if (elements.signinForm) {
             AppUtils.notify("Login failed. Please try again.", "error");
         } finally {
             toggleFormLoading(submitBtn, false);
+        }
+    });
+}
+
+// Passkey login (password remains available) (#1385)
+if (elements.passkeyLoginBtn) {
+    elements.passkeyLoginBtn.addEventListener("click", async () => {
+        const email = elements.signinEmail?.value?.trim() || "";
+        if (!emailRegex.test(email)) {
+            AppUtils.notify("Enter your email, then use Sign in with Passkey.", "error");
+            return;
+        }
+        if (isAccountLocked(email)) {
+            const remaining = getRemainingLockoutTime(email);
+            AppUtils.notify(`Account temporarily locked. Please try again in ${remaining} minutes.`, "error");
+            return;
+        }
+        toggleFormLoading(elements.passkeyLoginBtn, true, "Waiting for Passkey...");
+        try {
+            const response = await loginWithPasskey(email);
+            if (response.success) {
+                resetLoginAttempts(email);
+                saveAuthSession(response);
+                await AppUtils.mergeGuestCartIntoAccount();
+                AppUtils.notify("Passkey login successful!", "success");
+                const redirect = response.user?.role === "admin" ? "admin.html" : "index.html";
+                setTimeout(() => {
+                    window.location.href = redirect;
+                }, 800);
+            } else {
+                AppUtils.notify(response.message || "Passkey login failed.", "error");
+            }
+        } catch (error) {
+            if (error?.name === "NotAllowedError") {
+                AppUtils.notify("Passkey sign-in was cancelled.", "warning");
+            } else {
+                console.error("PASSKEY LOGIN ERROR:", error);
+                AppUtils.notify(error?.message || "Passkey login failed.", "error");
+            }
+        } finally {
+            toggleFormLoading(elements.passkeyLoginBtn, false);
         }
     });
 }
@@ -913,6 +1106,24 @@ if (typeof module !== 'undefined' && module.exports) {
         saveAuthSession,
         clearAuthSession,
         evaluatePasswordStrength,
-        updatePasswordStrength
+        updatePasswordStrength,
+        registerPasskey,
+        loginWithPasskey,
+        listPasskeys,
+        renamePasskey,
+        deletePasskey,
+        isWebAuthnAvailable
+    };
+}
+
+// Browser globals for settings UI
+if (typeof window !== "undefined") {
+    window.AuthPasskeys = {
+        registerPasskey,
+        loginWithPasskey,
+        listPasskeys,
+        renamePasskey,
+        deletePasskey,
+        isWebAuthnAvailable
     };
 }
