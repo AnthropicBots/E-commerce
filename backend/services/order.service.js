@@ -10,6 +10,7 @@ const logger = require("../utils/logger");
 const { validatePromo } = require("./promo.service");
 const pricing = require("./pricing.service");
 const cartLifecycle = require("./cartLifecycleService");
+const shipping = require("./shipping.service");
 const cartRecoveryAttribution = require("./cartRecoveryAttributionService");
 
 // Marks the one failure the client can act on, so controllers can answer with
@@ -207,6 +208,12 @@ const createOrderService = async (connection, orderData) => {
             items,
             promo_code,
             total: claimedTotal,
+            // The delivery option the shopper chose (#1430). A code, never a
+            // rate: what it costs is looked up and priced here, so a client
+            // cannot influence its own delivery charge. Absent, the default
+            // option applies and the basket prices exactly as it did before
+            // checkout offered a choice.
+            shipping_method,
             // Optional link back to the saved address book (#1347). The
             // flattened columns above stay authoritative for what was actually
             // shipped -- they must not change when the shopper later edits or
@@ -243,10 +250,19 @@ const createOrderService = async (connection, orderData) => {
             appliedPromo = promoValidation.promo;
         }
 
+        const [selectedMethod, defaultMethod] = await Promise.all([
+            shipping.resolveMethod(shipping_method),
+            shipping.getDefaultMethod(),
+        ]);
+
         const breakdown = pricing.quote({
             items: validatedItems,
             promo: appliedPromo,
             promoCode: appliedPromo ? appliedPromo.code : null,
+            shippingMethod: shipping.toPricingDescriptor(
+                selectedMethod,
+                defaultMethod,
+            ),
         });
 
         const verification = pricing.verifyClaimedTotal(
@@ -300,6 +316,7 @@ const createOrderService = async (connection, orderData) => {
                 status,
                 subtotal,
                 tax,
+                shipping_method,
                 shipping_cost,
                 discount,
                 discount_code,
@@ -311,7 +328,7 @@ const createOrderService = async (connection, orderData) => {
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         `;
 
         const [orderResult] = await connection.query(orderQuery, [
@@ -331,6 +348,7 @@ const createOrderService = async (connection, orderData) => {
             "pending",
             breakdown.subtotal,
             breakdown.tax,
+            selectedMethod.code,
             breakdown.shipping,
             discountAmount,
             appliedPromoCode,
@@ -493,6 +511,7 @@ const getOrderSummaryById = async (connection, orderId) => {
                 o.status,
                 o.subtotal,
                 o.tax,
+                o.shipping_method,
                 o.shipping_cost,
                 o.discount_amount,
                 o.final_amount,
@@ -816,6 +835,9 @@ const generateOrderSummaryService = async (orderId) => {
             discountAmount: order.discount_amount || 0,
             tax: order.tax || 0,
             shipping: order.shipping_cost || 0,
+            // Null on orders placed before checkout offered a choice. Nothing
+            // recorded how those were sent, so nothing claims to know.
+            shippingMethod: order.shipping_method || null,
             total: order.final_amount || order.total,
             timeline: await getOrderTimeline(orderId)
         };

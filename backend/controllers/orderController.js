@@ -32,8 +32,9 @@ const addressService = require("../services/addressService");
 // Order status history (#1351). Every status change records who, when, from
 // what, and why -- inside the same transaction as the change itself.
 const orderStatusHistoryService = require("../services/orderStatusHistoryService");
-// Abandoned-cart recovery attribution (#1429).
-const cartRecoveryAttribution = require("../services/cartRecoveryAttributionService");
+// Delivery options (#1430). Required here only for the error code, so an
+// unrecognised option answers 400 rather than 500.
+const shippingService = require("../services/shipping.service");
 
 // create order
 const createOrder =
@@ -55,12 +56,9 @@ const createOrder =
                 // Saved address book (#1347). A signed-in shopper can send an
                 // id instead of retyping the whole address.
                 addressId,
-                // Abandoned-cart recovery (#1429). Present when this basket
-                // came back through a restore link. Unvalidated here: the
-                // order service decides whether it attributes anything, and a
-                // reference it does not recognise is not a reason to refuse an
-                // order.
-                recoveryRef
+                // Delivery options (#1430). A code naming one of the offered
+                // methods; the server looks up what it costs.
+                shippingMethod
             } = req.body;
 
             // Resolve a saved address into the same flat shape the manual form
@@ -213,7 +211,9 @@ const createOrder =
                         total: safeNumber(total),
                         items,
                         promo_code: promoCode ? sanitizeString(promoCode) : null,
-                        recovery_ref: recoveryRef ? sanitizeString(recoveryRef) : null
+                        shipping_method: shippingMethod
+                            ? sanitizeString(shippingMethod)
+                            : null
                     }
                 );
             
@@ -294,6 +294,16 @@ const createOrder =
                     productId: error.productId,
                     availableStock: error.availableStock ?? null,
                     requested: error.requested ?? null
+                });
+            }
+
+            // A delivery option that names nothing is a bad request, not a
+            // server fault, and the message lists what is on offer.
+            if (error.code === shippingService.UNKNOWN_METHOD_CODE) {
+                return res.status(400).json({
+                    success: false,
+                    code: shippingService.UNKNOWN_METHOD_CODE,
+                    message: error.message
                 });
             }
 
@@ -793,7 +803,7 @@ const createPaymentIntent = async (req, res) => {
     try {
         connection = await db.getConnection();
 
-        const { customer, address, items, total, promoCode, recoveryRef } = req.body;
+        const { customer, address, items, total, promoCode, shippingMethod } = req.body;
 
         if (!customer || !customer.name || !customer.email) {
             return res.status(400).json({ success: false, message: "Customer information required" });
@@ -841,7 +851,7 @@ const createPaymentIntent = async (req, res) => {
             total: safeNumber(total),
             items,
             promo_code: promoCode ? sanitizeString(promoCode) : null,
-            recovery_ref: recoveryRef ? sanitizeString(recoveryRef) : null
+            shipping_method: shippingMethod ? sanitizeString(shippingMethod) : null
         });
 
         await inventoryReservationService.consumeLocks(req.user.id, items, connection);
@@ -916,6 +926,14 @@ const createPaymentIntent = async (req, res) => {
                 productId: error.productId,
                 availableStock: error.availableStock ?? null,
                 requested: error.requested ?? null
+            });
+        }
+
+        if (error.code === shippingService.UNKNOWN_METHOD_CODE) {
+            return res.status(400).json({
+                success: false,
+                code: shippingService.UNKNOWN_METHOD_CODE,
+                message: error.message
             });
         }
 

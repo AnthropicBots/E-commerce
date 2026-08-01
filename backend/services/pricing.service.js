@@ -140,23 +140,57 @@ const calculateTax = (taxableBase) =>
     roundMoney(Math.max(0, roundMoney(taxableBase)) * PRICING_CONFIG.TAX_RATE);
 
 /**
- * Shipping due on a post-discount subtotal. An empty basket never attracts a
- * shipping charge, and a `free_shipping` promo waives it outright.
+ * Shipping due on a post-discount subtotal for a chosen delivery method.
+ *
+ * The charge is the method's own rate. A waiver — the free-shipping threshold,
+ * or a `free_shipping` promo — covers `waiverRate` of it and no more, which is
+ * what "free shipping" has always meant here: the store absorbs the standard
+ * cost of delivery. A shopper who has earned it and then upgrades to a faster
+ * option pays the difference rather than nothing at all.
+ *
+ * With no method supplied both rates fall back to the flat rate, which
+ * reproduces the pre-#1430 figure exactly: nothing below the threshold, free
+ * at or above it. That is what lets a caller that does not offer a choice keep
+ * pricing baskets the way it always has.
+ *
+ * An empty basket never attracts a shipping charge.
  *
  * @param {number} postDiscountSubtotal
- * @param {{ isShippingWaived?: boolean }} [options]
+ * @param {{ isShippingWaived?: boolean, methodRate?: number, waiverRate?: number }} [options]
  * @returns {number}
  */
 const calculateShipping = (postDiscountSubtotal, options = {}) => {
     const base = Math.max(0, roundMoney(postDiscountSubtotal));
 
-    if (options.isShippingWaived || base <= 0) {
+    if (base <= 0) {
         return 0;
     }
 
-    return base >= PRICING_CONFIG.FREE_SHIPPING_THRESHOLD
-        ? 0
-        : roundMoney(PRICING_CONFIG.SHIPPING_FLAT_RATE);
+    const rate = Math.max(
+        0,
+        roundMoney(
+            options.methodRate === undefined || options.methodRate === null
+                ? PRICING_CONFIG.SHIPPING_FLAT_RATE
+                : options.methodRate,
+        ),
+    );
+
+    const isEarned = base >= PRICING_CONFIG.FREE_SHIPPING_THRESHOLD;
+
+    if (!options.isShippingWaived && !isEarned) {
+        return rate;
+    }
+
+    const waiver = Math.max(
+        0,
+        roundMoney(
+            options.waiverRate === undefined || options.waiverRate === null
+                ? PRICING_CONFIG.SHIPPING_FLAT_RATE
+                : options.waiverRate,
+        ),
+    );
+
+    return roundMoney(Math.max(0, rate - waiver));
 };
 
 /**
@@ -169,9 +203,18 @@ const calculateShipping = (postDiscountSubtotal, options = {}) => {
  * @param {Array<Object>} input.items
  * @param {Object|null} [input.promo] - validated promo descriptor, if any
  * @param {string|null} [input.promoCode] - code to echo back on the breakdown
+ * @param {Object|null} [input.shippingMethod] - resolved delivery method,
+ *        carrying its own `rate` and the `waiverRate` free shipping covers.
+ *        Omitted, the flat rate applies, which is what every caller got before
+ *        there was a choice of delivery.
  * @returns {Object} breakdown
  */
-const quote = ({ items = [], promo = null, promoCode = null } = {}) => {
+const quote = ({
+    items = [],
+    promo = null,
+    promoCode = null,
+    shippingMethod = null,
+} = {}) => {
     const { lines, subtotal } = priceLineItems(items);
 
     const discount = applyDiscount(promo, subtotal);
@@ -179,6 +222,8 @@ const quote = ({ items = [], promo = null, promoCode = null } = {}) => {
     const tax = calculateTax(taxableBase);
     const shipping = calculateShipping(taxableBase, {
         isShippingWaived: discount.isShippingWaived,
+        methodRate: shippingMethod?.rate,
+        waiverRate: shippingMethod?.waiverRate,
     });
 
     return {
@@ -192,6 +237,12 @@ const quote = ({ items = [], promo = null, promoCode = null } = {}) => {
         taxableBase,
         tax,
         shipping,
+        // What was charged for, alongside what it cost. An order that records
+        // a figure without recording which option produced it cannot be
+        // reconciled against fulfilment.
+        shippingMethod: shippingMethod
+            ? { code: shippingMethod.code, label: shippingMethod.label }
+            : null,
         total: roundMoney(taxableBase + tax + shipping),
     };
 };

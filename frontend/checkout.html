@@ -233,6 +233,35 @@
                     <small class="field-error" id="address-error"></small>
                 </div>
 
+                <!-- Delivery -->
+
+                <h3>
+
+                    Delivery Option
+
+                </h3>
+
+                <!--
+                    Options and their prices are rendered from the server's
+                    quote. The markup carries no rates: what each option costs
+                    is priced server-side for this basket, and the browser only
+                    ever sends back which one was picked.
+                -->
+                <div
+                    class="delivery-options"
+                    id="delivery-options"
+                    role="radiogroup"
+                    aria-label="Delivery option"
+                >
+
+                    <p class="delivery-options-loading" id="delivery-options-loading">
+
+                        Loading delivery options…
+
+                    </p>
+
+                </div>
+
                 <!-- Payment -->
 
                 <h3>
@@ -356,7 +385,7 @@
 
                 <span>
 
-                    Shipping
+                    Shipping <small id="checkout-shipping-method" class="summary-note"></small>
 
                 </span>
 

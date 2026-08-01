@@ -1928,7 +1928,8 @@ const calculateCartTotals = async (
 // `isServerQuote` tells callers which of the two they are looking at.
 const fetchCartQuote = async (
     cart = getCart(),
-    couponCode = ""
+    couponCode = "",
+    shippingMethod = null
 ) => {
     const items = safeArray(cart).map(
         (item) => ({
@@ -1945,7 +1946,10 @@ const fetchCartQuote = async (
             method: "POST",
             body: JSON.stringify({
                 items,
-                promoCode: couponCode || null
+                promoCode: couponCode || null,
+                // A code naming a delivery option, never a rate. The server
+                // decides what it costs.
+                shippingMethod: shippingMethod || null
             })
         });
 
@@ -1957,6 +1961,7 @@ const fetchCartQuote = async (
 
         return {
             ...response.breakdown,
+            shippingOptions: safeArray(response.shippingOptions),
             promoMessage: response.promoMessage || null,
             isServerQuote: true
         };
@@ -1967,6 +1972,10 @@ const fetchCartQuote = async (
 
         return {
             ...fallback,
+            // Deliberately empty: the local fallback cannot price a delivery
+            // option, and offering a choice it could not cost would show the
+            // shopper a figure the server never agreed to.
+            shippingOptions: [],
             isServerQuote: false
         };
     }

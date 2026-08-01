@@ -70,6 +70,16 @@ const elements = {
             "checkout-shipping"
         ),
 
+    shippingMethodNote:
+        document.getElementById(
+            "checkout-shipping-method"
+        ),
+
+    deliveryOptions:
+        document.getElementById(
+            "delivery-options"
+        ),
+
     discount:
         document.getElementById(
             "checkout-discount"
@@ -270,13 +280,132 @@ function safeQty(
         );
 }
 
+// DELIVERY OPTION
+//
+// Which option the shopper picked, and nothing else. What it costs is never
+// held here: the server prices the selection and the summary renders whatever
+// comes back, so there is no figure on this page the browser could send.
+let selectedShippingMethod =
+    null;
+
 // CALCULATE TOTALS
 async function calculateTotals() {
 
     return AppUtils.fetchCartQuote(
         cart,
-        appliedCoupon
+        appliedCoupon,
+        selectedShippingMethod
     );
+}
+
+function renderDeliveryOptions(
+    options,
+    currency
+) {
+
+    if (
+        !elements.deliveryOptions
+    ) {
+        return;
+    }
+
+    const available =
+        AppUtils.safeArray(
+            options
+        );
+
+    if (
+        !available.length
+    ) {
+
+        // The quote could not be reached, or this basket has nothing to
+        // deliver. Saying so is better than an empty box, and leaving the
+        // selection untouched means the order still goes out on the default.
+        elements.deliveryOptions.innerHTML =
+            '<p class="delivery-options-loading">Delivery options are unavailable right now — your order will be sent by our standard service.</p>';
+
+        return;
+    }
+
+    elements.deliveryOptions.innerHTML =
+        available
+            .map(
+                (
+                    option
+                ) => `
+                    <label class="delivery-option${option.isSelected ? " is-selected" : ""}">
+
+                        <input
+                            type="radio"
+                            name="delivery"
+                            value="${escapeHTML(option.code)}"
+                            ${option.isSelected ? "checked" : ""}
+                        >
+
+                        <span class="delivery-option-body">
+
+                            <span class="delivery-option-label">
+                                ${escapeHTML(option.label)}
+                            </span>
+
+                            <small class="delivery-option-description">
+                                ${escapeHTML(option.description || "")}
+                            </small>
+
+                        </span>
+
+                        <span class="delivery-option-cost">
+                            ${
+                                option.cost === 0
+                                    ? "Free"
+                                    : AppUtils.formatPrice(
+                                        option.cost,
+                                        currency
+                                    )
+                            }
+                        </span>
+
+                    </label>
+                `
+            )
+            .join("");
+
+    const selected =
+        available.find(
+            (
+                option
+            ) => option.isSelected
+        );
+
+    selectedShippingMethod =
+        selected
+            ? selected.code
+            : null;
+
+    elements.deliveryOptions
+        .querySelectorAll(
+            'input[name="delivery"]'
+        )
+        .forEach(
+            (
+                input
+            ) => {
+
+                input.addEventListener(
+                    "change",
+                    async () => {
+
+                        selectedShippingMethod =
+                            input.value;
+
+                        // Re-price rather than adjust the total locally. The
+                        // charge for an option is the server's to state, and
+                        // the two must not be able to disagree.
+                        await refreshSummary();
+                    }
+                );
+            }
+        );
 }
 
 function renderTotals(
@@ -323,6 +452,18 @@ function renderTotals(
                 );
     }
 
+    if (
+        elements.shippingMethodNote
+    ) {
+
+        // Naming the option next to the charge is what makes the line
+        // reconcilable — "Shipping ₹149" alone does not say what was bought.
+        elements.shippingMethodNote.innerText =
+            totals.shippingMethod
+                ? `(${totals.shippingMethod.label})`
+                : "";
+    }
+
     const discount =
         Number(totals.discount) || 0;
 
@@ -366,6 +507,11 @@ async function refreshSummary() {
 
     renderTotals(
         totals
+    );
+
+    renderDeliveryOptions(
+        totals.shippingOptions,
+        totals.currency
     );
 
     return totals;
@@ -633,6 +779,11 @@ async function createOrderPayload() {
         paymentMethod:
             selectedPayment.value
                 .toLowerCase(),
+
+        // The code only. The server looks up what it costs, so nothing about
+        // the delivery charge travels in this payload.
+        shippingMethod:
+            selectedShippingMethod,
 
         total:
             totals.total,
