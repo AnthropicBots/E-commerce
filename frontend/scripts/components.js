@@ -815,7 +815,12 @@ const renderFashionMenuProducts = async (link) => {
     }
 
     fashionProductsContainer.innerHTML =
-        `<p class="mega-menu-empty">Loading products...</p>`;
+        `
+        <div class="mega-menu-skeleton" aria-busy="true" aria-label="Loading products">
+            <div class="skeleton-card"></div>
+            <div class="skeleton-card"></div>
+        </div>
+        `;
 
     try {
         await ensureProductCardFactory();
@@ -842,10 +847,28 @@ const renderFashionMenuProducts = async (link) => {
                     </a>`
                 )
                 .join("")
-            : `<p class="mega-menu-empty">No products available in this category.</p>`;
+            : `
+            <div class="mega-menu-empty-state">
+                <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                </svg>
+                <h4 class="empty-state-heading">No Products Found</h4>
+                <p class="empty-state-desc">We couldn't find any products in this category right now.</p>
+                <a href="shop.html" class="empty-state-cta">Shop All Products</a>
+            </div>
+            `;
     } catch {
         fashionProductsContainer.innerHTML =
-            `<p class="mega-menu-empty">No products available in this category.</p>`;
+            `
+            <div class="mega-menu-empty-state">
+                <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                </svg>
+                <h4 class="empty-state-heading">No Products Found</h4>
+                <p class="empty-state-desc">We couldn't find any products in this category right now.</p>
+                <a href="shop.html" class="empty-state-cta">Shop All Products</a>
+            </div>
+            `;
     }
 };
 

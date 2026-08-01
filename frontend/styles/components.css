@@ -1691,3 +1691,105 @@ body.dark-theme .cart-drawer-subtotal {
         width: 100%;
     }
 }
+
+/* Mega Menu Empty State */
+.mega-menu-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1rem;
+    text-align: center;
+    width: 100%;
+    grid-column: 1 / -1;
+}
+
+.empty-state-icon {
+    width: 64px;
+    height: 64px;
+    color: #cbd5e1;
+    margin-bottom: 1rem;
+}
+
+.empty-state-heading {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #334155;
+    margin: 0 0 0.5rem 0;
+}
+
+.empty-state-desc {
+    color: #64748b;
+    font-size: 0.95rem;
+    margin: 0 0 1.5rem 0;
+    max-width: 300px;
+}
+
+.empty-state-cta {
+    display: inline-block;
+    background-color: #088178;
+    color: #ffffff;
+    padding: 0.75rem 1.5rem;
+    border-radius: 4px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+}
+
+.empty-state-cta:hover {
+    background-color: #06665f;
+    color: #ffffff;
+}
+
+/* Mega Menu Skeleton Loader */
+.mega-menu-skeleton {
+    display: flex;
+    gap: 1rem;
+    width: 100%;
+}
+
+.skeleton-card {
+    flex: 1;
+    height: 250px;
+    background-color: #f1f5f9;
+    border-radius: 8px;
+    animation: pulse 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse {
+    0% {
+        background-color: #f1f5f9;
+    }
+    50% {
+        background-color: #e2e8f0;
+    }
+    100% {
+        background-color: #f1f5f9;
+    }
+}
+
+/* Dark Theme Adjustments for Empty State & Skeleton */
+body.dark-theme .empty-state-icon {
+    color: #475569;
+}
+body.dark-theme .empty-state-heading {
+    color: #e2e8f0;
+}
+body.dark-theme .empty-state-desc {
+    color: #94a3b8;
+}
+body.dark-theme .skeleton-card {
+    background-color: #334155;
+    animation: pulse-dark 1.5s infinite ease-in-out;
+}
+@keyframes pulse-dark {
+    0% {
+        background-color: #334155;
+    }
+    50% {
+        background-color: #475569;
+    }
+    100% {
+        background-color: #334155;
+    }
+}
