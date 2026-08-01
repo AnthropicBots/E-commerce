@@ -8,6 +8,9 @@ const appliedCoupon =
         ""
     );
 
+// Mid-session FX lock (#1392) — token from last quote; cleared on currency switch
+let activeFxLock = null;
+
 // require authentication
 const currentUser =
     AppUtils.requireAuth();
@@ -364,6 +367,44 @@ async function refreshSummary() {
     const totals =
         await calculateTotals();
 
+    if (totals && totals.fxLock && totals.fxLock.token) {
+        activeFxLock = totals.fxLock;
+        // Keep currency switcher conversion aligned with the locked mid-session rate
+        const code = totals.fxLock.displayCurrency;
+        if (
+            code
+            && AppUtils.CONFIG.SUPPORTED_CURRENCIES
+            && AppUtils.CONFIG.SUPPORTED_CURRENCIES[code]
+            && typeof totals.fxLock.rate === "number"
+        ) {
+            AppUtils.CONFIG.SUPPORTED_CURRENCIES[code].RATE = totals.fxLock.rate;
+        }
+    } else if (
+        totals
+        && totals.displayCurrency
+        && totals.displayCurrency !== (AppUtils.CONFIG.CURRENCY_INFO && AppUtils.CONFIG.CURRENCY_INFO.CODE)
+        && totals.displayCurrency !== "INR"
+    ) {
+        // Quote may have omitted lock; mint one explicitly so checkout can proceed
+        try {
+            const locked = await AppUtils.apiRequest("/checkout/fx/lock", {
+                method: "POST",
+                body: JSON.stringify({
+                    currency: totals.displayCurrency || AppUtils.getSelectedCurrency(),
+                    baseTotal: totals.total
+                })
+            });
+            if (locked && locked.success && locked.fxLock) {
+                activeFxLock = locked.fxLock;
+                totals.fxLock = locked.fxLock;
+            }
+        } catch (err) {
+            console.warn("FX lock refresh failed:", err);
+        }
+    } else {
+        activeFxLock = null;
+    }
+
     renderTotals(
         totals
     );
@@ -664,7 +705,15 @@ async function createOrderPayload() {
                     size:
                         item.size || ""
                 })
-            )
+            ),
+
+        // Mid-session FX lock (#1392)
+        currency:
+            (totals.displayCurrency
+                || AppUtils.getSelectedCurrency()),
+
+        fxLockToken:
+            (activeFxLock && activeFxLock.token) || null
     };
 }
 
@@ -694,6 +743,18 @@ function orderFailure(
             response
             &&
             response.code === TOTAL_MISMATCH_CODE
+        );
+
+    failure.isFxLockExpired =
+        Boolean(
+            response
+            &&
+            (
+                response.code === "FX_LOCK_EXPIRED"
+                || response.code === "FX_LOCK_MISSING"
+                || response.code === "FX_LOCK_CURRENCY_MISMATCH"
+                || response.code === "FX_LOCK_TOTAL_MISMATCH"
+            )
         );
 
     failure.requiresChallenge =
@@ -1029,6 +1090,18 @@ if (
                         "error"
                     );
 
+                } else if (
+                    error.isFxLockExpired
+                ) {
+
+                    activeFxLock = null;
+                    await refreshSummary();
+
+                    AppUtils.notify(
+                        `${error.message} A fresh FX rate has been locked — please review the total and try again.`,
+                        "error"
+                    );
+
                 } else {
 
                     AppUtils.notify(
@@ -1059,6 +1132,8 @@ if (
 }
 
 window.addEventListener("currencyUpdated", () => {
+    // Currency switcher sync (#1392): drop stale lock and re-quote
+    activeFxLock = null;
     if (typeof renderCheckout === "function") {
         renderCheckout();
     }

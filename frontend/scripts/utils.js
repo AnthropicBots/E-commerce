@@ -1903,12 +1903,17 @@ const fetchCartQuote = async (
         })
     );
 
+    const displayCurrency = getSelectedCurrency();
+
     try {
         const response = await apiRequest("/checkout/quote", {
             method: "POST",
             body: JSON.stringify({
                 items,
-                promoCode: couponCode || null
+                promoCode: couponCode || null,
+                // Mid-session FX lock (#1392): lock display rate with the quote
+                currency: displayCurrency,
+                lockFx: true
             })
         });
 
@@ -1921,7 +1926,10 @@ const fetchCartQuote = async (
         return {
             ...response.breakdown,
             promoMessage: response.promoMessage || null,
-            isServerQuote: true
+            isServerQuote: true,
+            displayCurrency: response.displayCurrency || displayCurrency,
+            fx: response.fx || null,
+            fxLock: response.fxLock || null
         };
     } catch (error) {
         console.error("CART QUOTE ERROR:", error);
@@ -1930,7 +1938,10 @@ const fetchCartQuote = async (
 
         return {
             ...fallback,
-            isServerQuote: false
+            isServerQuote: false,
+            displayCurrency,
+            fx: null,
+            fxLock: null
         };
     }
 };
@@ -1994,6 +2005,10 @@ window.AppUtils = {
     $,
     $$,
     formatPrice,
+    getSelectedCurrency,
+    getCurrencyInfo,
+    setSelectedCurrency,
+    initCurrencySelector,
     defaultImage,
     safeArray,
     safeNumber,

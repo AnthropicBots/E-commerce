@@ -28,6 +28,51 @@ const {
 // Saved address book (#1347).
 const addressService = require("../services/addressService");
 
+// Mid-session FX lock (#1392)
+const fxLockService = require("../services/fxLockService");
+
+/**
+ * When the shopper browses in a non-settlement currency, checkout must present
+ * a still-valid FX lock token so the displayed conversion cannot silently drift.
+ * Settlement (charge) stays in CURRENCY.code (INR).
+ */
+async function assertFxLockForCheckout({
+    fxLockToken,
+    displayCurrency,
+    baseTotal
+}) {
+    const currency = sanitizeString(displayCurrency || CURRENCY.code).toUpperCase()
+        || CURRENCY.code;
+
+    if (!currency || currency === CURRENCY.code) {
+        return { required: false, lock: null, audit: null };
+    }
+
+    if (!CURRENCY.isSupportedCurrency(currency)) {
+        const err = new Error(`Unsupported currency: ${currency}`);
+        err.status = 400;
+        err.code = "FX_CURRENCY_UNSUPPORTED";
+        throw err;
+    }
+
+    const token = sanitizeString(fxLockToken || "");
+    if (!token) {
+        const err = new Error(
+            "FX rate lock is required for multi-currency checkout. Refresh the summary and try again."
+        );
+        err.status = 409;
+        err.code = "FX_LOCK_MISSING";
+        throw err;
+    }
+
+    const lock = await fxLockService.validateFxLock(token, {
+        displayCurrency: currency,
+        baseTotal: baseTotal != null ? safeNumber(baseTotal) : null
+    });
+
+    return { required: true, lock, token };
+}
+
 // create order
 const createOrder =
     async (
@@ -47,7 +92,10 @@ const createOrder =
                 promoCode,
                 // Saved address book (#1347). A signed-in shopper can send an
                 // id instead of retyping the whole address.
-                addressId
+                addressId,
+                // Mid-session FX lock (#1392)
+                fxLockToken,
+                currency: displayCurrency
             } = req.body;
 
             // Resolve a saved address into the same flat shape the manual form
@@ -161,6 +209,22 @@ const createOrder =
                     });
             }
 
+            // Mid-session FX lock (#1392): reject expired / missing locks before charge
+            let fxContext = { required: false, lock: null, token: null };
+            try {
+                fxContext = await assertFxLockForCheckout({
+                    fxLockToken,
+                    displayCurrency,
+                    baseTotal: total
+                });
+            } catch (fxErr) {
+                return res.status(fxErr.status || 400).json({
+                    success: false,
+                    code: fxErr.code || "FX_LOCK_INVALID",
+                    message: fxErr.message
+                });
+            }
+
             // begin transaction
             await connection.beginTransaction();
 
@@ -217,6 +281,19 @@ const createOrder =
                 await addressService.markAddressUsed(req.user.id, addressId);
             }
 
+            let fxCaptureAudit = null;
+            if (fxContext.required && fxContext.token) {
+                try {
+                    fxCaptureAudit = await fxLockService.auditCapture({
+                        fxLockToken: fxContext.token,
+                        settlementTotal: result.breakdown.total,
+                        orderId: result.orderId
+                    });
+                } catch (auditErr) {
+                    console.warn("FX capture audit skipped:", auditErr.message);
+                }
+            }
+
             return res.status(201)
                 .json({
                     success: true,
@@ -227,7 +304,9 @@ const createOrder =
                     orderId:
                         result.orderId,
                     breakdown:
-                        result.breakdown
+                        result.breakdown,
+                    fxLock: fxContext.lock || null,
+                    fxCaptureAudit
                 });
 
         } catch (error) {
@@ -719,7 +798,15 @@ const createPaymentIntent = async (req, res) => {
     try {
         connection = await db.getConnection();
 
-        const { customer, address, items, total, promoCode } = req.body;
+        const {
+            customer,
+            address,
+            items,
+            total,
+            promoCode,
+            fxLockToken,
+            currency: displayCurrency
+        } = req.body;
 
         if (!customer || !customer.name || !customer.email) {
             return res.status(400).json({ success: false, message: "Customer information required" });
@@ -733,6 +820,21 @@ const createPaymentIntent = async (req, res) => {
         // Shape check only; the charged amount comes from the order service.
         if (safeNumber(total) <= 0) {
             return res.status(400).json({ success: false, message: "Invalid order total" });
+        }
+
+        let fxContext = { required: false, lock: null, token: null };
+        try {
+            fxContext = await assertFxLockForCheckout({
+                fxLockToken,
+                displayCurrency,
+                baseTotal: total
+            });
+        } catch (fxErr) {
+            return res.status(fxErr.status || 400).json({
+                success: false,
+                code: fxErr.code || "FX_LOCK_INVALID",
+                message: fxErr.message
+            });
         }
 
         await connection.beginTransaction();
@@ -772,6 +874,8 @@ const createPaymentIntent = async (req, res) => {
         await inventoryReservationService.consumeLocks(req.user.id, items, connection);
 
         // Charge what the engine priced, never what the browser claimed.
+        // Settlement currency is always the configured base (INR) — FX lock
+        // only governs the display rate the shopper saw (#1392).
         const chargeableTotal = result.breakdown.total;
 
         const paymentIntentResult = await paymentService.createPaymentIntent(chargeableTotal, CURRENCY.code, { orderId: result.orderId, userId: req.user.id });
@@ -784,11 +888,26 @@ const createPaymentIntent = async (req, res) => {
 
         await connection.commit();
 
+        let fxCaptureAudit = null;
+        if (fxContext.required && fxContext.token) {
+            try {
+                fxCaptureAudit = await fxLockService.auditCapture({
+                    fxLockToken: fxContext.token,
+                    settlementTotal: chargeableTotal,
+                    orderId: result.orderId
+                });
+            } catch (auditErr) {
+                console.warn("FX capture audit skipped:", auditErr.message);
+            }
+        }
+
         return res.status(201).json({
             success: true,
             clientSecret: paymentIntentResult.clientSecret,
             orderId: result.orderId,
-            breakdown: result.breakdown
+            breakdown: result.breakdown,
+            fxLock: fxContext.lock || null,
+            fxCaptureAudit
         });
 
     } catch (error) {
