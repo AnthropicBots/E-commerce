@@ -2,9 +2,12 @@
 const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
+const { optionalAuth } = authMiddleware;
+const cartIdentity = require("../middleware/cartIdentity");
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
 const { ROLES } = require("../config/policy");
 const { requireOwnership, ownerFromTable } = require("../middleware/requireOwnership");
+const { guestOrderLookupLimiter } = require("../middleware/rateLimiter");
 const orderController = require("../controllers/orderController");
 const { safeArray, safeNumber, sanitizeString } = require("../utils/helpers");
 
@@ -259,18 +262,49 @@ router.get("/status/check", (req, res) => {
 // Validate order data before submission
 router.post("/validate", orderController.validateOrder);
 
+// Find an order without an account, on the order number and the email it was
+// placed with (#1427). Rate-limited because it is an unauthenticated endpoint
+// that says whether a credential pair was right; see guestOrderService.js for
+// why every failure looks identical.
+router.post("/lookup", guestOrderLookupLimiter, (req, res, next) => {
+    const orderNumber = sanitizeString(req.body?.orderNumber);
+    const email = sanitizeString(req.body?.email);
+
+    // Only that both were supplied. Whether either is *correct* is the
+    // handler's answer to give, and it gives the same one for both.
+    if (!orderNumber || !email) {
+        return res.status(400).json({
+            success: false,
+            message: "Order number and email are required"
+        });
+    }
+
+    next();
+}, orderController.lookupGuestOrder);
+
 // ==================== USER ENDPOINTS ====================
 
-// Create payment intent
+// Create payment intent.
+//
+// Guest-reachable on the same terms as order creation (#1427). Leaving it
+// behind authentication would mean a shopper without an account could pay by
+// anything except a card, which is not a meaningful guest checkout.
 router.post(
     "/create-payment-intent",
-    authMiddleware,
+    optionalAuth,
+    cartIdentity,
     require("../middleware/checkoutChallengeMiddleware").checkoutChallengeMiddleware,
     orderController.createPaymentIntent
 );
 
-// Create order
-router.post("/", authMiddleware, require("../middleware/checkoutChallengeMiddleware").checkoutChallengeMiddleware, (req, res, next) => {
+// Create order.
+//
+// The one route on this router that a shopper without an account may reach
+// (#1427). `optionalAuth` attaches the account when there is one; `cartIdentity`
+// is the guard, settling whether this is an account checkout or a guest one and
+// refusing anything in between. The bot-resistance gate is unchanged and still
+// runs -- it already read the caller as optional.
+router.post("/", optionalAuth, cartIdentity, require("../middleware/checkoutChallengeMiddleware").checkoutChallengeMiddleware, (req, res, next) => {
     const { items, total, paymentMethod } = req.body;
 
     // Validate items

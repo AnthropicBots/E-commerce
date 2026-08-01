@@ -435,6 +435,98 @@ const rememberCartToken = (
     }
 };
 
+// A cart that became an order is closed, so the token that reached it no
+// longer reaches anything. Dropping it means the next basket starts clean
+// rather than on the back of a request the server has to refuse first.
+const clearCartToken = () => {
+
+    try {
+
+        localStorage.removeItem(
+            CONFIG.STORAGE_KEYS.CART_TOKEN
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Cart token storage error:",
+            error
+        );
+    }
+};
+
+// Reading back an order that no account owns takes the order number and the
+// email it was placed with. Both are held in session storage rather than put
+// in the URL of the confirmation page: the email is half of what authorises
+// the lookup, and a URL ends up in history, in referrers and in access logs.
+// Session storage is also scoped to the tab, so it goes when the tab does.
+const GUEST_ORDER_KEY = "guestOrder";
+
+const rememberGuestOrder = (
+    orderNumber,
+    email
+) => {
+
+    if (
+        !orderNumber
+        ||
+        !email
+    ) {
+
+        return;
+    }
+
+    try {
+
+        sessionStorage.setItem(
+            GUEST_ORDER_KEY,
+            JSON.stringify({
+                orderNumber,
+                email
+            })
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Guest order storage error:",
+            error
+        );
+    }
+};
+
+const readGuestOrder = () => {
+
+    try {
+
+        const stored =
+            JSON.parse(
+                sessionStorage.getItem(
+                    GUEST_ORDER_KEY
+                )
+                ||
+                "null"
+            );
+
+        return stored
+            &&
+            stored.orderNumber
+            &&
+            stored.email
+            ? stored
+            : null;
+
+    } catch (error) {
+
+        console.error(
+            "Guest order storage error:",
+            error
+        );
+
+        return null;
+    }
+};
+
 // api request
 const apiRequest =
     async (
@@ -2066,6 +2158,10 @@ window.AppUtils = {
     updateCartItemQty,
     removeCartItem,
     clearCart,
+    getCartToken,
+    clearCartToken,
+    rememberGuestOrder,
+    readGuestOrder,
     getCartCount,
     isAuthenticated,
     syncCartWithBackend,

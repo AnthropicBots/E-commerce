@@ -20,6 +20,7 @@ const {
     sanitizeString,
     getPagination,
     buildPaginationMeta,
+    maskPhone,
     safeArray,
     safeUUID
 } = require(
@@ -31,6 +32,34 @@ const addressService = require("../services/addressService");
 // Order status history (#1351). Every status change records who, when, from
 // what, and why -- inside the same transaction as the change itself.
 const orderStatusHistoryService = require("../services/orderStatusHistoryService");
+// Guest checkout (#1427).
+const guestCart = require("../services/guestCartService");
+const { findGuestOrder } = require("../services/guestOrderService");
+
+/**
+ * Whoever is checking out, and the cart they are checking out of (#1427).
+ *
+ * `cartIdentity` has already settled which of the two it is and refused
+ * anything else, so this only has to look the cart up. A guest with no
+ * resolvable cart is not turned away: what is being bought is the posted
+ * basket, priced server-side, and the cart row only exists here so it can be
+ * closed. A shopper whose token went stale between the last cart write and
+ * the checkout has still built a real order.
+ */
+const resolveCheckoutIdentity = async (req, connection) => {
+    const identity = req.cartIdentity || { userId: req.user?.id || null, guestToken: null };
+    const userId = identity.userId || null;
+
+    if (userId) {
+        return { userId, cartId: null, isGuest: false };
+    }
+
+    return {
+        userId: null,
+        cartId: await guestCart.findCartIdByToken(identity.guestToken, connection),
+        isGuest: true
+    };
+};
 
 // create order
 const createOrder =
@@ -54,16 +83,28 @@ const createOrder =
                 addressId
             } = req.body;
 
+            const checkout = await resolveCheckoutIdentity(req, connection);
+
             // Resolve a saved address into the same flat shape the manual form
             // posts, so everything below this point is unchanged whichever way
             // the shopper checked out.
             //
             // The lookup is scoped to the calling user by addressService, so an
             // id belonging to somebody else resolves to null and is rejected as
-            // "not found" rather than silently shipping to a stranger.
+            // "not found" rather than silently shipping to a stranger. A guest
+            // has no address book, so an id from one is simply not theirs.
+            if (addressId && !checkout.userId) {
+                return res.status(404)
+                    .json({
+                        success: false,
+                        message:
+                            "Saved address not found"
+                    });
+            }
+
             if (addressId) {
                 const resolved = await addressService.resolveForOrder(
-                    req.user.id,
+                    checkout.userId,
                     sanitizeString(addressId)
                 );
 
@@ -168,22 +209,31 @@ const createOrder =
             // begin transaction
             await connection.beginTransaction();
 
-            // Validate inventory locks with structured 409 on conflict (#1260)
-            const lockCheck = await inventoryReservationService.validateCartLocksDetailed(
-                req.user.id,
-                items,
-                connection
-            );
-            if (!lockCheck.ok) {
-                await connection.rollback();
-                return res.status(409).json({
-                    success: false,
-                    code: lockCheck.code || "INVENTORY_CONFLICT",
-                    message: lockCheck.message || "Inventory locks expired or insufficient stock",
-                    productId: lockCheck.productId,
-                    availableStock: lockCheck.availableStock,
-                    requested: lockCheck.requested
-                });
+            // Validate inventory locks with structured 409 on conflict (#1260).
+            //
+            // A reservation is held against an account, so a guest basket has
+            // none to validate. Nothing is oversold by skipping the check: the
+            // stock deduction inside the order service is guarded on the stock
+            // it is deducting from, and that is what actually prevents it. A
+            // guest simply does not get the fifteen minutes an account gets to
+            // finish paying.
+            if (checkout.userId) {
+                const lockCheck = await inventoryReservationService.validateCartLocksDetailed(
+                    checkout.userId,
+                    items,
+                    connection
+                );
+                if (!lockCheck.ok) {
+                    await connection.rollback();
+                    return res.status(409).json({
+                        success: false,
+                        code: lockCheck.code || "INVENTORY_CONFLICT",
+                        message: lockCheck.message || "Inventory locks expired or insufficient stock",
+                        productId: lockCheck.productId,
+                        availableStock: lockCheck.availableStock,
+                        requested: lockCheck.requested
+                    });
+                }
             }
 
             // create order via service
@@ -191,7 +241,8 @@ const createOrder =
                 await createOrderService(
                     connection,
                     {
-                        user_id: req.user.id,
+                        user_id: checkout.userId,
+                        cart_id: checkout.cartId,
                         customer_name: sanitizeString(customer.name),
                         customer_email: sanitizeString(customer.email),
                         customer_phone: sanitizeString(customer.phone),
@@ -208,7 +259,9 @@ const createOrder =
                 );
             
             // Consume inventory locks after successful stock deduction
-            await inventoryReservationService.consumeLocks(req.user.id, items, connection);
+            if (checkout.userId) {
+                await inventoryReservationService.consumeLocks(checkout.userId, items, connection);
+            }
 
             // The order's first history entry, written before the commit so it
             // shares the order's fate. Without it a brand-new order has an
@@ -219,7 +272,7 @@ const createOrder =
                 fromStatus: null,
                 toStatus: "pending",
                 source: "customer",
-                changedBy: safeUUID(req.user?.id),
+                changedBy: safeUUID(checkout.userId),
                 changedByName: sanitizeString(customer.name || ""),
                 reason: "Order placed",
                 metadata: { paymentMethod: sanitizeString(paymentMethod).toLowerCase() },
@@ -234,7 +287,7 @@ const createOrder =
             // timestamp must not fail a placed order. The service swallows its
             // own errors.
             if (addressId) {
-                await addressService.markAddressUsed(req.user.id, addressId);
+                await addressService.markAddressUsed(checkout.userId, addressId);
             }
 
             return res.status(201)
@@ -246,6 +299,10 @@ const createOrder =
                         addressId || null,
                     orderId:
                         result.orderId,
+                    // The only handle a guest will have on this order, so it
+                    // is returned whoever placed it rather than only to them.
+                    orderNumber:
+                        result.orderNumber,
                     breakdown:
                         result.breakdown
                 });
@@ -257,8 +314,10 @@ const createOrder =
 
             // Release reservation locks if the transaction failed mid-checkout
             try {
-                if (req.user?.id) {
-                    await inventoryReservationService.releaseUserLocks(req.user.id);
+                if (req.cartIdentity?.userId || req.user?.id) {
+                    await inventoryReservationService.releaseUserLocks(
+                        req.cartIdentity?.userId || req.user.id
+                    );
                 }
             } catch (_) { /* ignore */ }
 
@@ -782,6 +841,8 @@ const createPaymentIntent = async (req, res) => {
 
         const { customer, address, items, total, promoCode } = req.body;
 
+        const checkout = await resolveCheckoutIdentity(req, connection);
+
         if (!customer || !customer.name || !customer.email) {
             return res.status(400).json({ success: false, message: "Customer information required" });
         }
@@ -798,25 +859,30 @@ const createPaymentIntent = async (req, res) => {
 
         await connection.beginTransaction();
 
-        const lockCheck = await inventoryReservationService.validateCartLocksDetailed(
-            req.user.id,
-            items,
-            connection
-        );
-        if (!lockCheck.ok) {
-            await connection.rollback();
-            return res.status(409).json({
-                success: false,
-                code: lockCheck.code || "INVENTORY_CONFLICT",
-                message: lockCheck.message || "Inventory locks expired or insufficient stock",
-                productId: lockCheck.productId,
-                availableStock: lockCheck.availableStock,
-                requested: lockCheck.requested
-            });
+        // A guest holds no reservations to validate; see createOrder above for
+        // why that does not put stock at risk.
+        if (checkout.userId) {
+            const lockCheck = await inventoryReservationService.validateCartLocksDetailed(
+                checkout.userId,
+                items,
+                connection
+            );
+            if (!lockCheck.ok) {
+                await connection.rollback();
+                return res.status(409).json({
+                    success: false,
+                    code: lockCheck.code || "INVENTORY_CONFLICT",
+                    message: lockCheck.message || "Inventory locks expired or insufficient stock",
+                    productId: lockCheck.productId,
+                    availableStock: lockCheck.availableStock,
+                    requested: lockCheck.requested
+                });
+            }
         }
 
         const result = await createOrderService(connection, {
-            user_id: req.user.id,
+            user_id: checkout.userId,
+            cart_id: checkout.cartId,
             customer_name: sanitizeString(customer.name),
             customer_email: sanitizeString(customer.email),
             customer_phone: sanitizeString(customer.phone),
@@ -830,7 +896,9 @@ const createPaymentIntent = async (req, res) => {
             promo_code: promoCode ? sanitizeString(promoCode) : null
         });
 
-        await inventoryReservationService.consumeLocks(req.user.id, items, connection);
+        if (checkout.userId) {
+            await inventoryReservationService.consumeLocks(checkout.userId, items, connection);
+        }
 
         // Charge what the engine priced, never what the browser claimed.
         const chargeableTotal = result.breakdown.total;
@@ -842,13 +910,15 @@ const createPaymentIntent = async (req, res) => {
             charge: () =>
                 paymentService.createPaymentIntent(chargeableTotal, CURRENCY.code, {
                     orderId: result.orderId,
-                    userId: req.user.id
+                    userId: checkout.userId
                 }),
             rollback: async () => {
                 await connection.rollback();
             },
             releaseLocks: async () => {
-                await inventoryReservationService.releaseUserLocks(req.user.id);
+                if (checkout.userId) {
+                    await inventoryReservationService.releaseUserLocks(checkout.userId);
+                }
             }
         });
         if (!paymentIntentResult.success) {
@@ -867,6 +937,7 @@ const createPaymentIntent = async (req, res) => {
             success: true,
             clientSecret: paymentIntentResult.clientSecret,
             orderId: result.orderId,
+            orderNumber: result.orderNumber,
             breakdown: result.breakdown
         });
 
@@ -876,8 +947,10 @@ const createPaymentIntent = async (req, res) => {
         }
 
         try {
-            if (req.user?.id) {
-                await inventoryReservationService.releaseUserLocks(req.user.id);
+            if (req.cartIdentity?.userId || req.user?.id) {
+                await inventoryReservationService.releaseUserLocks(
+                    req.cartIdentity?.userId || req.user.id
+                );
             }
         } catch (_) { /* ignore */ }
 
@@ -1028,6 +1101,76 @@ const getOrderTimeline = async (req, res) => {
 };
 
 /**
+ * POST /api/orders/lookup
+ *
+ * An order found without an account, on the pair the shopper was given at
+ * checkout: the order number and the email it was placed with (#1427).
+ *
+ * The credentials arrive in the body rather than the path so they do not
+ * accumulate in access logs, proxy caches and browser history, which is where
+ * a bearer credential in a URL ends up.
+ *
+ * Every failure is the same 404 with the same wording. Distinguishing "no such
+ * order" from "wrong email" would answer, one request at a time, whether a
+ * given address has ever shopped here.
+ */
+const lookupGuestOrder = async (req, res) => {
+    try {
+        const order = await findGuestOrder({
+            orderNumber: req.body?.orderNumber,
+            email: req.body?.email
+        });
+
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: "No order matches that order number and email address"
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            order: {
+                orderNumber: order.order_number,
+                status: order.status,
+                paymentStatus: order.payment_status,
+                paymentMethod: order.payment_method,
+                placedAt: order.created_at,
+                updatedAt: order.updated_at,
+                trackingNumber: order.tracking_number,
+                customerName: order.customer_name,
+                // The caller proved they know the email, so it is theirs to
+                // see. They proved nothing about the phone number, and a
+                // number is worth more to somebody who should not have it
+                // than it is to the shopper reading their own order.
+                customerPhone: maskPhone(order.customer_phone),
+                deliveryAddress: {
+                    fullAddress: order.full_address,
+                    city: order.city,
+                    state: order.state,
+                    zip: order.zip
+                },
+                totals: {
+                    subtotal: order.subtotal,
+                    tax: order.tax,
+                    shipping: order.shipping_cost,
+                    discount: order.discount_amount,
+                    total: order.total
+                },
+                items: safeArray(order.items)
+            }
+        });
+    } catch (error) {
+        console.error("GUEST ORDER LOOKUP ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to look up the order"
+        });
+    }
+};
+
+/**
  * GET /api/orders/reports/fulfilment  (admin)
  *
  * Average hours to ship and to deliver. This is what the shipped_at /
@@ -1059,6 +1202,7 @@ module.exports = {
     getOrderById,
     getOrderTimeline,
     getFulfilmentReport,
+    lookupGuestOrder,
     getOrderStatus,
     updateOrderStatus,
     cancelUserOrder,

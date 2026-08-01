@@ -15,6 +15,7 @@ const PUBLIC_REASON = Object.freeze({
     AUTH_ENTRY: 'the caller has no credentials yet, by definition',
     PRE_AUTH_QUOTE: 'quoted before an account exists, so guest checkout works',
     SIGNED_TOKEN: 'authorised by an unguessable token in the URL, not by session',
+    ORDER_CREDENTIALS: 'authorised by the order number and the email it was placed with',
     WEBHOOK: 'authenticated by provider signature inside the handler'
 });
 
@@ -52,6 +53,8 @@ const PUBLIC_ROUTES = Object.freeze([
     { method: 'POST', path: '/api/promos/validate', reason: PUBLIC_REASON.PRE_AUTH_QUOTE },
     { method: 'POST', path: '/api/checkout/quote', reason: PUBLIC_REASON.PRE_AUTH_QUOTE },
 
+    { method: 'POST', path: '/api/orders/lookup', reason: PUBLIC_REASON.ORDER_CREDENTIALS },
+
     { method: 'GET', path: '/api/wishlist/share/:token', reason: PUBLIC_REASON.SIGNED_TOKEN },
     { method: 'POST', path: '/api/auth/erasure/confirm', reason: PUBLIC_REASON.SIGNED_TOKEN },
     { method: 'GET', path: '/api/auth/erasure/receipt/:receiptId', reason: PUBLIC_REASON.SIGNED_TOKEN },
@@ -61,7 +64,8 @@ const PUBLIC_ROUTES = Object.freeze([
 ]);
 
 const GUEST_REASON = Object.freeze({
-    CART_TOKEN: 'the shopper holds an unguessable cart token instead of a session'
+    CART_TOKEN: 'the shopper holds an unguessable cart token instead of a session',
+    GUEST_CHECKOUT: 'buying is what the storefront is for, and an account is not a prerequisite'
 });
 
 /**
@@ -82,7 +86,10 @@ const GUEST_ROUTES = Object.freeze([
     { method: 'POST', path: '/api/cart/add', reason: GUEST_REASON.CART_TOKEN },
     { method: 'PUT', path: '/api/cart/update', reason: GUEST_REASON.CART_TOKEN },
     { method: 'DELETE', path: '/api/cart/remove/:productId', reason: GUEST_REASON.CART_TOKEN },
-    { method: 'DELETE', path: '/api/cart/clear', reason: GUEST_REASON.CART_TOKEN }
+    { method: 'DELETE', path: '/api/cart/clear', reason: GUEST_REASON.CART_TOKEN },
+
+    { method: 'POST', path: '/api/orders', reason: GUEST_REASON.GUEST_CHECKOUT },
+    { method: 'POST', path: '/api/orders/create-payment-intent', reason: GUEST_REASON.GUEST_CHECKOUT }
 ]);
 
 /**

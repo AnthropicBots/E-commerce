@@ -134,6 +134,7 @@
     "POST /api/auth/verify-signup",
     "POST /api/checkout/quote",
     "POST /api/courier-webhooks/:provider",
+    "POST /api/orders/lookup",
     "POST /api/orders/validate",
     "POST /api/promos/validate",
     "POST /api/wishlist-notify/unsubscribe"
@@ -144,6 +145,8 @@
     "GET /api/cart",
     "POST /api/cart/add",
     "POST /api/cart/sync",
+    "POST /api/orders",
+    "POST /api/orders/create-payment-intent",
     "PUT /api/cart/update"
   ]
 }
