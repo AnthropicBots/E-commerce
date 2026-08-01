@@ -31,6 +31,8 @@ const addressService = require("../services/addressService");
 // Order status history (#1351). Every status change records who, when, from
 // what, and why -- inside the same transaction as the change itself.
 const orderStatusHistoryService = require("../services/orderStatusHistoryService");
+// Abandoned-cart recovery attribution (#1429).
+const cartRecoveryAttribution = require("../services/cartRecoveryAttributionService");
 
 // create order
 const createOrder =
@@ -51,7 +53,13 @@ const createOrder =
                 promoCode,
                 // Saved address book (#1347). A signed-in shopper can send an
                 // id instead of retyping the whole address.
-                addressId
+                addressId,
+                // Abandoned-cart recovery (#1429). Present when this basket
+                // came back through a restore link. Unvalidated here: the
+                // order service decides whether it attributes anything, and a
+                // reference it does not recognise is not a reason to refuse an
+                // order.
+                recoveryRef
             } = req.body;
 
             // Resolve a saved address into the same flat shape the manual form
@@ -203,7 +211,8 @@ const createOrder =
                         payment_method: sanitizeString(paymentMethod).toLowerCase(),
                         total: safeNumber(total),
                         items,
-                        promo_code: promoCode ? sanitizeString(promoCode) : null
+                        promo_code: promoCode ? sanitizeString(promoCode) : null,
+                        recovery_ref: recoveryRef ? sanitizeString(recoveryRef) : null
                     }
                 );
             
@@ -780,7 +789,7 @@ const createPaymentIntent = async (req, res) => {
     try {
         connection = await db.getConnection();
 
-        const { customer, address, items, total, promoCode } = req.body;
+        const { customer, address, items, total, promoCode, recoveryRef } = req.body;
 
         if (!customer || !customer.name || !customer.email) {
             return res.status(400).json({ success: false, message: "Customer information required" });
@@ -827,7 +836,8 @@ const createPaymentIntent = async (req, res) => {
             payment_method: 'card',
             total: safeNumber(total),
             items,
-            promo_code: promoCode ? sanitizeString(promoCode) : null
+            promo_code: promoCode ? sanitizeString(promoCode) : null,
+            recovery_ref: recoveryRef ? sanitizeString(recoveryRef) : null
         });
 
         await inventoryReservationService.consumeLocks(req.user.id, items, connection);
@@ -1052,6 +1062,32 @@ const getFulfilmentReport = async (req, res) => {
     }
 };
 
+// What the recovery programme brought back, and which message brought it
+// (#1429). Read straight off the orders that recorded it, so the figure does
+// not move when the reporting code does.
+const getRecoveryReport = async (req, res) => {
+    try {
+        const days = safeInteger(req.query.days, 30);
+
+        const [revenue, byStage] = await Promise.all([
+            cartRecoveryAttribution.getRecoveredRevenue({ days }),
+            cartRecoveryAttribution.getRecoveryByStage({ days })
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            data: { ...revenue, byStage }
+        });
+    } catch (error) {
+        console.error("GET RECOVERY REPORT ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to build the recovery report"
+        });
+    }
+};
+
 module.exports = {
     createOrder,
     getAllOrders,
@@ -1059,6 +1095,7 @@ module.exports = {
     getOrderById,
     getOrderTimeline,
     getFulfilmentReport,
+    getRecoveryReport,
     getOrderStatus,
     updateOrderStatus,
     cancelUserOrder,

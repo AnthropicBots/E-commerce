@@ -151,6 +151,19 @@ describe('spending a link', () => {
         expect(result).not.toHaveProperty('token');
     });
 
+    // The reference names the link that was just spent, so an order out of the
+    // restored basket can record what brought it (#1429). It is not a second
+    // credential: the link it names is already spent.
+    test('hands back a reference to the link, not a second one', async () => {
+        mockRedemption({ record: liveRecord(), lines: [productLine()] });
+
+        const token = wellFormedToken();
+        const result = await cartRestoreService.redeemRestoreToken(token);
+
+        expect(result.recoveryRef).toBe(TOKEN_ID);
+        expect(result.recoveryRef).not.toBe(token);
+    });
+
     test('looks the token up by hash, never by its plain text', async () => {
         mockRedemption({ record: liveRecord(), lines: [productLine()] });
 

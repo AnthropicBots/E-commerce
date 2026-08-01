@@ -448,8 +448,10 @@ async function deliverRecoveryMessage({
 
     // One link per message, minted here rather than reused across the sequence.
     // Issuing supersedes the basket's previous link, so a shopper never has two
-    // live credentials for one cart just because we asked twice.
-    const { token } = await issueRestoreToken({ cartId, userId });
+    // live credentials for one cart just because we asked twice. The link
+    // remembers which send it belongs to, which is what lets an order be
+    // credited to a particular message rather than to the programme (#1429).
+    const { token } = await issueRestoreToken({ cartId, userId, recoveryLogId: logId });
     const restoreUrl = buildRestoreUrl(token);
 
     await notificationBroker.publish(
