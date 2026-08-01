@@ -645,13 +645,15 @@ const cancelUserOrder = async (req, res) => {
         connection = await db.getConnection();
         await connection.beginTransaction();
 
-        // fetch current order status and check ownership
+        // Ownership is enforced by requireOwnership on the route; the row is
+        // re-read under FOR UPDATE because the cancellation decision depends on
+        // the status, which must not move between the check and the write.
         const [orders] = await connection.query(
             "SELECT user_id, status FROM orders WHERE id = ? FOR UPDATE",
             [id]
         );
 
-        if (!safeArray(orders).length || orders[0].user_id !== req.user.id) {
+        if (!safeArray(orders).length) {
             await connection.rollback();
             return res.status(404).json({ success: false, message: "Order not found" });
         }
@@ -755,10 +757,7 @@ const downloadInvoice = async (req, res) => {
         }
         const order = orders[0];
 
-        // Authorization: Ensure user is admin or the order belongs to them
-        if (req.user && !hasPermission(req.user, PERMISSIONS.ORDER_READ_ANY) && order.user_id !== req.user.id) {
-            return res.status(403).json({ success: false, message: "Unauthorized access to order" });
-        }
+        // Ownership is enforced by requireOwnership on the route.
 
         // Fetch order items
         const [items] = await db.query("SELECT * FROM order_items WHERE order_id = ?", [orderId]);

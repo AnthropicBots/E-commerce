@@ -37,10 +37,19 @@ const {
 
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
 const { ROLES } = require("../config/policy");
+const { requireOwnership, ownerFromTable } = require("../middleware/requireOwnership");
 
 // Product Q&A (#1353).
 const productQA = require("../controllers/productQAController");
 const { validateCreateProduct, validateUpdateProduct } = require("../middleware/validators/productValidator");
+
+// A review belongs to the account that wrote it. Deleting one was restricted
+// to staff, which left an author with no way to retract their own words;
+// staff keep the access they had through the privileged bypass.
+const ownsReview = requireOwnership(
+    ownerFromTable({ table: "reviews", param: "reviewId" }),
+    { resourceName: "Review" }
+);
 
 // --------------------------------------------------------------
 // Validate product ID
@@ -76,7 +85,7 @@ router.post("/:id/review", authMiddleware, createProductReview);
 router.delete(
     "/:id/reviews/:reviewId",
     authMiddleware,
-    authorizeRoles(ROLES.ADMIN),
+    ownsReview,
     deleteProductReview
 );
 // ---------------------------------------------------------------------------

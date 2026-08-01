@@ -11,6 +11,7 @@ const router = express.Router();
 
 const authMiddleware = require('../middleware/authMiddleware');
 const { addressValidatorMiddleware } = require('../validators/addressValidator');
+const { requireOwnership, ownerFromTable } = require('../middleware/requireOwnership');
 const {
     listAddresses,
     getAddress,
@@ -25,6 +26,14 @@ const {
 // guard would be an unauthenticated window onto somebody's home address, and
 // that is not a mistake worth leaving available.
 router.use(authMiddleware);
+
+// Staff get no bypass here. addressService already scopes every statement to
+// the owning account, and a support agent reading a customer's home address
+// out of a ticket is exactly the access this book was not built to grant.
+const ownsAddress = requireOwnership(ownerFromTable({ table: 'user_addresses' }), {
+    resourceName: 'Address',
+    allowPrivileged: false
+});
 
 /**
  * GET /api/addresses
@@ -45,7 +54,7 @@ router.get('/default', getDefaultAddress);
 /**
  * GET /api/addresses/:id
  */
-router.get('/:id', getAddress);
+router.get('/:id', ownsAddress, getAddress);
 
 /**
  * POST /api/addresses
@@ -61,18 +70,18 @@ router.post('/', addressValidatorMiddleware(), createAddress);
  * rather than treated as a missing required value, so a client can change one
  * field without resending the whole address.
  */
-router.put('/:id', addressValidatorMiddleware({ partial: true }), updateAddress);
+router.put('/:id', ownsAddress, addressValidatorMiddleware({ partial: true }), updateAddress);
 
 /**
  * PATCH /api/addresses/:id/default
  * Promote this address to the account default.
  */
-router.patch('/:id/default', setDefaultAddress);
+router.patch('/:id/default', ownsAddress, setDefaultAddress);
 
 /**
  * DELETE /api/addresses/:id
  * Soft delete; promotes a survivor if this was the default.
  */
-router.delete('/:id', deleteAddress);
+router.delete('/:id', ownsAddress, deleteAddress);
 
 module.exports = router;
