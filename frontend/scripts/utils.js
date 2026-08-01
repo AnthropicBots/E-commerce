@@ -1239,13 +1239,6 @@ const readCartEnvelope = (
                     0
                 ),
 
-        guestCartMerged:
-            !isLegacyPayload
-            &&
-            Boolean(
-                stored.guestCartMerged
-            ),
-
         items
     };
 };
@@ -1348,28 +1341,10 @@ const getCart = () => {
     return [];
 };
 
-// Items from a guest cart that a signed-in shopper brought with them, waiting
-// to be folded into the account exactly once.
-const getGuestCartCandidates = () => {
-
-    const envelope =
-        readCartEnvelope();
-
-    return (
-        envelope
-        &&
-        envelope.owner ===
-        GUEST_CART_OWNER
-    )
-        ? envelope.items
-        : [];
-};
-
 const saveCart = (
     cart,
     {
-        sync = true,
-        guestCartMerged = false
+        sync = true
     } = {}
 ) => {
 
@@ -1381,9 +1356,6 @@ const saveCart = (
             .filter(
                 Boolean
             );
-
-    const previous =
-        readCartEnvelope();
 
     const owner =
         getCartOwner();
@@ -1397,19 +1369,6 @@ const saveCart = (
 
             updatedAt:
                 Date.now(),
-
-            // The merge flag belongs to the account, so it only carries over a
-            // write by that same account.
-            guestCartMerged:
-                guestCartMerged
-                ||
-                Boolean(
-                    previous
-                    &&
-                    previous.owner === owner
-                    &&
-                    previous.guestCartMerged
-                ),
 
             items:
                 normalizedCart
@@ -1845,45 +1804,23 @@ const hydrateCartFromServer = async () => {
     return saveCart(serverCart, { sync: false });
 };
 
-// Sign-in lifecycle: fold a guest cart into the account cart. This is the one
-// deliberate combine, and the envelope records that it happened so a reload
-// cannot repeat it.
+// Sign-in lifecycle. The server folds the guest basket into the account's cart
+// as it issues the session (#1427), so by the time this runs the account's
+// cart already holds both and the only thing left to do is read it back.
+//
+// Combining here as well would count the guest's lines a second time, and the
+// flag that used to stop a reload repeating the merge is gone with it: the
+// guest cart is closed on the server, so a repeat has nothing to find. The
+// token is dropped for the same reason -- the cart it reached no longer
+// exists as a cart anyone can add to.
 const mergeGuestCartIntoAccount = async () => {
     if (!isAuthenticated()) {
         return getCart();
     }
 
-    const envelope = readCartEnvelope();
-    const alreadyMerged =
-        envelope
-        && envelope.owner === getCartOwner()
-        && envelope.guestCartMerged;
+    clearCartToken();
 
-    const guestCart = getGuestCartCandidates();
-
-    if (alreadyMerged || !guestCart.length) {
-        return hydrateCartFromServer();
-    }
-
-    const serverCart = await fetchServerCart();
-
-    // Without the account cart there is nothing sound to merge into, so the
-    // guest cart stays a guest cart and the next sign-in can try again.
-    if (!serverCart) {
-        return getCart();
-    }
-
-    serverAcknowledgedItems = serverCart;
-
-    const merged = mergeCartLines(serverCart, guestCart);
-
-    saveCart(merged, { sync: false, guestCartMerged: true });
-
-    // Pushed directly rather than through the debounce: this is a one-shot step
-    // and the shopper is waiting on its outcome.
-    const accepted = await pushCartToBackend(merged);
-
-    return accepted ? merged : getCart();
+    return hydrateCartFromServer();
 };
 
 // ---------- Recovery attribution (#1429) ----------

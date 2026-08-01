@@ -34,7 +34,13 @@ const CART_CONFIG = Object.freeze({
     // than anyone deliberates over a purchase and short enough that a token
     // copied off a shared machine goes stale on its own.
     GUEST_TOKEN_TTL_MINUTES:
-        Number(process.env.CART_GUEST_TOKEN_TTL_MINUTES) || 14 * MINUTES_PER_DAY
+        Number(process.env.CART_GUEST_TOKEN_TTL_MINUTES) || 14 * MINUTES_PER_DAY,
+
+    // The most of one line a cart may hold. It matches the per-item ceiling
+    // the order routes already enforce, and exists here because combining two
+    // baskets is the one operation that can push a line past a limit the
+    // shopper never typed.
+    MAX_LINE_QUANTITY: Number(process.env.CART_MAX_LINE_QUANTITY) || 100
 });
 
 module.exports = CART_CONFIG;

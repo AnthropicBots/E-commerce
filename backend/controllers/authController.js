@@ -14,6 +14,8 @@ const agentIdentityService = require("../services/agentIdentityService");
 // Lockout state lives in Redis so it survives a restart and is observed by
 // every instance; the policy it enforces is unchanged.
 const loginLockoutService = require("../services/loginLockoutService");
+// A basket built before signing in belongs to the account afterwards (#1427).
+const { mergeGuestCartOnSignIn } = require("../services/cartMergeService");
 
 // Appwrite SDK
 const { Client, Account, ID, Databases } = require('node-appwrite');
@@ -105,7 +107,7 @@ function generateRefreshToken() {
     return refreshTokenService.generateRawRefreshToken();
 }
 
-function sendAuthResponse(res, { message, accessToken, refreshToken, user, familyId, security }) {
+function sendAuthResponse(res, { message, accessToken, refreshToken, user, familyId, security, cartMerged }) {
     return res.status(200).json({
         success: true,
         message,
@@ -113,6 +115,10 @@ function sendAuthResponse(res, { message, accessToken, refreshToken, user, famil
         refreshToken,
         familyId: familyId || undefined,
         security: security || undefined,
+        // Reported so the client knows the basket it was holding is now the
+        // account's, and can read it back rather than pushing its own copy
+        // over the top of a merge the server has already done (#1427).
+        cartMerged: cartMerged === true,
         user: {
             id: user.id,
             name: user.name,
@@ -284,7 +290,17 @@ const verifySignup = async (req, res) => {
         
         pendingSignups.delete(cleanEmail);
 
-        return res.status(201).json({ success: true, message: "Account created successfully" });
+        // Registration is the other way a basket acquires an owner. It is the
+        // same merge: the new account has no cart, so one is opened and the
+        // guest's lines move into it, leaving the guest cart closed rather
+        // than orphaned behind a token nobody will present again.
+        const cartMerged = await mergeGuestCartOnSignIn(userId, req);
+
+        return res.status(201).json({
+            success: true,
+            message: "Account created successfully",
+            cartMerged
+        });
     } catch (error) {
         console.error("VERIFY SIGNUP ERROR:", error);
         return res.status(500).json({ success: false, message: "Server error during verification" });
@@ -344,11 +360,17 @@ const login = async (req, res) => {
         const session = await refreshTokenService.issueRefreshFamily(user.id, { ip, userAgent });
         const access = generateAccessToken(user, session.familyId);
 
+        // After the session is issued, and unable to prevent it: the shopper
+        // is signed in either way, and losing a basket is a smaller failure
+        // than being refused entry over one.
+        const cartMerged = await mergeGuestCartOnSignIn(user.id, req);
+
         return sendAuthResponse(res, {
             message: "Login successful",
             accessToken: access.token,
             refreshToken: session.refreshToken,
             familyId: session.familyId,
+            cartMerged,
             user,
             security: {
                 tokenRotation: true,

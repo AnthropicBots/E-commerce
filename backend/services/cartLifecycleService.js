@@ -12,16 +12,20 @@
 // shopper did something, which is the clock abandonment is later measured
 // against.
 //
-// A cart has exactly two exits, and both live here:
+// A cart has exactly three exits:
 //
 //   active -> converted, at the moment an order is created from it, inside the
 //             order's own transaction so a cart is never recorded as converted
 //             against an order that rolled back;
 //   active -> abandoned, once it has gone untouched for longer than the
-//             configured threshold, applied by the scheduled sweep.
+//             configured threshold, applied by the scheduled sweep;
+//   active -> merged, when a guest basket is folded into an account's cart at
+//             sign-in. That one is applied by services/cartMergeService.js,
+//             which owns the rules for combining two carts; the status itself
+//             is written here.
 //
-// Both are terminal. Nothing moves a cart back to active; the shopper's next
-// action resolves a new one.
+// All three are terminal. Nothing moves a cart back to active; the shopper's
+// next action resolves a new one.
 //
 // Guest carts do exist now (#1427), and services/guestCartService.js resolves
 // them, because finding one is a question about a token rather than about an
@@ -39,7 +43,10 @@ const { safeInteger, safeUUID } = require('../utils/helpers');
 const CART_STATUS = Object.freeze({
     ACTIVE: 'active',
     CONVERTED: 'converted',
-    ABANDONED: 'abandoned'
+    ABANDONED: 'abandoned',
+    // A guest basket folded into an account's cart at sign-in (#1427). The
+    // third and last exit, and terminal like the other two.
+    MERGED: 'merged'
 });
 
 // mysql2's code for a unique-key collision.

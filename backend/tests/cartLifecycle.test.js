@@ -386,6 +386,20 @@ describe('reporting reads cart state', () => {
         expect(params[params.length - 1]).toBe(7);
     });
 
+    // A guest basket merged at sign-in is the same basket as the account cart
+    // it went into, so counting both would move every cart rate for a reason
+    // that has nothing to do with trading (#1427).
+    test('a basket counted once before sign-in is not counted twice after it', async () => {
+        db.query.mockResolvedValue([[{}]]);
+
+        await metrics.getConversionRate('week');
+        await metrics.getAbandonedCartRate('week');
+
+        for (const [sql] of db.query.mock.calls) {
+            expect(sql).toMatch(/c\.status <> 'merged'/i);
+        }
+    });
+
     test('an empty result set reads as zero rather than NaN', async () => {
         db.query.mockResolvedValue([[]]);
 
