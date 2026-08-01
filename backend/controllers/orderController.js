@@ -13,6 +13,7 @@ const paymentService = require("../services/payment.service");
 const CURRENCY = require("../config/currency");
 const { generateInvoicePdf } = require("../services/invoice.service");
 const inventoryReservationService = require("../services/inventoryReservationService");
+const stockCounter = require("../services/stockCounterService");
 
 const {
     safeNumber,
@@ -531,19 +532,22 @@ const getOrderStatus = async (req, res) => {
  * for.
  */
 const performOrderStatusUpdate = async (connection, id, currentStatus, newStatus, context = {}) => {
-    // if cancelling a previously un-cancelled order, restore stock
+    // If cancelling a previously un-cancelled order, put the units back on the
+    // counter the sale took them from. Crediting only the product total would
+    // leave the size the shopper actually cancelled permanently short.
     if (newStatus === "cancelled" && currentStatus !== "cancelled") {
         const [items] = await connection.query(
-            "SELECT product_id, qty FROM order_items WHERE order_id = ?",
+            "SELECT product_id, variant_id, qty FROM order_items WHERE order_id = ?",
             [id]
         );
 
         for (const item of safeArray(items)) {
             if (item.product_id) {
-                await connection.query(
-                    "UPDATE products SET stock = stock + ? WHERE id = ?",
-                    [item.qty, item.product_id]
-                );
+                await stockCounter.restoreStock(connection, {
+                    productId: item.product_id,
+                    variantId: item.variant_id,
+                    quantity: item.qty
+                });
             }
         }
     }

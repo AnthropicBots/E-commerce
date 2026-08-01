@@ -91,75 +91,6 @@ const validateOrderData = (orderData) => {
     };
 };
 
-// Create order service with enhanced validations
-// Resolve the priced product variant for an order item, if any. A variant is
-// matched either by an explicit `variantId`/`variant_id` on the item, or —
-// since the current cart payload only carries color/size — by matching those
-// against the variant's `attributes` JSON. Only an unambiguous, active match
-// is honored. The lookup is deliberately defensive: deployments without a
-// `product_variants` table simply fall back to base product pricing.
-//
-// `lockRows` is off for read-only pricing (a quote holds no rows); order
-// creation keeps it on so the price cannot move under the transaction.
-const resolveItemVariant = async (connection, productId, item, lockRows = true) => {
-    const explicitVariantId = safeInteger(item.variantId ?? item.variant_id, 0);
-    const rowLock = lockRows ? " FOR UPDATE" : "";
-
-    try {
-        if (explicitVariantId > 0) {
-            const [rows] = await connection.query(
-                `SELECT id, price, stock FROM product_variants
-                 WHERE id = ? AND product_id = ? AND is_active = 1
-                 LIMIT 1${rowLock}`,
-                [explicitVariantId, productId],
-            );
-            return safeArray(rows)[0] || null;
-        }
-
-        const color = sanitizeString(item.color);
-        const size = sanitizeString(item.size);
-
-        if (!color && !size) {
-            return null;
-        }
-
-        const conditions = [];
-        const params = [productId];
-
-        if (color) {
-            conditions.push(
-                "LOWER(JSON_UNQUOTE(JSON_EXTRACT(attributes, '$.color'))) = LOWER(?)",
-            );
-            params.push(color);
-        }
-
-        if (size) {
-            conditions.push(
-                "LOWER(JSON_UNQUOTE(JSON_EXTRACT(attributes, '$.size'))) = LOWER(?)",
-            );
-            params.push(size);
-        }
-
-        const [rows] = await connection.query(
-            `SELECT id, price, stock FROM product_variants
-             WHERE product_id = ? AND is_active = 1
-             AND ${conditions.join(" AND ")}
-             LIMIT 2${rowLock}`,
-            params,
-        );
-
-        const matches = safeArray(rows);
-
-        // Ambiguous attribute matches are ignored so we never guess a price.
-        return matches.length === 1 ? matches[0] : null;
-    } catch (error) {
-        logger.warn(
-            `Variant lookup skipped for product ${productId}: ${error.message}`,
-        );
-        return null;
-    }
-};
-
 /**
  * Turn a client-supplied basket into priced lines using the database's own
  * prices. Client-supplied prices are never read — the only fields taken from
@@ -168,6 +99,9 @@ const resolveItemVariant = async (connection, productId, item, lockRows = true) 
  * Order creation runs this inside its transaction with row locks and stock
  * enforcement; the quote endpoint runs it read-only, where an out-of-stock
  * item should still be priced rather than rejected.
+ *
+ * Each line carries the variant it resolved to, so the sale, the order record
+ * and any later return all name the same counter.
  *
  * @param {Object} connection - pool or transactional connection
  * @param {Array<Object>} items
@@ -200,7 +134,24 @@ const resolveOrderLines = async (connection, items, options = {}) => {
         const product = safeResults[0];
         const qty = Math.max(1, safeInteger(item.qty, 1));
 
-        if (enforceStock && safeInteger(product.stock) < qty) {
+        // `lockRows` is off for read-only pricing (a quote holds no rows);
+        // order creation keeps it on so neither the price nor the quantity can
+        // move under the transaction.
+        const variant = await stockCounter.resolveVariant(
+            connection,
+            productId,
+            item,
+            { lockRows },
+        );
+
+        // The order has to be covered by the quantity it will actually draw
+        // down. Checking the product total for a line that names a variant is
+        // what let a size with two left go out ten at a time on the strength of
+        // its siblings.
+        const { stock: availableStock, variantId } =
+            stockCounter.resolveAvailableStock(product, variant);
+
+        if (enforceStock && availableStock < qty) {
             throw new Error(
                 `Insufficient stock for ${sanitizeString(product.name)}`,
             );
@@ -210,13 +161,6 @@ const resolveOrderLines = async (connection, items, options = {}) => {
         // product price is only a fallback. This keeps order totals correct
         // for variants that are priced differently from their parent.
         let realPrice = safeNumber(product.price);
-
-        const variant = await resolveItemVariant(
-            connection,
-            productId,
-            item,
-            lockRows,
-        );
 
         if (variant && variant.price !== null && variant.price !== undefined) {
             const variantPrice = safeNumber(variant.price);
@@ -228,6 +172,7 @@ const resolveOrderLines = async (connection, items, options = {}) => {
 
         resolvedLines.push({
             id: safeUUID(product.id),
+            variantId,
             name: sanitizeString(product.name),
             image: sanitizeString(product.image),
             price: realPrice,
@@ -397,22 +342,30 @@ const createOrderService = async (connection, orderData) => {
         ]);
 
         // insert into order_items
+        //
+        // The variant is recorded on the line, not merely implied by the colour
+        // and size text. A return has to credit the counter the sale drew down,
+        // and re-deriving that months later from free-text attributes is a
+        // guess. Sentinel zero becomes NULL: the column is a foreign key, and
+        // no variant has id 0.
         for (const item of validatedItems) {
             const itemQuery = `
                 INSERT INTO order_items (
                     order_id,
                     product_id,
+                    variant_id,
                     name,
                     price,
                     qty,
                     color,
                     size,
                     total
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
             await connection.query(itemQuery, [
                 orderId,
                 item.id,
+                item.variantId > NO_VARIANT_ID ? item.variantId : null,
                 item.name,
                 item.price,
                 item.qty,
@@ -422,21 +375,19 @@ const createOrderService = async (connection, orderData) => {
             ]);
         }
 
-        // reduce stock safely
+        // Reduce the same counter the availability check was made against, on
+        // this connection so the movement shares the order's fate. The
+        // sufficiency test lives in the UPDATE's WHERE clause rather than in a
+        // read before it, so two checkouts racing for the last unit cannot both
+        // pass: the loser changes no rows and is refused here.
         for (const item of validatedItems) {
-            const stockQuery = `UPDATE products SET stock = stock - ? WHERE id = ? 
-            AND stock >= ? `;
+            const movement = await stockCounter.deductStock(connection, {
+                productId: item.id,
+                variantId: item.variantId,
+                quantity: item.qty,
+            });
 
-            const [result] = await connection.query(
-                stockQuery,
-                [
-                    item.qty,
-                    item.id,
-                    item.qty
-                ]
-            );
-
-            if (result.affectedRows === 0) {
+            if (!movement.ok) {
                 throw new Error(
                     `Insufficient stock for ${item.name}`
                 );
