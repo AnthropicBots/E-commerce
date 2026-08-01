@@ -36,6 +36,7 @@ const {
 } = require("../controllers/reviewController");
 
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
+const { ROLES } = require("../config/policy");
 
 // Product Q&A (#1353).
 const productQA = require("../controllers/productQAController");
@@ -66,7 +67,7 @@ router.get("/categories/tree", getCategoryTree);
 router.post(
     "/categories/tree/invalidate",
     authMiddleware,
-    authorizeRoles("admin"),
+    authorizeRoles(ROLES.ADMIN),
     invalidateCategoryTreeCache
 );
 router.get("/", getProducts);
@@ -75,7 +76,7 @@ router.post("/:id/review", authMiddleware, createProductReview);
 router.delete(
     "/:id/reviews/:reviewId",
     authMiddleware,
-    authorizeRoles("admin"),
+    authorizeRoles(ROLES.ADMIN),
     deleteProductReview
 );
 // ---------------------------------------------------------------------------
@@ -117,29 +118,29 @@ router.post("/answers/:answerId/report", authMiddleware, productQA.reportAnswer)
 router.get(
     "/qa/moderation/queue",
     authMiddleware,
-    authorizeRoles("admin"),
+    authorizeRoles(ROLES.ADMIN),
     productQA.getModerationQueue
 );
 
 router.patch(
     "/qa/:targetType/:targetId/moderate",
     authMiddleware,
-    authorizeRoles("admin"),
+    authorizeRoles(ROLES.ADMIN),
     productQA.moderate
 );
 
 router.delete(
     "/qa/:targetType/:targetId",
     authMiddleware,
-    authorizeRoles("admin"),
+    authorizeRoles(ROLES.ADMIN),
     productQA.removeItem
 );
 
 router.get("/:id", getSingleProduct);
 
-router.post("/", authMiddleware, authorizeRoles("admin"), validateCreateProduct, createProduct);
-router.put("/:id", authMiddleware, authorizeRoles("admin"), validateUpdateProduct, updateProduct);
-router.delete("/:id", authMiddleware, authorizeRoles("admin"), deleteProduct);
+router.post("/", authMiddleware, authorizeRoles(ROLES.ADMIN), validateCreateProduct, createProduct);
+router.put("/:id", authMiddleware, authorizeRoles(ROLES.ADMIN), validateUpdateProduct, updateProduct);
+router.delete("/:id", authMiddleware, authorizeRoles(ROLES.ADMIN), deleteProduct);
 
 // Fallback
 router.use((req, res) => {

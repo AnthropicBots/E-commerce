@@ -1,5 +1,6 @@
 const Pincode = require("../models/Pincode");
 const NodeCache = require('node-cache');
+const { PERMISSIONS, hasPermission } = require("../config/policy");
 
 const cache = new NodeCache({
     stdTTL: 86400,
@@ -256,7 +257,7 @@ const searchPincodes = async (req, res) => {
 
 const clearPincodeCache = async (req, res) => {
     try {
-        if (req.user && req.user.role !== 'admin') {
+        if (req.user && !hasPermission(req.user, PERMISSIONS.CACHE_MANAGE)) {
             return res.status(403).json({
                 success: false,
                 message: "Unauthorized: Only admins can clear pincode cache"

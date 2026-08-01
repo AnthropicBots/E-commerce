@@ -8,6 +8,7 @@ const crypto = require("crypto");
 const db = require("../config/db");
 const { sanitizeString, safeArray } = require("../utils/helpers");
 const { getClearCookieOptions } = require("../config/cookieConfig");
+const { PERMISSIONS, hasPermission } = require("../config/policy");
 const refreshTokenService = require("../services/refreshTokenService");
 const agentIdentityService = require("../services/agentIdentityService");
 // Lockout state lives in Redis so it survives a restart and is observed by
@@ -709,7 +710,7 @@ const validateToken = (req, res) => {
 // ==================== 11. SECURITY AUDIT (Admin Only) ====================
 const getSecurityAudit = async (req, res) => {
     try {
-        if (req.user.role !== 'admin') {
+        if (!hasPermission(req.user, PERMISSIONS.SECURITY_AUDIT)) {
             return res.status(403).json({
                 success: false,
                 message: "Admin access required"

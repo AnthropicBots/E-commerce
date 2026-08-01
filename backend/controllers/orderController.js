@@ -8,6 +8,7 @@ const {
     "../services/order.service"
 );
 
+const { PERMISSIONS, hasPermission, isAdminRole } = require("../config/policy");
 const paymentService = require("../services/payment.service");
 const CURRENCY = require("../config/currency");
 const { generateInvoicePdf } = require("../services/invoice.service");
@@ -409,7 +410,7 @@ const getOrderById = async (req, res) => {
     const queryParams = [id];
 
     // normal users can only access own orders
-    if (req.user.role !== "admin") {
+    if (!hasPermission(req.user, PERMISSIONS.ORDER_READ_ANY)) {
         query += `
             AND user_id = ?
         `;
@@ -470,7 +471,7 @@ const getOrderStatus = async (req, res) => {
     const queryParams = [id];
 
     // normal users can only access own orders
-    if (req.user.role !== "admin") {
+    if (!hasPermission(req.user, PERMISSIONS.ORDER_READ_ANY)) {
         query += `
             AND user_id = ?
         `;
@@ -755,7 +756,7 @@ const downloadInvoice = async (req, res) => {
         const order = orders[0];
 
         // Authorization: Ensure user is admin or the order belongs to them
-        if (req.user && req.user.role !== 'admin' && order.user_id !== req.user.id) {
+        if (req.user && !hasPermission(req.user, PERMISSIONS.ORDER_READ_ANY) && order.user_id !== req.user.id) {
             return res.status(403).json({ success: false, message: "Unauthorized access to order" });
         }
 
@@ -975,11 +976,12 @@ const exportOrders = async (req, res) => {
  * history behind it.
  *
  * Ownership is checked the same way getOrderById does -- the user_id predicate
- * is added for non-admins, so somebody else's order is *not found* rather than
- * forbidden. A 403 on an order id confirms the order exists.
+ * is added for callers who cannot read any order, so somebody else's order is
+ * *not found* rather than forbidden. A 403 on an order id confirms the order
+ * exists.
  *
- * Admins additionally see the actor, the request metadata and internal
- * reasons; a customer sees only their own stated reasons.
+ * The administrative roles additionally see the actor, the request metadata
+ * and internal reasons; everyone else sees only their own stated reasons.
  */
 const getOrderTimeline = async (req, res) => {
     const id = safeUUID(req.params.id);
@@ -988,12 +990,17 @@ const getOrderTimeline = async (req, res) => {
         return res.status(400).json({ success: false, message: "Invalid order ID" });
     }
 
-    const isAdmin = req.user?.role === "admin";
+    // Two different questions, so two different predicates. Reading somebody
+    // else's order is the same capability getOrderById grants, which support
+    // holds; seeing the actor and the internal notes is not, and stays with
+    // the administrative roles.
+    const canReadAnyOrder = hasPermission(req.user, PERMISSIONS.ORDER_READ_ANY);
+    const canSeeInternalDetail = isAdminRole(req.user?.role);
 
     let query = "SELECT id, status, created_at FROM orders WHERE id = ?";
     const params = [id];
 
-    if (!isAdmin) {
+    if (!canReadAnyOrder) {
         query += " AND user_id = ?";
         params.push(req.user.id);
     }
@@ -1007,7 +1014,7 @@ const getOrderTimeline = async (req, res) => {
         }
 
         const timeline = await orderStatusHistoryService.getTimeline(order, {
-            includeInternal: isAdmin
+            includeInternal: canSeeInternalDetail
         });
 
         return res.status(200).json({ success: true, data: timeline });
