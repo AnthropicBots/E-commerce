@@ -96,9 +96,45 @@ until it finishes.
 ---
 
 ## Testing
-- Backend: test endpoints using Postman.
+- Backend: run ```cd backend && npm test``` (Jest). Contract suite only:
+  ```npm run test:contract```.
 - Frontend: test forms, cart, checkout, orders, wishlist, and profile.
 - Ensure all features work both logged-in and logged-out.
+
+### API contract suite (#1395)
+
+Core HTTP contracts live in ```backend/openapi/ecommerce.openapi.yaml```.
+CI-friendly checks under ```backend/tests/contract/``` assert:
+
+- OpenAPI document shape and required paths
+- Fixture payloads for **401 / 409 / 422** (and happy paths) against schemas
+- Pact-like **consumer** expectations for auth, cart, checkout, products, orders
+
+Optional OpenAPI lint (Spectral, via npx):
+
+```
+cd backend
+npm run lint:openapi
+```
+
+See ```backend/docs/api-contract.md``` for layout details.
+
+### Breaking-change checklist (API)
+
+Before merging a PR that changes request/response JSON for auth, cart,
+checkout, products, or orders, confirm:
+
+1. [ ] ```backend/openapi/ecommerce.openapi.yaml``` updated (schemas, status codes, examples)
+2. [ ] Contract fixtures under ```backend/tests/contract/fixtures/``` updated when envelopes change
+3. [ ] Consumer expectations in ```backend/tests/contract/consumer.pactlike.test.js``` still pass
+4. [ ] ```npm run test:contract``` is green locally
+5. [ ] Frontend callers (```frontend/scripts/*.js```) updated if field names/codes changed
+6. [ ] Error ```code``` values (e.g. ```INVENTORY_CONFLICT```, ```TOTAL_MISMATCH```) are not renamed without a migration note in the PR
+7. [ ] Pagination fields (```total```, ```page```, ```limit```, ```totalPages```) remain present on list endpoints
+8. [ ] Envelope always includes ```success``` (boolean); errors include ```message```
+
+Renaming or removing a documented field without the checklist above is a
+**breaking contract change** and should be called out in the PR title/body.
 
 ---
 

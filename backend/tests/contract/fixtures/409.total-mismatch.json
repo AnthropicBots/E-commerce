@@ -1,0 +1,7 @@
+{
+  "success": false,
+  "code": "TOTAL_MISMATCH",
+  "message": "Submitted total does not match server price",
+  "submittedTotal": 999,
+  "computedTotal": 1048
+}

@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "code": "INVENTORY_CONFLICT",
+  "message": "Inventory locks expired or insufficient stock",
+  "productId": "550e8400-e29b-41d4-a716-446655440000",
+  "availableStock": 2,
+  "requested": 5
+}

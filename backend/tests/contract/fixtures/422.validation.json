@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "message": "Validation failed",
+  "details": [
+    "email is required",
+    "password must be at least 8 characters"
+  ]
+}
