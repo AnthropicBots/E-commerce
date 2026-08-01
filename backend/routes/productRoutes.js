@@ -22,7 +22,14 @@ router.post('/products/review', authMiddleware, validateProductReview, async (re
 const {
     getProductReviews,
     createProductReview,
-    deleteProductReview
+    deleteProductReview,
+    markReviewHelpful,
+    unmarkReviewHelpful,
+    reportReview,
+    getReportReasons,
+    getModerationQueue,
+    getReviewReports,
+    moderateReview
 } = require("../controllers/reviewController");
 
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
@@ -65,6 +72,49 @@ router.delete(
     authorizeRoles("admin"),
     deleteProductReview
 );
+
+// ---------------------------------------------------------------------------
+// Review engagement and moderation (#1349)
+// ---------------------------------------------------------------------------
+//
+// The static "reviews/..." paths are declared BEFORE "/:id" below. Express
+// matches in declaration order, so a parameterised product route placed first
+// would capture "reviews" as a product id and 404 a perfectly valid request --
+// the same trap that catches `/default` in every collection router.
+
+/** Report reasons, so the client does not carry its own copy of the list. */
+router.get("/reviews/moderation/reasons", getReportReasons);
+
+/** Admin moderation queue: pending first, most-reported first. */
+router.get(
+    "/reviews/moderation/queue",
+    authMiddleware,
+    authorizeRoles("admin"),
+    getModerationQueue
+);
+
+/** The reports filed against one review, so a moderator sees the case. */
+router.get(
+    "/reviews/:reviewId/reports",
+    authMiddleware,
+    authorizeRoles("admin"),
+    getReviewReports
+);
+
+/** Approve or reject, recording who decided and why. */
+router.patch(
+    "/reviews/:reviewId/moderate",
+    authMiddleware,
+    authorizeRoles("admin"),
+    moderateReview
+);
+
+/** Helpful votes. Authenticated: an anonymous vote is not a signal. */
+router.post("/:id/reviews/:reviewId/helpful", authMiddleware, markReviewHelpful);
+router.delete("/:id/reviews/:reviewId/helpful", authMiddleware, unmarkReviewHelpful);
+
+/** Report a review for moderation. */
+router.post("/:id/reviews/:reviewId/report", authMiddleware, reportReview);
 router.get("/:id", getSingleProduct);
 
 router.post("/", authMiddleware, authorizeRoles("admin"), validateCreateProduct, createProduct);
