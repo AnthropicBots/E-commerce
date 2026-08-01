@@ -2,6 +2,7 @@
 const EventEmitter = require('events');
 const db = require('../config/db').promise;
 const crypto = require('crypto');
+const cartLifecycleService = require('./cartLifecycleService');
 
 // ============================================
 // JOB QUEUE CONFIGURATION
@@ -566,10 +567,23 @@ const jobHandlers = {
         return { processed: true, date: data.date };
     },
 
-    [JOB_TYPES.CART_CLEANUP]: async (data) => {
-        console.log('🧹 Cleaning up abandoned carts');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        return { cleaned: true, count: data.count || 0 };
+    // Moves carts that have gone quiet from active to abandoned (#1364). The
+    // job payload may narrow the threshold or the batch limits for a one-off
+    // run; left alone it uses the configured defaults.
+    [JOB_TYPES.CART_CLEANUP]: async (data = {}) => {
+        const summary = await cartLifecycleService.sweepAbandonedCarts({
+            inactivityMinutes: data.inactivityMinutes,
+            batchSize: data.batchSize,
+            maxBatches: data.maxBatches
+        });
+
+        console.log(
+            `🧹 Abandoned carts: ${summary.abandoned} transitioned in ` +
+            `${summary.batches} batch(es), threshold ${summary.inactivityMinutes}m` +
+            `${summary.exhausted ? '' : ', backlog remains'}`
+        );
+
+        return { cleaned: true, count: summary.abandoned, ...summary };
     },
 
     [JOB_TYPES.INVENTORY_SYNC]: async (data) => {

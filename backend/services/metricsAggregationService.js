@@ -69,24 +69,31 @@ class MetricsAggregationService extends EventEmitter {
         const dateRange = this.getDateRange(period);
         const params = [dateRange.start, dateRange.end];
 
+        // Conversion is a property of the cart's own state (#1364), not of a
+        // join to an order: `orders` has no cart_id, and the cart is what knows
+        // which order it became. Carts are counted in the window they started
+        // in, so a cohort's rate does not move as its carts convert later.
         let query = `
-            SELECT 
-                COUNT(DISTINCT o.id) as orders,
-                COUNT(DISTINCT c.id) as carts,
-                (COUNT(DISTINCT o.id) / NULLIF(COUNT(DISTINCT c.id), 0)) * 100 as conversion_rate
+            SELECT
+                COUNT(*) as carts,
+                SUM(CASE WHEN c.status = 'converted' THEN 1 ELSE 0 END) as orders,
+                (SUM(CASE WHEN c.status = 'converted' THEN 1 ELSE 0 END)
+                    / NULLIF(COUNT(*), 0)) * 100 as conversion_rate
             FROM carts c
-            LEFT JOIN orders o ON o.cart_id = c.id AND o.status = 'completed'
             WHERE c.created_at BETWEEN ? AND ?
         `;
 
+        // A cart has no category of its own; the category of what is in it is
+        // the question actually being asked.
         if (filters.category) {
-            query += ' AND c.category = ?';
+            query += `
+                AND EXISTS (
+                    SELECT 1 FROM cart_items ci
+                    JOIN products p ON p.id = ci.product_id
+                    WHERE ci.cart_id = c.id AND p.category_id = ?
+                )
+            `;
             params.push(filters.category);
-        }
-
-        if (filters.userSegment) {
-            query += ' AND c.user_segment = ?';
-            params.push(filters.userSegment);
         }
 
         const [rows] = await db.query(query, params);
@@ -161,24 +168,40 @@ class MetricsAggregationService extends EventEmitter {
         const dateRange = this.getDateRange(period);
         const params = [dateRange.start, dateRange.end];
 
+        // The denominator is every cart in the window, not only the abandoned
+        // ones -- the previous filter made the rate 100% by construction. A
+        // cart carries no stored total either, so what was left behind is
+        // priced from its lines.
         let query = `
-            SELECT 
+            SELECT
                 COUNT(*) as total_carts,
-                SUM(CASE WHEN abandoned = 1 THEN 1 ELSE 0 END) as abandoned_carts,
-                (SUM(CASE WHEN abandoned = 1 THEN 1 ELSE 0 END) / COUNT(*)) * 100 as abandoned_rate,
-                SUM(total_value) as lost_revenue
-            FROM carts
-            WHERE created_at BETWEEN ? AND ?
-            AND status = 'abandoned'
+                SUM(CASE WHEN c.status = 'abandoned' THEN 1 ELSE 0 END) as abandoned_carts,
+                (SUM(CASE WHEN c.status = 'abandoned' THEN 1 ELSE 0 END)
+                    / NULLIF(COUNT(*), 0)) * 100 as abandoned_rate,
+                SUM(CASE WHEN c.status = 'abandoned' THEN COALESCE(v.cart_value, 0) ELSE 0 END) as lost_revenue
+            FROM carts c
+            LEFT JOIN (
+                SELECT ci.cart_id, SUM(ci.quantity * p.price) as cart_value
+                FROM cart_items ci
+                JOIN products p ON p.id = ci.product_id
+                GROUP BY ci.cart_id
+            ) v ON v.cart_id = c.id
+            WHERE c.created_at BETWEEN ? AND ?
         `;
 
         if (filters.category) {
-            query += ' AND category = ?';
+            query += `
+                AND EXISTS (
+                    SELECT 1 FROM cart_items ci
+                    JOIN products p ON p.id = ci.product_id
+                    WHERE ci.cart_id = c.id AND p.category_id = ?
+                )
+            `;
             params.push(filters.category);
         }
 
         if (filters.minValue) {
-            query += ' AND total_value >= ?';
+            query += ' AND COALESCE(v.cart_value, 0) >= ?';
             params.push(filters.minValue);
         }
 

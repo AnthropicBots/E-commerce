@@ -1,5 +1,6 @@
 
 const { validatePromo, calculateDiscount, getPromoByCode, applyPromoTransaction } = require("../services/promo.service");
+const cartLifecycle = require("../services/cartLifecycleService");
 const { safeNumber, sanitizeString } = require("../utils/helpers");
 const { PERMISSIONS, hasPermission } = require("../config/policy");
 const NodeCache = require('node-cache');
@@ -527,15 +528,19 @@ const applyMultiplePromos = async (req, res) => {
                 });
             }
 
-            // Update cart in database with atomic transaction
-            await db.query(
-                `UPDATE carts 
-                 SET promo_codes = ?, 
-                     discount_total = ?, 
-                     final_total = ?,
-                     updated_at = NOW()
-                 WHERE user_id = ? AND session_id = ?`,
-                [JSON.stringify(appliedPromos), totalDiscount, remainingTotal, userId, sessionId]
+            // Applying a promo is shopper activity on the cart, so the cart's
+            // clock moves.
+            //
+            // What this replaced was a write to a `carts` table that did not
+            // exist, through a `db` binding this module never imported, on
+            // columns (promo_codes, discount_total, final_total, session_id)
+            // that are not part of the cart. The discount is not persisted
+            // here on purpose: the figures below are returned to the caller and
+            // re-derived from the submitted code at checkout, which is where
+            // `orders.promo_code` and `promo_usage` record what was actually
+            // granted. A second copy on the cart could only drift from it.
+            await cartLifecycle.touchCart(
+                await cartLifecycle.findActiveCartId(userId)
             );
 
             return {
