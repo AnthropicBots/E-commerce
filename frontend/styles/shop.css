@@ -802,3 +802,43 @@
     color: #111;
     font-weight: 600;
 }
+
+/* Active Filter Indicators */
+.fashion-card.active {
+    outline: 3px solid #088178;
+    outline-offset: 2px;
+    box-shadow: 0 15px 35px rgba(8, 129, 120, 0.2);
+    transform: translateY(-5px);
+}
+.fashion-card:focus-visible {
+    outline: 3px solid #088178;
+    outline-offset: 2px;
+}
+.fashion-card.active .fashion-overlay h3::before {
+    content: "✓ ";
+}
+
+/* Active Filters Container & Clear Button */
+.active-filters-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+}
+
+.active-clear-filters-btn {
+    background: #f8d7da;
+    color: #721c24;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    transition: 0.3s ease;
+}
+
+.active-clear-filters-btn:hover {
+    background: #f5c6cb;
+}
