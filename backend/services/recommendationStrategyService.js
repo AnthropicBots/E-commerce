@@ -65,7 +65,7 @@ class TrendingStrategy extends RecommendationStrategy {
                 FROM products p
                 LEFT JOIN orders o ON o.product_id = p.id
                 LEFT JOIN product_views v ON v.product_id = p.id
-                LEFT JOIN wishlist w ON w.product_id = p.id
+                LEFT JOIN wishlist_items w ON w.product_id = p.id
                 WHERE p.stock > 0
                 GROUP BY p.id
                 ORDER BY 

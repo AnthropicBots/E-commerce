@@ -167,9 +167,6 @@ E-commerce/
 │   ├── scripts/
 │   │   └── migrate.js
 │   │
-│   ├── scripts/
-│   │   └── migrate.js
-│   │
 │   ├── utils/
 │   │   ├── helpers.js
 │   │   └── socketManager.js
