@@ -16,6 +16,11 @@ npm run migrate:baseline # adopt the baseline on a pre-existing database
 - **Name files `NNNN_short_name.sql`** with a four-digit prefix one higher than
   the last. Files that do not match are ignored and reported, because a
   migration nobody can order is a migration nobody can apply reproducibly.
+- **Take the next free number when you rebase.** Two branches that both claim
+  the next number look fine in isolation and in review, and collide only once
+  both have merged. The runner then refuses to apply anything at all rather
+  than guess at the order, so a collision takes the whole sequence down and not
+  just the two files involved. Check the number is still free before merging.
 - **Never edit an applied migration.** The runner records a checksum per file and
   refuses to run if one changed, since the database's real shape would then be
   unknown. Add a new migration instead.
@@ -33,6 +38,24 @@ adopted verbatim. It declares stored procedures, so it is not safe to re-run:
 a database that already has these tables records it with `npm run migrate:baseline`
 and then migrates forward normally. A fresh database runs it like any other
 migration.
+
+## Resolved duplicate numbers
+
+Three files were renumbered because they had claimed a version another file
+already held. In each case the file that merged first kept the number, because
+a database that ran the sequence before the collision appeared recorded that
+version against that file's checksum — renumbering the earlier one would have
+reported drift on a database that had done nothing wrong.
+
+| Was | Now |
+| --- | --- |
+| `0026_erasure_requests.sql` | `0029_erasure_requests.sql` |
+| `0027_price_drop_baselines.sql` | `0030_price_drop_baselines.sql` |
+| `0027_cart_lifecycle.sql` | `0031_cart_lifecycle.sql` |
+
+The three now apply after `0028_product_qa.sql` rather than before it. Nothing
+depends on the old relative order: each of them owns tables the others do not
+touch.
 
 ## Resolved duplicate definitions
 
