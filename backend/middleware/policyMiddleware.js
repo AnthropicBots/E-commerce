@@ -1,5 +1,6 @@
 // backend/middleware/policyMiddleware.js
 const { policyEngine } = require('../services/policyEngineService');
+const { requireOwnership } = require('./requireOwnership');
 
 /**
  * Middleware to check authorization policy
@@ -41,51 +42,20 @@ function authorizePolicy(resource, action) {
 }
 
 /**
- * Middleware to check if user is resource owner
+ * Middleware to check if user is resource owner.
+ *
+ * Kept as an alias so existing call sites keep resolving, but the check itself
+ * now runs through requireOwnership. The previous implementation resolved
+ * ownership through a placeholder that returned `true` unconditionally, so
+ * wiring this onto a route granted everyone access to everything while reading
+ * like a guard.
+ *
+ * @param {Function} loadOwnerId `(req) => ownerId | null`
+ * @param {object} [options] see requireOwnership
+ * @returns {Function} express middleware
  */
-function isResourceOwner(getResourceId) {
-    return async (req, res, next) => {
-        try {
-            const resourceId = typeof getResourceId === 'function' 
-                ? getResourceId(req) 
-                : req.params.id;
-
-            if (!resourceId || !req.user) {
-                return res.status(403).json({
-                    success: false,
-                    error: 'Access denied'
-                });
-            }
-
-            // Check if user owns the resource
-            // This would be implemented based on your data model
-            const isOwner = await checkResourceOwnership(req.user.id, resourceId);
-            
-            if (!isOwner && req.user.role !== 'admin') {
-                return res.status(403).json({
-                    success: false,
-                    error: 'Access denied'
-                });
-            }
-
-            next();
-        } catch (error) {
-            console.error('Resource owner check error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Authorization failed'
-            });
-        }
-    };
-}
-
-/**
- * Helper function to check resource ownership
- */
-async function checkResourceOwnership(userId, resourceId) {
-    // Implement based on your data model
-    // Example: Check if user owns the order
-    return true; // Placeholder
+function isResourceOwner(loadOwnerId, options) {
+    return requireOwnership(loadOwnerId, options);
 }
 
 module.exports = {

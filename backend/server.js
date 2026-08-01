@@ -359,6 +359,13 @@ app.use('/api/stock-alerts', stockAlertRoutes);
 app.use("/api", routes);
 app.use("/api/mcp", mcpRoutes);
 
+// Refuse to start with a commerce route that declares no authorization policy
+// and is not on the public allowlist. Opt-in via ROUTE_POLICY_AUDIT=enforce (or
+// =warn to see the report without blocking a deploy); see
+// middleware/routeAudit.js. Runs here, after the routers are attached, and is a
+// pure inspection of the router stacks -- no requests, no I/O.
+require("./middleware/routeAudit").runStartupAudit();
+
 // Health check endpoint
 app.get("/health", (req, res) => {
     const { buildHealthResponse } = require("./utils/healthResponseBuilder");

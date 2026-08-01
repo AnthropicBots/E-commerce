@@ -2,30 +2,28 @@
  * Role-Based Access Control (RBAC) Middleware
  * Validates if the authenticated user has the required role(s) to access a route.
  * Includes security checks: user existence, account status, email verification, and logging.
+ *
+ * The role vocabulary itself lives in config/policy.js. This module owns the
+ * account-state checks and the HTTP contract; it does not decide what a role
+ * means.
  */
 
 const User = require("../models/User");
 const logger = require("../utils/logger");
 const db = require("../config/db");
-
-// =====================
-// ERROR CODES
-// =====================
-const ERROR_CODES = {
-    USER_NOT_FOUND: "ADMIN_USER_NOT_FOUND",
-    ACCOUNT_INACTIVE: "ADMIN_ACCOUNT_INACTIVE",
-    ACCOUNT_BLOCKED: "ADMIN_ACCOUNT_BLOCKED",
-    EMAIL_NOT_VERIFIED: "ADMIN_EMAIL_NOT_VERIFIED",
-    ADMIN_ROLE_REQUIRED: "ADMIN_ROLE_REQUIRED",
-    TOKEN_INVALID: "ADMIN_TOKEN_INVALID",
-    UNAUTHORIZED: "ADMIN_UNAUTHORIZED"
-};
+const {
+    ADMIN_ROLES,
+    ERROR_CODES,
+    expandRoles,
+    markPolicyMiddleware,
+    satisfiesRoles
+} = require("../config/policy");
 
 // =====================
 // MAIN RBAC MIDDLEWARE
 // =====================
 const authorizeRoles = (...roles) => {
-    return async (req, res, next) => {
+    return markPolicyMiddleware(async function authorizeRolesMiddleware(req, res, next) {
         try {
             // STEP 1: Check if user is authenticated
             if (!req.user || !req.user.id) {
@@ -104,12 +102,12 @@ const authorizeRoles = (...roles) => {
             }
 
             // STEP 6: Check user role
-            if (!roles.includes(user.role)) {
+            if (!satisfiesRoles(roles, user)) {
                 logger.warn("Access denied - Insufficient role", {
                     userId: user.id,
                     email: user.email,
                     role: user.role,
-                    requiredRoles: roles,
+                    requiredRoles: expandRoles(roles),
                     ip: req.ip,
                     path: req.path,
                     method: req.method
@@ -151,13 +149,13 @@ const authorizeRoles = (...roles) => {
                 message: "An error occurred while verifying access. Please try again."
             });
         }
-    };
+    }, { roles: expandRoles(roles) });
 };
 
 // =====================
 // ADMIN MIDDLEWARE (Backward compatibility)
 // =====================
-const adminMiddleware = authorizeRoles("admin", "superadmin");
+const adminMiddleware = authorizeRoles(...ADMIN_ROLES);
 
 // =====================
 // EXPORTS

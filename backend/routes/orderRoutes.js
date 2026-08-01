@@ -3,6 +3,8 @@ const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
+const { ROLES } = require("../config/policy");
+const { requireOwnership, ownerFromTable } = require("../middleware/requireOwnership");
 const orderController = require("../controllers/orderController");
 const { safeArray, safeNumber, sanitizeString } = require("../utils/helpers");
 
@@ -17,6 +19,20 @@ const MAX_TOTAL = 1000000; // ₹10 Lakhs
 const MAX_REASON_LENGTH = 500;
 const MAX_PAGE = 100;
 const MAX_LIMIT = 100;
+
+// Every `/:id` route below is one account reaching for one order, so the
+// ownership rule is declared once here rather than restated per handler.
+const ownsOrder = requireOwnership(ownerFromTable({ table: "orders" }), {
+    resourceName: "Order"
+});
+
+// Cancelling is the exception: staff have never been able to cancel on a
+// customer's behalf through this endpoint, and quietly granting that here
+// would be a policy change smuggled in as a refactor.
+const ownsOrderStrictly = requireOwnership(ownerFromTable({ table: "orders" }), {
+    resourceName: "Order",
+    allowPrivileged: false
+});
 
 // ============================================
 // VALIDATION FUNCTIONS
@@ -336,25 +352,25 @@ router.get("/my-orders", authMiddleware, (req, res, next) => {
 router.get(
     "/reports/fulfilment",
     authMiddleware,
-    authorizeRoles("admin"),
+    authorizeRoles(ROLES.ADMIN),
     orderController.getFulfilmentReport
 );
 
 // The order's progress ladder plus the recorded history behind it. Scoped to
 // the order's owner; admins additionally see the actor and internal notes.
-router.get("/:id/timeline", authMiddleware, orderController.getOrderTimeline);
+router.get("/:id/timeline", authMiddleware, ownsOrder, orderController.getOrderTimeline);
 
 // Get order summary
-router.get("/:id/summary", authMiddleware, orderController.getOrderSummary);
+router.get("/:id/summary", authMiddleware, ownsOrder, orderController.getOrderSummary);
 
 // Get single order with items
-router.get("/:id", authMiddleware, orderController.getOrderById);
+router.get("/:id", authMiddleware, ownsOrder, orderController.getOrderById);
 
 // Download order invoice
-router.get("/:id/invoice", authMiddleware, orderController.downloadInvoice);
+router.get("/:id/invoice", authMiddleware, ownsOrder, orderController.downloadInvoice);
 
 // Cancel order with reason
-router.patch("/:id/cancel", authMiddleware, (req, res, next) => {
+router.patch("/:id/cancel", authMiddleware, ownsOrderStrictly, (req, res, next) => {
     const reasonValidation = validateReason(req.body.reason);
     if (!reasonValidation.valid) {
         return res.status(400).json({
@@ -372,7 +388,7 @@ router.patch("/:id/cancel", authMiddleware, (req, res, next) => {
 router.get(
     "/export/csv",
     authMiddleware,
-    authorizeRoles("admin", "support"),
+    authorizeRoles(ROLES.ADMIN, ROLES.SUPPORT),
     (req, res, next) => {
         if (req.query.status) {
             const statusValidation = validateStatus(req.query.status);
@@ -393,6 +409,7 @@ router.get(
 router.get(
     "/:id/status",
     authMiddleware,
+    ownsOrder,
     orderController.getOrderStatus
 );
 
@@ -400,7 +417,7 @@ router.get(
 router.get(
     "/",
     authMiddleware,
-    authorizeRoles("admin"),
+    authorizeRoles(ROLES.ADMIN),
     orderController.getAllOrders
 );
 
@@ -408,7 +425,7 @@ router.get(
 router.put(
     "/:id/status",
     authMiddleware,
-    authorizeRoles("admin"),
+    authorizeRoles(ROLES.ADMIN),
     (req, res, next) => {
         const { status } = req.body;
         const statusValidation = validateStatus(status);

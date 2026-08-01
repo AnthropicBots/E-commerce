@@ -11,6 +11,7 @@ const {
     hasSubjectClaim,
     verifyAccessToken
 } = require('../utils/tokens');
+const { markPolicyMiddleware } = require('../config/policy');
 
 /**
  * Verify JWT token from Authorization header or cookies fallback.
@@ -160,6 +161,11 @@ function attachDeviceFingerprint(req, res, next) {
     req.clientIp = ip;
     next();
 }
+
+// `optionalAuth` is deliberately not marked: it attaches a user when one is
+// present and lets everyone else through, so a route guarded only by it is
+// still a public route as far as the audit is concerned.
+markPolicyMiddleware(authMiddleware, { authentication: true });
 
 module.exports = authMiddleware;
 module.exports.authMiddleware = authMiddleware;

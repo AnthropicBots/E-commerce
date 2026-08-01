@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
+const { ADMIN_ROLES, ROLES } = require("../config/policy");
 const courierWebhookController = require("../controllers/courierWebhookController");
 const { courierWebhookService } = require("../services/courierWebhookService");
 
@@ -30,7 +31,7 @@ router.post("/:provider", courierWebhookController.receiveWebhook);
 router.post(
     "/process-pending",
     authMiddleware,
-    authorizeRoles("admin", "superadmin"),
+    authorizeRoles(...ADMIN_ROLES),
     courierWebhookController.processPending
 );
 
@@ -38,28 +39,28 @@ router.post(
 router.get(
     "/dlq/stats",
     authMiddleware,
-    authorizeRoles("admin", "superadmin", "support"),
+    authorizeRoles(...ADMIN_ROLES, ROLES.SUPPORT),
     courierWebhookController.getDLQStats
 );
 
 router.post(
     "/dlq/retry/:itemId",
     authMiddleware,
-    authorizeRoles("admin", "superadmin"),
+    authorizeRoles(...ADMIN_ROLES),
     courierWebhookController.retryDLQItem
 );
 
 router.get(
     "/circuit-breaker/status",
     authMiddleware,
-    authorizeRoles("admin", "superadmin", "support"),
+    authorizeRoles(...ADMIN_ROLES, ROLES.SUPPORT),
     courierWebhookController.getCircuitBreakerStatus
 );
 
 router.post(
     "/circuit-breaker/reset/:provider",
     authMiddleware,
-    authorizeRoles("admin", "superadmin"),
+    authorizeRoles(...ADMIN_ROLES),
     courierWebhookController.resetCircuitBreaker
 );
 
