@@ -9,6 +9,7 @@ const {
     normalizeCartLines,
     resolveCartOwnership
 } = require("../services/cart.service");
+const cartLifecycle = require("../services/cartLifecycleService");
 
 const cartController = {
     // Get the logged-in user's cart (joined with product data)
@@ -81,6 +82,8 @@ const cartController = {
             // up front so the ones created below match the synced lines.
             await inventoryReservationService.releaseUserLocks(userId, null, connection);
 
+            const cartId = await cartLifecycle.resolveActiveCart(userId, connection);
+
             let placeholders = [];
             let values = [];
 
@@ -116,9 +119,10 @@ const cartController = {
                         });
                     }
 
-                    placeholders.push("(?, ?, ?, ?, ?, ?)");
+                    placeholders.push("(?, ?, ?, ?, ?, ?, ?)");
                     values.push(
                         userId,
+                        cartId,
                         line.productId,
                         line.variantId,
                         line.color,
@@ -136,10 +140,12 @@ const cartController = {
 
             if (placeholders.length) {
                 await connection.query(
-                    `INSERT INTO cart_items (user_id, product_id, variant_id, color, size, quantity) VALUES ${placeholders.join(",")}`,
+                    `INSERT INTO cart_items (user_id, cart_id, product_id, variant_id, color, size, quantity) VALUES ${placeholders.join(",")}`,
                     values
                 );
             }
+
+            await cartLifecycle.touchCart(cartId, connection);
 
             await connection.commit();
 
@@ -182,6 +188,8 @@ const cartController = {
 
             await connection.beginTransaction();
 
+            const cartId = await cartLifecycle.resolveActiveCart(userId, connection);
+
             const reserved = await inventoryReservationService.reserveStock(userId, line.productId, line.quantity, connection, line);
             if (!reserved) {
                 await connection.rollback();
@@ -200,12 +208,16 @@ const cartController = {
                 mergeCartLines(existingLines, [line])
                     .find((candidate) => cartLineKey(candidate) === key) || line;
 
+            // Updating cart_id on conflict also adopts any line left behind by
+            // a database that predates the cart record.
             await connection.query(
-                `INSERT INTO cart_items (user_id, product_id, variant_id, color, size, quantity)
-                 VALUES (?, ?, ?, ?, ?, ?)
-                 ON DUPLICATE KEY UPDATE quantity = VALUES(quantity)`,
-                [userId, line.productId, line.variantId, line.color, line.size, mergedLine.quantity]
+                `INSERT INTO cart_items (user_id, cart_id, product_id, variant_id, color, size, quantity)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE quantity = VALUES(quantity), cart_id = VALUES(cart_id)`,
+                [userId, cartId, line.productId, line.variantId, line.color, line.size, mergedLine.quantity]
             );
+
+            await cartLifecycle.touchCart(cartId, connection);
 
             await connection.commit();
             return res.status(200).json({ success: true, message: "Product added to cart and reserved for 15 minutes" });
@@ -251,6 +263,12 @@ const cartController = {
                 return res.status(400).json({ success: false, message: "Requested quantity exceeds available stock" });
             }
 
+            const cartId = await cartLifecycle.resolveActiveCart(userId, connection);
+
+            // Quantity only. Folding cart_id into the SET would make
+            // affectedRows non-zero for a line whose quantity did not change,
+            // turning today's "Product not found in cart" answer into a
+            // success. Adoption of pre-#1364 lines is the migration's job.
             const [result] = await connection.query(
                 "UPDATE cart_items SET quantity = ? WHERE user_id = ? AND product_id = ? AND variant_id = ? AND color = ? AND size = ?",
                 [line.quantity, userId, line.productId, line.variantId, line.color, line.size]
@@ -260,6 +278,8 @@ const cartController = {
                 await connection.rollback();
                 return res.status(404).json({ success: false, message: "Product not found in cart" });
             }
+
+            await cartLifecycle.touchCart(cartId, connection);
 
             await connection.commit();
             return res.status(200).json({ success: true, message: "Cart item updated" });
@@ -301,6 +321,12 @@ const cartController = {
             // The line is gone, so the stock it was holding must go with it.
             await inventoryReservationService.releaseLineLocks(userId, line);
 
+            // Removing a line is shopper activity. Touch rather than resolve:
+            // taking things out of the cart is no reason to create one.
+            await cartLifecycle.touchCart(
+                await cartLifecycle.findActiveCartId(userId)
+            );
+
             return res.status(200).json({ success: true, message: "Product removed from cart" });
         } catch (error) {
             console.error("REMOVE CART ITEM ERROR:", error);
@@ -314,6 +340,14 @@ const cartController = {
             const userId = req.user.id;
             await promisePool.query("DELETE FROM cart_items WHERE user_id = ?", [userId]);
             await inventoryReservationService.releaseUserLocks(userId);
+
+            // The cart stays active and empty. Emptying it is a decision the
+            // shopper just made, not a cart to close: closing it here would
+            // report a deliberate clear-out as an abandonment.
+            await cartLifecycle.touchCart(
+                await cartLifecycle.findActiveCartId(userId)
+            );
+
             return res.status(200).json({ success: true, message: "Cart cleared" });
         } catch (error) {
             console.error("CLEAR CART ERROR:", error);
