@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const db = require('../config/db').promise;
+const { withTransaction } = require('../config/db');
 
 // ============================================
 // LIABILITY CONFIGURATION
@@ -401,24 +402,14 @@ class AgentLiabilityService {
                 publicKey: validated.publicKey || null
             };
 
-            // Use transaction for atomicity
-            const transaction = await db.getConnection();
-            await transaction.beginTransaction();
-
-            try {
+            // Registration and its insurance policy have to land together.
+            await withTransaction(async (transaction) => {
                 await this.storeRegistration(registration, transaction);
 
                 if (registration.insuranceActive) {
                     await this.createInsurancePolicy(registration.agentId, transaction);
                 }
-
-                await transaction.commit();
-            } catch (error) {
-                await transaction.rollback();
-                throw error;
-            } finally {
-                transaction.release();
-            }
+            });
 
             // Cache the registration
             await setCachedAgent(registration.agentId, registration);
@@ -566,18 +557,15 @@ class AgentLiabilityService {
                 resolution: null
             };
 
-            const transaction = await db.getConnection();
-            await transaction.beginTransaction();
-
-            try {
+            // A claim that is rejected still has to be recorded, so the early
+            // exits below return from the transaction rather than aborting it.
+            const isRejected = await withTransaction(async (transaction) => {
                 const auth = await this.getAuthorization(validated.authorizationId, transaction);
                 if (!auth) {
                     claim.status = 'rejected';
                     claim.resolution = 'Authorization not found';
                     await this.storeClaim(claim, transaction);
-                    await transaction.commit();
-                    end();
-                    return claim;
+                    return true;
                 }
 
                 const liability = auth.liability;
@@ -585,9 +573,7 @@ class AgentLiabilityService {
                     claim.status = 'rejected';
                     claim.resolution = 'Claim amount exceeds liability coverage';
                     await this.storeClaim(claim, transaction);
-                    await transaction.commit();
-                    end();
-                    return claim;
+                    return true;
                 }
 
                 const agent = await this.getAgent(validated.agentId, transaction);
@@ -604,27 +590,26 @@ class AgentLiabilityService {
                 }
 
                 await this.storeClaim(claim, transaction);
-                await transaction.commit();
+                return false;
+            });
 
-                claimCounter.inc({ status: claim.status });
-
-                // Send notification
-                await this.sendWebhook('claim.created', {
-                    claimId: claim.id,
-                    agentId: claim.agentId,
-                    amount: claim.amount,
-                    status: claim.status
-                });
-
+            if (isRejected) {
                 end();
                 return claim;
-
-            } catch (error) {
-                await transaction.rollback();
-                throw error;
-            } finally {
-                transaction.release();
             }
+
+            claimCounter.inc({ status: claim.status });
+
+            // Send notification
+            await this.sendWebhook('claim.created', {
+                claimId: claim.id,
+                agentId: claim.agentId,
+                amount: claim.amount,
+                status: claim.status
+            });
+
+            end();
+            return claim;
 
         } catch (error) {
             logger.error('Claim handling failed', { error: error.message, data: claimData });

@@ -1,10 +1,23 @@
 const { Server } = require("socket.io");
 const { createAdapter } = require("@socket.io/redis-adapter");
-const jwt = require("jsonwebtoken");
 const chatService = require("../services/chat.service");
 const logger = require("./logger");
 const { sanitizeString } = require("./helpers");
 const NodeCache = require('node-cache');
+
+// Realtime authentication is the same contract as HTTP authentication, read
+// from the same module, so a change to the secret or to the claim names cannot
+// leave the two halves disagreeing about what a valid token is.
+const {
+    LEGACY_SUBJECT_CLAIM,
+    SESSION_CLAIM,
+    SUBJECT_CLAIM,
+    assertAccessTokenSecret,
+    hasSubjectClaim,
+    verifyAccessToken
+} = require("./tokens");
+
+const { onSessionRevoked } = require("./sessionRevocationBus");
 
 // Shared client -- see config/redis.js. This module used to construct its own
 // `new Redis({ ... })`, which meant an extra connection per module and made
@@ -22,7 +35,31 @@ const MAX_CONNECTIONS_PER_USER = parseInt(process.env.MAX_SOCKET_CONNECTIONS) ||
 const MESSAGE_QUEUE_LIMIT = parseInt(process.env.MESSAGE_QUEUE_LIMIT) || 100;
 const MEMORY_LEAK_THRESHOLD = parseInt(process.env.MEMORY_LEAK_THRESHOLD) || 1000;
 
+// Ties an access token back to the refresh-token family it was minted from.
+// Issued by the auth controller; the session claim is issued by the durable
+// sessions service. Either may be absent on a token, so neither is required.
+const FAMILY_CLAIM = "fid";
+
+// Events the client sees. `reauthenticate` is the only one it sends.
+const REAUTHENTICATE_EVENT = "reauthenticate";
+const TOKEN_EXPIRED_EVENT = "token_expired";
+const SESSION_REVOKED_EVENT = "session_revoked";
+
+// setTimeout keeps its delay in a signed 32-bit integer and fires immediately
+// on anything larger. Access tokens last minutes, so clamping only affects a
+// token with an implausible lifetime -- which is then cut short rather than
+// trusted for a month.
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
+// Rooms a connection is placed in purely so a revocation can find it again.
+const AUTH_ROOM = Object.freeze({
+    user: (userId) => `auth:user:${userId}`,
+    session: (sessionId) => `auth:session:${sessionId}`,
+    family: (familyId) => `auth:family:${familyId}`
+});
+
 let io;
+let unsubscribeSessionRevocation = null;
 const userSockets = new Map();
 const socketUsers = new Map();
 const typingUsers = new Map();
@@ -34,6 +71,7 @@ const offlineMessages = new NodeCache({ stdTTL: 86400, checkperiod: 600 });
 
 const listenerRegistry = new Map();
 const heartbeatIntervals = new Map();
+const tokenExpiryTimers = new Map();
 const cleanupTimers = new Map();
 const connectionMetrics = {
     totalConnections: 0,
@@ -115,34 +153,14 @@ const initSocket = (server, allowedOrigins) => {
         logger.error("❌ Redis Adapter initialization failed:", error);
     }
 
-    io.use(async (socket, next) => {
-        try {
-            const token = socket.handshake.auth.token;
-            if (!token) {
-                logger.warn("Socket connection attempt without token");
-                return next(new Error("Authentication required"));
-            }
+    io.use(authenticateSocket);
 
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-            socket.user = decoded;
-            socket.userId = decoded.id;
-            socket.userRole = decoded.role || 'customer';
-
-            socket._listenerRegistry = new ListenerRegistry(socket.id);
-
-            const existingSockets = userSockets.get(socket.userId) || new Set();
-
-            if (existingSockets.size >= MAX_CONNECTIONS_PER_USER) {
-                logger.warn(`User ${socket.userId} exceeded max connections`);
-                return next(new Error("Too many connections"));
-            }
-
-            next();
-        } catch (err) {
-            logger.error(`Socket auth error: ${err.message}`);
-            return next(new Error("Authentication failed"));
-        }
-    });
+    // Ending a session is an HTTP concern that happens in the service layer;
+    // this is how the consequence reaches the connections that session opened.
+    if (unsubscribeSessionRevocation) {
+        unsubscribeSessionRevocation();
+    }
+    unsubscribeSessionRevocation = onSessionRevoked(disconnectRevokedSessions);
 
     io.on("connection", (socket) => {
         const userId = socket.userId;
@@ -167,6 +185,8 @@ const initSocket = (server, allowedOrigins) => {
 
         io.emit('user_status_change', { userId, status: 'online' });
         io.emit('users_online', userSockets.size);
+
+        setupAuthenticatedSession(socket);
 
         // Setup event handlers with registry
         setupEventHandlersWithRegistry(socket);
@@ -194,6 +214,244 @@ const initSocket = (server, allowedOrigins) => {
 
     return io;
 };
+
+/**
+ * Handshake guard: a connection is admitted only against a token this service
+ * issued and can still vouch for.
+ *
+ * Registered with `io.use`, and exported so the contract can be exercised
+ * without standing up a server.
+ */
+function authenticateSocket(socket, next) {
+    const token = socket.handshake?.auth?.token;
+    if (!token) {
+        logger.warn("Socket connection attempt without token");
+        return next(new Error("Authentication required"));
+    }
+
+    try {
+        assertAccessTokenSecret();
+    } catch (error) {
+        // With no secret there is no way to tell a token this service issued
+        // from one an attacker made up, so the realtime layer refuses
+        // everything. It used to fall back to a guessable constant, which left
+        // sockets reachable on a deployment where HTTP had already refused to
+        // start.
+        logger.error(`Socket authentication unavailable: ${error.message}`);
+        return next(new Error("Authentication unavailable"));
+    }
+
+    let decoded;
+    try {
+        decoded = verifyAccessToken(token);
+    } catch (error) {
+        logger.warn(`Socket auth rejected: ${error.message}`);
+        return next(new Error("Authentication failed"));
+    }
+
+    const userId = subjectOf(decoded);
+    if (userId === undefined) {
+        logger.warn("Socket auth rejected: token carries no subject claim");
+        return next(new Error("Authentication failed"));
+    }
+
+    // Every issuing path sets a lifetime. A token without one could never be
+    // aged out of a live connection, which is the whole point of the timer
+    // below, so it is refused rather than trusted forever.
+    if (typeof decoded.exp !== "number") {
+        logger.warn(`Socket auth rejected: token for user ${userId} has no expiry`);
+        return next(new Error("Authentication failed"));
+    }
+
+    socket.user = decoded;
+    socket.userId = userId;
+    socket.userRole = decoded.role || 'customer';
+
+    socket._listenerRegistry = new ListenerRegistry(socket.id);
+
+    const existingSockets = userSockets.get(socket.userId) || new Set();
+
+    if (existingSockets.size >= MAX_CONNECTIONS_PER_USER) {
+        logger.warn(`User ${socket.userId} exceeded max connections`);
+        return next(new Error("Too many connections"));
+    }
+
+    next();
+}
+
+/**
+ * Everything that keeps an admitted connection honest: the rooms a revocation
+ * will look for it in, the disconnect scheduled for when its token runs out,
+ * and the way it can avoid that disconnect legitimately.
+ */
+function setupAuthenticatedSession(socket) {
+    joinAuthRooms(socket, socket.user);
+    scheduleTokenExpiry(socket, socket.user);
+
+    const reauthenticateHandler = (data, callback) => {
+        handleReauthenticate(socket, data, callback);
+    };
+    socket.on(REAUTHENTICATE_EVENT, reauthenticateHandler);
+
+    socket._listenerRegistry?.register(REAUTHENTICATE_EVENT, reauthenticateHandler);
+    socket._listenerRegistry?.addCleanup(() => clearTokenExpiry(socket.id));
+}
+
+/**
+ * Close the live connections belonging to sessions that have just been ended.
+ *
+ * The narrowest identifier wins: a session id closes one device, a family id
+ * closes the devices descended from one sign-in, and a user id closes the whole
+ * account. `exceptSessionId` spares one session and is only read alongside
+ * `userId`, which is what "sign out everywhere else" needs.
+ *
+ * The Redis adapter carries the disconnect to every instance, so the connection
+ * does not have to be held by the process that ended the session.
+ *
+ * @returns {boolean} Whether a disconnect was issued.
+ */
+function disconnectRevokedSessions({ sessionId, familyId, userId, exceptSessionId, reason } = {}) {
+    // A process that serves only HTTP never initialises the realtime layer.
+    // Ending a session there is legitimate and has nothing to disconnect.
+    if (!io) return false;
+
+    let room = null;
+    if (sessionId) {
+        room = AUTH_ROOM.session(sessionId);
+    } else if (familyId) {
+        room = AUTH_ROOM.family(familyId);
+    } else if (userId !== undefined && userId !== null) {
+        room = AUTH_ROOM.user(userId);
+    }
+
+    if (!room) return false;
+
+    const revocationReason = reason || "revoked";
+
+    try {
+        let target = io.in(room);
+        if (!sessionId && !familyId && exceptSessionId) {
+            target = target.except(AUTH_ROOM.session(exceptSessionId));
+        }
+
+        target.emit(SESSION_REVOKED_EVENT, { reason: revocationReason });
+        target.disconnectSockets(true);
+
+        logger.info(`Disconnected sockets in ${room} (reason: ${revocationReason})`);
+        return true;
+    } catch (error) {
+        logger.error(`Failed to disconnect sockets in ${room}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Subject id under either accepted claim, matching what the HTTP middleware
+ * accepts so the same token cannot identify two different users.
+ *
+ * @returns {string|number|undefined}
+ */
+function subjectOf(decoded) {
+    if (!hasSubjectClaim(decoded)) return undefined;
+
+    return decoded[SUBJECT_CLAIM] !== undefined
+        ? decoded[SUBJECT_CLAIM]
+        : decoded[LEGACY_SUBJECT_CLAIM];
+}
+
+function joinAuthRooms(socket, decoded) {
+    // Renewal can move a connection onto a new session or a new family, so the
+    // rooms it held for the previous token have to be given up first.
+    for (const room of socket._authRooms || []) {
+        socket.leave(room);
+    }
+
+    const rooms = [AUTH_ROOM.user(socket.userId)];
+    if (decoded?.[SESSION_CLAIM]) {
+        rooms.push(AUTH_ROOM.session(decoded[SESSION_CLAIM]));
+    }
+    if (decoded?.[FAMILY_CLAIM]) {
+        rooms.push(AUTH_ROOM.family(decoded[FAMILY_CLAIM]));
+    }
+
+    for (const room of rooms) {
+        socket.join(room);
+    }
+    socket._authRooms = rooms;
+}
+
+function scheduleTokenExpiry(socket, decoded) {
+    clearTokenExpiry(socket.id);
+
+    const remainingMs = decoded.exp * 1000 - Date.now();
+    const delay = Math.max(0, Math.min(remainingMs, MAX_TIMER_DELAY_MS));
+
+    const timer = setTimeout(() => {
+        tokenExpiryTimers.delete(socket.id);
+        logger.info(`Access token expired for user ${socket.userId} - Socket: ${socket.id}`);
+        socket.emit(TOKEN_EXPIRED_EVENT, {
+            reason: "token_expired",
+            message: "Access token expired. Re-authenticate to continue."
+        });
+        socket.disconnect(true);
+    }, delay);
+
+    tokenExpiryTimers.set(socket.id, timer);
+}
+
+function clearTokenExpiry(socketId) {
+    const timer = tokenExpiryTimers.get(socketId);
+    if (timer) {
+        clearTimeout(timer);
+        tokenExpiryTimers.delete(socketId);
+    }
+}
+
+/**
+ * Let a client that has renewed its token keep the connection it already has,
+ * rather than dropping and reopening one every few minutes.
+ */
+function handleReauthenticate(socket, data, callback) {
+    const respond = (payload) => {
+        if (typeof callback === 'function') callback(payload);
+    };
+
+    const token = typeof data === 'string' ? data : data?.token;
+    if (!token) {
+        respond({ success: false, message: "Token required" });
+        return;
+    }
+
+    let decoded;
+    try {
+        assertAccessTokenSecret();
+        decoded = verifyAccessToken(token);
+    } catch (error) {
+        logger.warn(`Socket re-authentication failed for ${socket.id}: ${error.message}`);
+        respond({ success: false, message: "Authentication failed" });
+        socket.disconnect(true);
+        return;
+    }
+
+    // A connection stays bound to the account it was opened for. Accepting a
+    // token for someone else would carry its room memberships, and everything
+    // already authorised on it, across to another user.
+    const isSameSubject = String(subjectOf(decoded)) === String(socket.userId);
+    if (!isSameSubject || typeof decoded.exp !== "number") {
+        logger.warn(`Socket re-authentication rejected for ${socket.id}`);
+        respond({ success: false, message: "Authentication failed" });
+        socket.disconnect(true);
+        return;
+    }
+
+    socket.user = decoded;
+    socket.userRole = decoded.role || 'customer';
+    joinAuthRooms(socket, decoded);
+    scheduleTokenExpiry(socket, decoded);
+
+    logger.debug(`Socket ${socket.id} re-authenticated for user ${socket.userId}`);
+    respond({ success: true, expiresAt: decoded.exp });
+}
 
 function setupEventHandlersWithRegistry(socket) {
     const registry = socket._listenerRegistry;
@@ -471,6 +729,8 @@ function handleDisconnectWithCleanup(socket) {
             clearInterval(heartbeatIntervals.get(socketId));
             heartbeatIntervals.delete(socketId);
         }
+
+        clearTokenExpiry(socketId);
 
         clearTypingForUser(userId);
 
@@ -766,6 +1026,11 @@ function cleanupAll() {
     }
     heartbeatIntervals.clear();
 
+    for (const [socketId, timer] of tokenExpiryTimers) {
+        clearTimeout(timer);
+    }
+    tokenExpiryTimers.clear();
+
     for (const [socketId, timer] of cleanupTimers) {
         clearTimeout(timer);
     }
@@ -798,6 +1063,9 @@ function getSocketInfo(socketId) {
 
 module.exports = {
     initSocket,
+    authenticateSocket,
+    setupAuthenticatedSession,
+    disconnectRevokedSessions,
     getIo,
     sendToUser,
     broadcastToRoom,

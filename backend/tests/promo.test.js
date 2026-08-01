@@ -24,7 +24,7 @@
 
 jest.mock("../config/db", () => ({
     query: jest.fn(),
-    getConnection: jest.fn()
+    withTransaction: jest.fn()
 }));
 
 jest.mock("../config/redis", () => ({
@@ -53,7 +53,7 @@ function activePromo(overrides = {}) {
         discount_value: 10,
         maximum_discount: null,
         usage_limit: null,
-        used_count: 0,
+        usage_count: 0,
         is_stackable: 1,
         ...overrides
     };
@@ -75,9 +75,32 @@ function fakeConnection(rows) {
     };
 }
 
+/**
+ * Drive `withTransaction` against `connection`, mirroring what the real helper
+ * in config/db does, so the assertions below still describe the begin / commit /
+ * rollback / release sequence the service actually causes.
+ */
+function useTransaction(connection) {
+    db.withTransaction.mockImplementation(async (fn) => {
+        await connection.beginTransaction();
+        try {
+            const result = await fn(connection);
+            await connection.commit();
+            return result;
+        } catch (error) {
+            try {
+                await connection.rollback();
+            } catch (_) { /* ignore */ }
+            throw error;
+        } finally {
+            connection.release();
+        }
+    });
+}
+
 beforeEach(() => {
     jest.clearAllMocks();
-    // Default: the counter is absent, so callers fall back to used_count.
+    // Default: the counter is absent, so callers fall back to usage_count.
     redis.get.mockResolvedValue(null);
     redis.incr.mockResolvedValue(1);
     redis.decr.mockResolvedValue(0);
@@ -186,34 +209,34 @@ describe("validatePromo", () => {
 
 describe("usage counter fallback", () => {
     it("prefers the Redis counter when it is available", async () => {
-        const promo = activePromo({ usage_limit: 10, used_count: 2 });
+        const promo = activePromo({ usage_limit: 10, usage_count: 2 });
 
         await expect(
             (redis.get.mockResolvedValueOnce("7"), promoService.getUsedCount("TEST100", promo))
         ).resolves.toBe(7);
     });
 
-    it("falls back to the stored used_count when the key is missing", async () => {
+    it("falls back to the stored usage_count when the key is missing", async () => {
         redis.get.mockResolvedValueOnce(null);
 
         await expect(
-            promoService.getUsedCount("TEST100", activePromo({ used_count: 3 }))
+            promoService.getUsedCount("TEST100", activePromo({ usage_count: 3 }))
         ).resolves.toBe(3);
     });
 
     // A cache being down must not take checkout discounts down with it. The
     // rejection used to propagate out of validatePromo(), so every promo code
     // in the store stopped working the moment Redis did.
-    it("falls back to the stored used_count when Redis is unreachable", async () => {
+    it("falls back to the stored usage_count when Redis is unreachable", async () => {
         redis.get.mockRejectedValueOnce(new Error("ECONNREFUSED"));
 
         await expect(
-            promoService.getUsedCount("TEST100", activePromo({ used_count: 4 }))
+            promoService.getUsedCount("TEST100", activePromo({ usage_count: 4 }))
         ).resolves.toBe(4);
     });
 
     it("keeps validating promos through a Redis outage", async () => {
-        stubPromoRow(activePromo({ usage_limit: 10, used_count: 1 }));
+        stubPromoRow(activePromo({ usage_limit: 10, usage_count: 1 }));
         redis.get.mockRejectedValueOnce(new Error("Redis connection failed"));
 
         const result = await promoService.validatePromo("TEST100", 500);
@@ -222,7 +245,7 @@ describe("usage counter fallback", () => {
     });
 
     it("still enforces the limit from the database during an outage", async () => {
-        stubPromoRow(activePromo({ usage_limit: 2, used_count: 2 }));
+        stubPromoRow(activePromo({ usage_limit: 2, usage_count: 2 }));
         redis.get.mockRejectedValueOnce(new Error("Redis connection failed"));
 
         const result = await promoService.validatePromo("TEST100", 500);
@@ -277,7 +300,7 @@ describe("applyPromoTransaction", () => {
     it("locks the row, increments the counter, writes the log and commits", async () => {
         const promo = activePromo({ usage_limit: 10 });
         const connection = fakeConnection([promo]);
-        db.getConnection.mockResolvedValue(connection);
+        useTransaction(connection);
 
         await expect(
             promoService.applyPromoTransaction("TEST100", "user123", 50)
@@ -290,7 +313,7 @@ describe("applyPromoTransaction", () => {
         );
         expect(redis.incr).toHaveBeenCalledTimes(1);
         expect(connection.query).toHaveBeenCalledWith(
-            expect.stringContaining("used_count = used_count + 1"),
+            expect.stringContaining("usage_count = usage_count + 1"),
             ["TEST100"]
         );
         expect(connection.query).toHaveBeenCalledWith(
@@ -303,7 +326,7 @@ describe("applyPromoTransaction", () => {
 
     it("rolls back and releases the connection when the code does not exist", async () => {
         const connection = fakeConnection([]);
-        db.getConnection.mockResolvedValue(connection);
+        useTransaction(connection);
 
         await expect(
             promoService.applyPromoTransaction("GHOST", "user123", 50)
@@ -318,7 +341,7 @@ describe("applyPromoTransaction", () => {
         const connection = fakeConnection([
             activePromo({ expiry_date: new Date(Date.now() - 1000) })
         ]);
-        db.getConnection.mockResolvedValue(connection);
+        useTransaction(connection);
 
         await expect(
             promoService.applyPromoTransaction("TEST100", "user123", 50)
@@ -329,8 +352,8 @@ describe("applyPromoTransaction", () => {
     });
 
     it("gives the counter back when the increment overshoots the limit", async () => {
-        const connection = fakeConnection([activePromo({ usage_limit: 1, used_count: 0 })]);
-        db.getConnection.mockResolvedValue(connection);
+        const connection = fakeConnection([activePromo({ usage_limit: 1, usage_count: 0 })]);
+        useTransaction(connection);
         redis.incr.mockResolvedValueOnce(2);
 
         await expect(
@@ -345,7 +368,7 @@ describe("applyPromoTransaction", () => {
     it("releases the connection even when the commit itself fails", async () => {
         const connection = fakeConnection([activePromo()]);
         connection.commit.mockRejectedValueOnce(new Error("deadlock"));
-        db.getConnection.mockResolvedValue(connection);
+        useTransaction(connection);
 
         await expect(
             promoService.applyPromoTransaction("TEST100", "user123", 50)
@@ -419,7 +442,7 @@ describe("resetPromoUsage", () => {
 
         expect(redis.del).toHaveBeenCalledWith("promo:usage:TEST100");
         expect(db.query).toHaveBeenCalledWith(
-            expect.stringContaining("used_count = 0"),
+            expect.stringContaining("usage_count = 0"),
             ["TEST100"]
         );
     });
