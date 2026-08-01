@@ -37,7 +37,18 @@ const ENV_CONFIG = {
         { name: 'CORS_ORIGINS', type: 'string', default: '*' },
         { name: 'RATE_LIMIT_WINDOW', type: 'number', default: 60000 },
         { name: 'RATE_LIMIT_MAX', type: 'number', default: 100 },
-        { name: 'SESSION_SECRET', type: 'string', default: '' }
+        { name: 'SESSION_SECRET', type: 'string', default: '' },
+        // Chaos & resilience harness (#1398) — never enable in production.
+        // Master switch; dependency flags are no-ops unless this is true.
+        { name: 'CHAOS_ENABLED', type: 'boolean', default: false },
+        { name: 'CHAOS_PAYMENT', type: 'boolean', default: false },
+        { name: 'CHAOS_REDIS', type: 'boolean', default: false },
+        { name: 'CHAOS_DB', type: 'boolean', default: false },
+        { name: 'CHAOS_LATENCY_MS', type: 'number', default: 0 },
+        // No default: when unset, chaosProxy treats an enabled dependency as
+        // error_rate=1. A default of 0 here would silently disable injection.
+        { name: 'CHAOS_ERROR_RATE', type: 'number' },
+        { name: 'CHAOS_FORCE_STATUS', type: 'number', default: 500 }
     ]
 };
 
@@ -173,6 +184,19 @@ function validateEnv() {
         if (config.type) {
             process.env[config.name] = String(parseValue(value, config.type));
         }
+    }
+
+    // Chaos harness must never run in production (#1398). Force-disable and warn
+    // if someone sets CHAOS_ENABLED=true under NODE_ENV=production.
+    if (process.env.NODE_ENV === 'production' && parseValue(process.env.CHAOS_ENABLED, 'boolean')) {
+        process.env.CHAOS_ENABLED = 'false';
+        process.env.CHAOS_PAYMENT = 'false';
+        process.env.CHAOS_REDIS = 'false';
+        process.env.CHAOS_DB = 'false';
+        warnings.push({
+            name: 'CHAOS_ENABLED',
+            message: 'CHAOS_ENABLED was set in production and has been forced off'
+        });
     }
 
     // Check for unknown variables
