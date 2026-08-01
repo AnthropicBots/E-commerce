@@ -1,5 +1,7 @@
 // src/config/rateLimiters.js
 const rateLimit = require('express-rate-limit');
+// Shared, restart-durable counters instead of the library's in-process default.
+const { createRateLimitStore } = require('./redisRateLimitStore');
 
 // Global API limiter - 120 requests per minute
 const apiLimiter = rateLimit({
@@ -7,6 +9,7 @@ const apiLimiter = rateLimit({
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
+  store: createRateLimitStore('rl:api'),
   message: {
     success: false,
     errorCode: "API_RATE_LIMIT_EXCEEDED",
@@ -20,6 +23,7 @@ const adminLimiter = rateLimit({
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  store: createRateLimitStore('rl:admin'),
   message: {
     success: false,
     errorCode: "ADMIN_RATE_LIMIT_EXCEEDED",
@@ -33,6 +37,7 @@ const mcpLimiter = rateLimit({
   max: 10, // 10 requests per minute
   standardHeaders: true,
   legacyHeaders: false,
+  store: createRateLimitStore('rl:mcp'),
   message: {
     success: false,
     errorCode: "MCP_RATE_LIMIT_EXCEEDED",

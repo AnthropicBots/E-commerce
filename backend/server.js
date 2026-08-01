@@ -31,6 +31,7 @@ const setupProcessEventHandlers = require('./utils/processEventHandlers');
 const setupGracefulShutdown = require('./utils/gracefulShutdown');
 
 const { apiLimiter, adminLimiter, mcpLimiter } = require('./config/rateLimiters');
+const { resolveTrustProxy } = require('./config/trustProxy');
 
 const helmet = require("helmet");
 const corsMiddleware = require("./middleware/corsMiddleware");
@@ -207,7 +208,10 @@ if (!fs.existsSync(logDir)) {
 const errorLogStream = fs.createWriteStream(path.join(logDir, "error.log"), { flags: "a" });
 
 // 7. Express App Configuration & Global Middlewares
-app.set("trust proxy", 1);
+// `trust proxy` decides what req.ip resolves to and therefore what the rate
+// limiters count against, so it is a deployment setting rather than a constant.
+// The default is unchanged (one trusted hop); see config/trustProxy.js.
+app.set("trust proxy", resolveTrustProxy(process.env.TRUST_PROXY));
 app.disable("x-powered-by");
 
 // Add correlation ID middleware before any other middlewares
