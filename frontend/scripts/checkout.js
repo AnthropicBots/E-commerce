@@ -8,18 +8,9 @@ const appliedCoupon =
         ""
     );
 
-// require authentication
-const currentUser =
-    AppUtils.requireAuth();
-
-if (
-    !currentUser
-) {
-
-    throw new Error(
-        "Authentication required"
-    );
-}
+// No sign-in gate. Requiring an account before a stranger can pay is the
+// abandonment this page exists to stop causing; the order carries the contact
+// details either way, and the server settles who placed it.
 
 // EMPTY CART REDIRECT
 if (
@@ -1159,6 +1150,10 @@ if (
             // Whichever branch runs, the id of the order the server created.
             let placedOrderId = null;
 
+            // And the number the shopper was given for it. It is the only
+            // handle a guest has, so it is what the confirmation page is sent.
+            let placedOrderNumber = null;
+
             try {
                 if (selectedPaymentMethod === "card") {
                     // 1. Create Payment Intent (PoW gate may challenge first)
@@ -1173,6 +1168,7 @@ if (
                     }
 
                     placedOrderId = intentRes.orderId;
+                    placedOrderNumber = intentRes.orderNumber;
 
                     // 2. Confirm Card Payment with Stripe
                     const { error, paymentIntent } = await stripe.confirmCardPayment(intentRes.clientSecret, {
@@ -1206,12 +1202,21 @@ if (
                     }
 
                     placedOrderId = data.orderId;
+                    placedOrderNumber = data.orderNumber;
 
                     AppUtils.notify("Order placed successfully! 🎉", "success");
                 }
 
+                // What the confirmation page needs to read this order back
+                // when there is no account to read it through.
+                AppUtils.rememberGuestOrder(
+                    placedOrderNumber,
+                    order.customer.email
+                );
+
                 // clear cart
                 AppUtils.clearCart();
+                AppUtils.clearCartToken();
                 AppUtils.removeStorage("appliedCoupon");
 
                 // The recovery is spent on the order that just used it. Left
@@ -1240,7 +1245,7 @@ if (
                     () => {
 
                         window.location.href =
-                            `success.html?id=${placedOrderId}`;
+                            `success.html?id=${encodeURIComponent(placedOrderId)}`;
 
                     },
                     1200

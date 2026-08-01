@@ -1,15 +1,7 @@
-// require auth
-const currentUser =
-    AppUtils.requireAuth();
-
-if (
-    !currentUser
-) {
-
-    throw new Error(
-        "Authentication required"
-    );
-}
+// No sign-in gate: a shopper who just paid without an account still has to be
+// shown what they bought. There are two ways to reach the order and the page
+// takes whichever applies -- an account reads it by id, a guest reads it back
+// with the order number and the email it was placed with.
 
 // get order id from url
 const orderId =
@@ -17,9 +9,14 @@ const orderId =
         window.location.search
     ).get("id");
 
+const guestOrder =
+    AppUtils.readGuestOrder();
+
 // invalid access
 if (
     !orderId
+    &&
+    !guestOrder
 ) {
 
     AppUtils.notify(
@@ -38,7 +35,7 @@ if (
     );
 
     throw new Error(
-        "Missing order ID"
+        "Missing order reference"
     );
 }
 
@@ -61,15 +58,71 @@ const elements = {
         )
 };
 
+// Read the order the way this shopper is entitled to. An account holder reads
+// their own order by id; anyone else presents the pair they were given at
+// checkout. `id` is preferred when both are available because it is the
+// authoritative read and carries the full record.
+async function requestOrder() {
+
+    if (
+        orderId
+        &&
+        AppUtils.isAuthenticated()
+    ) {
+
+        const response =
+            await AppUtils.apiRequest(
+                `/orders/${orderId}`
+            );
+
+        return response && response.order
+            ? { success: response.success, order: response.order }
+            : { success: false };
+    }
+
+    const response =
+        await AppUtils.apiRequest(
+            "/orders/lookup",
+            {
+                method: "POST",
+                body: JSON.stringify(guestOrder)
+            }
+        );
+
+    if (
+        !response
+        ||
+        !response.success
+        ||
+        !response.order
+    ) {
+
+        return { success: false };
+    }
+
+    // The guest view names its fields for the client rather than after the
+    // columns, so it is mapped onto the shape this page already renders.
+    return {
+        success: true,
+
+        order: {
+            order_number: response.order.orderNumber,
+            created_at: response.order.placedAt,
+            total: response.order.totals
+                ? response.order.totals.total
+                : null,
+            items: response.order.items
+        }
+    };
+}
+
 // fetch order
 async function fetchOrder() {
 
     try {
 
         const response =
-            await AppUtils.apiRequest(
-                `/orders/${orderId}`
-            );
+            await requestOrder();
 
         if (
             !response.success
@@ -98,9 +151,10 @@ async function fetchOrder() {
         const order =
             response.order;
 
-        // render order id
+        // render order id — the order number in preference to the internal id,
+        // since that is what the shopper was given and what support will ask for
 if (elements.orderId) {
-    elements.orderId.innerText = order.id || "N/A";
+    elements.orderId.innerText = order.order_number || order.id || "N/A";
 }
 
 // render order date
@@ -114,9 +168,10 @@ if (elements.orderDate) {
 // render order total
 const orderTotal = document.getElementById("order-total");
 if (orderTotal) {
-    orderTotal.innerText = order.total_price
-        ? AppUtils.formatPrice(order.total_price)
-        : "N/A";
+    // `total` is the column; `total_price` was never one, so this read has
+    // always shown N/A.
+    const total = order.total ?? order.total_price;
+    orderTotal.innerText = total ? AppUtils.formatPrice(total) : "N/A";
 }
 
 // render order items

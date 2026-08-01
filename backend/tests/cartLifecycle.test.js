@@ -169,12 +169,33 @@ describe('active -> converted', () => {
             .resolves.toEqual({ cartId: CART, converted: false });
     });
 
-    test('a guest checkout has no cart to convert, and that is not an error', async () => {
+    test('an account is not how a guest cart is found, and that is not an error', async () => {
         const connection = fakeConnection(() => [[]]);
 
         await expect(cartLifecycle.markCartConverted(null, ORDER, connection))
             .resolves.toEqual({ cartId: null, converted: false });
         expect(connection.query).not.toHaveBeenCalled();
+    });
+
+    // A guest cart converts on exactly the same terms; the caller names it
+    // rather than reaching it through an owner it does not have (#1427).
+    test('a named cart converts without an account being involved at all', async () => {
+        const connection = fakeConnection(() => [{ affectedRows: 1 }]);
+
+        await expect(cartLifecycle.markCartConvertedById(CART, ORDER, connection))
+            .resolves.toEqual({ cartId: CART, converted: true });
+
+        expect(callsMatching(connection.calls, /SELECT id FROM carts/i)).toHaveLength(0);
+
+        const [update] = callsMatching(connection.calls, /UPDATE carts/i);
+        expect(update.params).toEqual(['converted', ORDER, CART, 'active']);
+    });
+
+    test('a named cart already converted is not re-pointed at a second order', async () => {
+        const connection = fakeConnection(() => [{ affectedRows: 0 }]);
+
+        await expect(cartLifecycle.markCartConvertedById(CART, ORDER, connection))
+            .resolves.toEqual({ cartId: CART, converted: false });
     });
 });
 

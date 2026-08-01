@@ -52,6 +52,10 @@ const OTP_WINDOW_MS =
     parseInt(process.env.RATE_LIMIT_OTP_WINDOW_MS, 10)
     || 5 * 60 * 1000; // 5 minutes
 
+const GUEST_ORDER_LOOKUP_MAX =
+    parseInt(process.env.RATE_LIMIT_GUEST_ORDER_LOOKUP_MAX, 10)
+    || 10;
+
 // ==================== CUSTOM KEY GENERATOR ====================
 // A limit is only as good as the identity it counts against, so the identity is
 // picked deliberately here.
@@ -215,6 +219,23 @@ const otpRequestLimiter = createLimiter({
     logPrefix: "OTP request rate limit exceeded"
 });
 
+// ==================== GUEST ORDER LOOKUP LIMITER ====================
+// Not an auth endpoint, but the same abuse: an unauthenticated caller
+// submitting a credential pair and being told whether it was right. Left with
+// the other credential limiters so the defence is maintained alongside them
+// rather than drifting off on its own.
+//
+// The order number carries sixty-four bits, so this is not really about making
+// guessing infeasible -- it already is. It bounds a bulk probe against a list
+// of numbers obtained some other way, and it caps what the endpoint costs.
+const guestOrderLookupLimiter = createLimiter({
+    name: "guest-order-lookup",
+    windowMs: DEFAULT_WINDOW_MS,
+    max: GUEST_ORDER_LOOKUP_MAX,
+    message: `Too many order lookups. Please try again after ${DEFAULT_WINDOW_MS / 60000} minutes.`,
+    logPrefix: "Guest order lookup rate limit exceeded"
+});
+
 // ==================== SUSPICIOUS IP RATE LIMITER ====================
 const suspiciousIpKeyGenerator = (req) => {
     const address = req.ip || req.socket?.remoteAddress;
@@ -246,6 +267,7 @@ module.exports = {
     otpVerifyLimiter,
     resetPasswordLimiter,
     otpRequestLimiter,
+    guestOrderLookupLimiter,
     suspiciousIpLimiter,
     customKeyGenerator,
     onLimitReached

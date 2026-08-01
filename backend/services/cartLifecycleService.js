@@ -23,10 +23,12 @@
 // Both are terminal. Nothing moves a cart back to active; the shopper's next
 // action resolves a new one.
 //
-// Guest carts: `carts.user_id` is nullable so a pre-sign-in basket can be
-// persisted later, but nothing creates one yet -- every cart endpoint is behind
-// authentication. Resolving a cart therefore requires an account, and says so
-// rather than quietly inventing an ownerless row.
+// Guest carts do exist now (#1427), and services/guestCartService.js resolves
+// them, because finding one is a question about a token rather than about an
+// account. Everything past that point is shared: a cart with no owner is
+// touched, converted and swept by the functions below on exactly the same
+// terms as any other. Resolving an *account's* cart still requires an account,
+// and says so rather than quietly inventing an ownerless row.
 
 const crypto = require('crypto');
 const db = require('../config/db');
@@ -147,14 +149,45 @@ async function touchCart(cartId, connection) {
 }
 
 /**
- * active -> converted, for the account that just placed an order.
+ * active -> converted, for a named cart.
  *
  * Call inside the order's transaction: if the order rolls back, so must the
  * claim that a cart became it. The status guard makes the write idempotent --
  * a retry finds the cart already converted and reports that it changed
  * nothing, rather than overwriting the first order id with the second.
  *
- * A guest checkout has no cart to convert, and that is not an error.
+ * Whose cart it is does not matter here. A guest cart converts on exactly the
+ * same terms as an account's, which is the point: the exit belongs to the
+ * cart, not to the owner it may not have (#1427).
+ *
+ * @param {string} cartId
+ * @param {string} orderId
+ * @param {object} [connection]
+ * @returns {Promise<{cartId: string|null, converted: boolean}>}
+ */
+async function markCartConvertedById(cartId, orderId, connection) {
+    const cart = safeUUID(cartId);
+    const order = safeUUID(orderId);
+
+    if (!cart || !order) {
+        return { cartId: null, converted: false };
+    }
+
+    const [result] = await runner(connection).query(
+        `UPDATE carts
+         SET status = ?, converted_order_id = ?, converted_at = NOW()
+         WHERE id = ? AND status = ?`,
+        [CART_STATUS.CONVERTED, order, cart, CART_STATUS.ACTIVE]
+    );
+
+    return { cartId: cart, converted: result.affectedRows > 0 };
+}
+
+/**
+ * active -> converted, for the account that just placed an order.
+ *
+ * A checkout with no account behind it has no cart to find this way, and that
+ * is not an error -- the caller names the cart instead.
  *
  * @param {string} userId
  * @param {string} orderId
@@ -175,14 +208,7 @@ async function markCartConverted(userId, orderId, connection) {
         return { cartId: null, converted: false };
     }
 
-    const [result] = await runner(connection).query(
-        `UPDATE carts
-         SET status = ?, converted_order_id = ?, converted_at = NOW()
-         WHERE id = ? AND status = ?`,
-        [CART_STATUS.CONVERTED, order, cartId, CART_STATUS.ACTIVE]
-    );
-
-    return { cartId, converted: result.affectedRows > 0 };
+    return markCartConvertedById(cartId, order, connection);
 }
 
 /**
@@ -296,5 +322,6 @@ module.exports = {
     resolveActiveCart,
     touchCart,
     markCartConverted,
+    markCartConvertedById,
     sweepAbandonedCarts
 };

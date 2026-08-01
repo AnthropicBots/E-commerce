@@ -10,8 +10,7 @@ const logger = require("../utils/logger");
 const { validatePromo } = require("./promo.service");
 const pricing = require("./pricing.service");
 const cartLifecycle = require("./cartLifecycleService");
-const shipping = require("./shipping.service");
-const cartRecoveryAttribution = require("./cartRecoveryAttributionService");
+const { generateOrderNumber } = require("./orderNumber.service");
 
 // Marks the one failure the client can act on, so controllers can answer with
 // the specific figures instead of a generic server error.
@@ -303,9 +302,10 @@ const createOrderService = async (connection, orderData) => {
             // deletes the saved address -- and this only records *which* saved
             // address the order came from.
             address_id,
-            // Abandoned-cart recovery (#1429). The reference to the restore
-            // link this basket came back through, if it came back through one.
-            recovery_ref,
+            // The cart this order was placed from (#1427). Named explicitly
+            // because a guest's cart cannot be found from `user_id`, which is
+            // the only handle the account path ever needed.
+            cart_id,
         } = orderData;
 
         // validate empty cart
@@ -388,21 +388,15 @@ const createOrderService = async (connection, orderData) => {
         const crypto = require("crypto");
         const orderId = crypto.randomUUID();
 
-        // Resolved on this connection, inside the caller's transaction: an
-        // order that rolls back must not leave a claim that it was recovered.
-        // A reference that does not check out costs the order nothing -- it is
-        // simply not attributed.
-        const { recoveryTokenId, recoveredCartId } =
-            await cartRecoveryAttribution.resolveAttribution({
-                recoveryRef: recovery_ref,
-                userId: user_id,
-                connection,
-            });
+        // What the shopper is given to find this order again. An account
+        // holder has their order list; a guest has only this (#1427).
+        const orderNumber = generateOrderNumber();
 
         // create order
         const orderQuery = `
             INSERT INTO orders (
                 id,
+                order_number,
                 user_id,
                 customer_name,
                 customer_email,
@@ -432,11 +426,12 @@ const createOrderService = async (connection, orderData) => {
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         `;
 
         const [orderResult] = await connection.query(orderQuery, [
             orderId,
+            orderNumber,
             safeUUID(user_id),
             customer_name,
             customer_email,
@@ -536,17 +531,27 @@ const createOrderService = async (connection, orderData) => {
         // Close the cart and clear it. Both happen on this connection, inside
         // the caller's transaction: a cart must never be recorded as converted
         // against an order that then rolls back.
-        if (user_id) {
-            const { cartId, converted } = await cartLifecycle.markCartConverted(
-                user_id,
-                orderId,
-                connection,
+        //
+        // A named cart is converted directly; otherwise the account's active
+        // cart is found the way it always was. A guest checkout takes the
+        // first path -- there is no account to find a cart from -- and the
+        // lines are then cleared by cart rather than by owner, which is the
+        // only handle a guest cart's lines have.
+        const closedCart = cart_id
+            ? await cartLifecycle.markCartConvertedById(cart_id, orderId, connection)
+            : await cartLifecycle.markCartConverted(user_id, orderId, connection);
+
+        if (closedCart.converted) {
+            logger.info(`Cart ${closedCart.cartId} converted into order ${orderId}`);
+        }
+
+        if (closedCart.cartId) {
+            await connection.query(
+                "DELETE FROM cart_items WHERE cart_id = ?",
+                [closedCart.cartId]
             );
-
-            if (converted) {
-                logger.info(`Cart ${cartId} converted into order ${orderId}`);
-            }
-
+            logger.info(`Cleared cart ${closedCart.cartId}`);
+        } else if (user_id) {
             await connection.query(
                 "DELETE FROM cart_items WHERE user_id = ?",
                 [user_id]
@@ -584,6 +589,7 @@ const createOrderService = async (connection, orderData) => {
         return {
             success: true,
             orderId: orderId,
+            orderNumber,
             subtotal: breakdown.subtotal,
             total: breakdown.total,
             finalAmount: breakdown.total,
@@ -605,6 +611,7 @@ const getOrderSummaryById = async (connection, orderId) => {
         const query = `
             SELECT 
                 o.id,
+                o.order_number,
                 o.customer_name,
                 o.customer_email,
                 o.customer_phone,
