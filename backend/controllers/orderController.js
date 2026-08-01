@@ -27,6 +27,9 @@ const {
 
 // Saved address book (#1347).
 const addressService = require("../services/addressService");
+// Order status history (#1351). Every status change records who, when, from
+// what, and why -- inside the same transaction as the change itself.
+const orderStatusHistoryService = require("../services/orderStatusHistoryService");
 
 // create order
 const createOrder =
@@ -205,6 +208,22 @@ const createOrder =
             
             // Consume inventory locks after successful stock deduction
             await inventoryReservationService.consumeLocks(req.user.id, items, connection);
+
+            // The order's first history entry, written before the commit so it
+            // shares the order's fate. Without it a brand-new order has an
+            // empty timeline, and "when was this placed" is only answerable
+            // from a different table.
+            await orderStatusHistoryService.recordTransition(connection, {
+                orderId: result.orderId,
+                fromStatus: null,
+                toStatus: "pending",
+                source: "customer",
+                changedBy: safeUUID(req.user?.id),
+                changedByName: sanitizeString(customer.name || ""),
+                reason: "Order placed",
+                metadata: { paymentMethod: sanitizeString(paymentMethod).toLowerCase() },
+                request: req
+            });
 
             // commit transaction
             await connection.commit();
@@ -493,7 +512,15 @@ const getOrderStatus = async (req, res) => {
 };
 
 // shared helper for updating order status and managing inventory
-const performOrderStatusUpdate = async (connection, id, currentStatus, newStatus) => {
+/**
+ * Apply a status change and record it.
+ *
+ * `context` carries the provenance the history needs -- who made the change,
+ * from which surface, and why. Without it every entry would be an anonymous
+ * `system` row, which answers none of the questions a status history exists
+ * for.
+ */
+const performOrderStatusUpdate = async (connection, id, currentStatus, newStatus, context = {}) => {
     // if cancelling a previously un-cancelled order, restore stock
     if (newStatus === "cancelled" && currentStatus !== "cancelled") {
         const [items] = await connection.query(
@@ -516,6 +543,25 @@ const performOrderStatusUpdate = async (connection, id, currentStatus, newStatus
         "UPDATE orders SET status = ? WHERE id = ?",
         [newStatus, id]
     );
+
+    // Record the transition in the SAME transaction as the status write.
+    //
+    // This is the whole point: a history written separately can be missing
+    // rows because the second write failed, and a history written before a
+    // rolled-back status change is worse than none. It also sets the
+    // shipped_at / delivered_at / cancelled_at columns, which have been in the
+    // schema from the start and were never written (#1351).
+    await orderStatusHistoryService.recordTransition(connection, {
+        orderId: id,
+        fromStatus: currentStatus,
+        toStatus: newStatus,
+        source: context.source || "system",
+        changedBy: context.changedBy || null,
+        changedByName: context.changedByName || null,
+        reason: context.reason || null,
+        metadata: context.metadata || null,
+        request: context.request || null
+    });
 };
 
 // update order status
@@ -557,7 +603,16 @@ const updateOrderStatus = async (req, res) => {
 
         const currentStatus = orders[0].status;
 
-        await performOrderStatusUpdate(connection, id, currentStatus, newStatus);
+        await performOrderStatusUpdate(connection, id, currentStatus, newStatus, {
+            source: "admin",
+            changedBy: safeUUID(req.user?.id),
+            changedByName: sanitizeString(req.user?.name || ""),
+            // An admin changing a status without saying why is the case
+            // support cannot reconstruct, so the field is offered even though
+            // it is optional.
+            reason: sanitizeString(req.body?.reason || "") || null,
+            request: req
+        });
 
         await connection.commit();
 
@@ -608,7 +663,13 @@ const cancelUserOrder = async (req, res) => {
             return res.status(400).json({ success: false, message: `Cannot cancel a ${currentStatus} order` });
         }
 
-        await performOrderStatusUpdate(connection, id, currentStatus, "cancelled");
+        await performOrderStatusUpdate(connection, id, currentStatus, "cancelled", {
+            source: "customer",
+            changedBy: safeUUID(req.user?.id),
+            changedByName: sanitizeString(req.user?.name || ""),
+            reason: sanitizeString(req.body?.reason || "") || "Cancelled by customer",
+            request: req
+        });
 
         await connection.commit();
 
@@ -774,10 +835,28 @@ const createPaymentIntent = async (req, res) => {
         // Charge what the engine priced, never what the browser claimed.
         const chargeableTotal = result.breakdown.total;
 
-        const paymentIntentResult = await paymentService.createPaymentIntent(chargeableTotal, CURRENCY.code, { orderId: result.orderId, userId: req.user.id });
+        // Charge via chaos-aware payment helper so injected / real failures
+        // always release inventory locks and roll back the order txn (#1398).
+        const chaosProxy = require("../services/chaosProxy");
+        const paymentIntentResult = await chaosProxy.chargeWithLockRelease({
+            charge: () =>
+                paymentService.createPaymentIntent(chargeableTotal, CURRENCY.code, {
+                    orderId: result.orderId,
+                    userId: req.user.id
+                }),
+            rollback: async () => {
+                await connection.rollback();
+            },
+            releaseLocks: async () => {
+                await inventoryReservationService.releaseUserLocks(req.user.id);
+            }
+        });
         if (!paymentIntentResult.success) {
-            await connection.rollback();
-            return res.status(500).json({ success: false, message: paymentIntentResult.error });
+            return res.status(paymentIntentResult.status || 500).json({
+                success: false,
+                message: paymentIntentResult.error || "Payment service temporarily unavailable. Please try again.",
+                code: paymentIntentResult.code || "PAYMENT_UNAVAILABLE"
+            });
         }
 
         await connection.query("UPDATE orders SET payment_intent_id = ? WHERE id = ?", [paymentIntentResult.paymentIntentId, result.orderId]);
@@ -889,11 +968,91 @@ const exportOrders = async (req, res) => {
     }
 };
 
+/**
+ * GET /api/orders/:id/timeline
+ *
+ * The order's progress: a ladder of steps for rendering, plus the recorded
+ * history behind it.
+ *
+ * Ownership is checked the same way getOrderById does -- the user_id predicate
+ * is added for non-admins, so somebody else's order is *not found* rather than
+ * forbidden. A 403 on an order id confirms the order exists.
+ *
+ * Admins additionally see the actor, the request metadata and internal
+ * reasons; a customer sees only their own stated reasons.
+ */
+const getOrderTimeline = async (req, res) => {
+    const id = safeUUID(req.params.id);
+
+    if (!id) {
+        return res.status(400).json({ success: false, message: "Invalid order ID" });
+    }
+
+    const isAdmin = req.user?.role === "admin";
+
+    let query = "SELECT id, status, created_at FROM orders WHERE id = ?";
+    const params = [id];
+
+    if (!isAdmin) {
+        query += " AND user_id = ?";
+        params.push(req.user.id);
+    }
+
+    try {
+        const [orders] = await db.query(query, params);
+        const order = safeArray(orders)[0];
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        const timeline = await orderStatusHistoryService.getTimeline(order, {
+            includeInternal: isAdmin
+        });
+
+        return res.status(200).json({ success: true, data: timeline });
+    } catch (error) {
+        console.error("GET ORDER TIMELINE ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to load the order timeline"
+        });
+    }
+};
+
+/**
+ * GET /api/orders/reports/fulfilment  (admin)
+ *
+ * Average hours to ship and to deliver. This is what the shipped_at /
+ * delivered_at columns were in the schema for, and it has never been
+ * answerable because nothing wrote them (#1351).
+ */
+const getFulfilmentReport = async (req, res) => {
+    try {
+        const stats = await orderStatusHistoryService.getFulfilmentStats({
+            from: req.query.from,
+            to: req.query.to
+        });
+
+        return res.status(200).json({ success: true, data: stats });
+    } catch (error) {
+        console.error("GET FULFILMENT REPORT ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to build the fulfilment report"
+        });
+    }
+};
+
 module.exports = {
     createOrder,
     getAllOrders,
     getUserOrders,
     getOrderById,
+    getOrderTimeline,
+    getFulfilmentReport,
     getOrderStatus,
     updateOrderStatus,
     cancelUserOrder,

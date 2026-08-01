@@ -951,8 +951,12 @@ class CourierWebhookService {
     }
 
     async findShipmentByTracking(trackingNumber) {
+        // order_id comes along so a courier event can be reflected onto the
+        // order's status history (#1351). Before this, the pipeline advanced
+        // `shipments.status` and nothing propagated it anywhere the customer
+        // could see.
         const [rows] = await db.query(
-            `SELECT id, status FROM shipments
+            `SELECT id, status, order_id FROM shipments
              WHERE tracking_number = ? AND deleted_at IS NULL
              LIMIT 1`,
             [trackingNumber]
@@ -1036,6 +1040,84 @@ class CourierWebhookService {
                     [event.mappedStatus, shipment.id]
                 );
             }
+
+            await this.reflectOntoOrder(shipment, event);
+        }
+    }
+
+    /**
+     * Mirror a courier event onto the order the shipment belongs to.
+     *
+     * The pipeline advanced `shipments.status` and stopped there, so a parcel
+     * could be marked delivered by the carrier while the customer's order page
+     * still said "processing" (#1351).
+     *
+     * Only the statuses that mean something to a shopper are mirrored: a
+     * shipment moving between internal hub states is not an order status
+     * change, and putting every carrier scan on the order timeline would bury
+     * the four events that matter.
+     *
+     * Failure is contained. A courier webhook must still be marked processed
+     * even if the order-side write fails, or the DLQ will replay an event that
+     * has already been applied to the shipment.
+     */
+    async reflectOntoOrder(shipment, event) {
+        const ORDER_VISIBLE = {
+            shipped: "shipped",
+            out_for_delivery: "out_for_delivery",
+            delivered: "delivered",
+            returned: "cancelled"
+        };
+
+        const orderStatus = ORDER_VISIBLE[event.mappedStatus];
+        if (!orderStatus || !shipment.order_id) return false;
+
+        const connection = await db.getConnection();
+
+        try {
+            await connection.beginTransaction();
+
+            const [orders] = await connection.query(
+                "SELECT status FROM orders WHERE id = ? FOR UPDATE",
+                [shipment.order_id]
+            );
+
+            const current = safeArray(orders)[0];
+
+            if (!current || current.status === orderStatus) {
+                await connection.rollback();
+                return false;
+            }
+
+            await connection.query("UPDATE orders SET status = ? WHERE id = ?", [
+                orderStatus,
+                shipment.order_id
+            ]);
+
+            await orderStatusHistory.recordTransition(connection, {
+                orderId: shipment.order_id,
+                fromStatus: current.status,
+                toStatus: orderStatus,
+                source: "courier",
+                reason: event.description || `Courier reported ${event.rawStatus}`,
+                metadata: {
+                    provider: event.provider,
+                    trackingNumber: event.trackingNumber,
+                    carrierStatus: event.rawStatus,
+                    location: event.location || null
+                }
+            });
+
+            await connection.commit();
+            return true;
+        } catch (error) {
+            await connection.rollback();
+            logger.error(
+                `Could not reflect courier event onto order ${shipment.order_id}: ${error.message}`
+            );
+            return false;
+        } finally {
+            connection.release();
         }
     }
 

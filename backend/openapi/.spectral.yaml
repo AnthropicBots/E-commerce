@@ -1,0 +1,12 @@
+# Spectral rules for backend/openapi/ecommerce.openapi.yaml (#1395)
+# Optional: npm run lint:openapi
+
+extends: ["spectral:oas"]
+
+rules:
+  operation-operationId: error
+  operation-tags: warn
+  info-contact: off
+  oas3-api-servers: warn
+  operation-description: off
+  tag-description: off

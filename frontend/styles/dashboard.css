@@ -218,6 +218,77 @@
     cursor: pointer;
 }
 
+/* Price-drop preference center (#1394) */
+.price-drop-preferences{
+    margin: 0 0 24px;
+    padding: 18px 20px;
+    background: #f7fafa;
+    border: 1px solid #d9e8e6;
+    border-radius: 8px;
+}
+
+.price-drop-preferences h3{
+    margin: 0 0 8px;
+    color: #088178;
+}
+
+.price-drop-pref-help{
+    margin: 0 0 14px;
+    color: #465b52;
+    font-size: 14px;
+}
+
+.price-drop-pref-controls{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 22px;
+    margin-bottom: 14px;
+}
+
+.price-drop-pref-controls label{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #1a1a1a;
+}
+
+.price-drop-pref-actions{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.price-drop-pref-actions button{
+    background: #088178;
+    color: #fff;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.price-drop-pref-status{
+    margin: 10px 0 0;
+    min-height: 1.2em;
+    font-size: 13px;
+    color: #465b52;
+}
+
+.price-drop-pref-status[data-type="error"]{
+    color: #a11;
+}
+
+.price-drop-pref-status[data-type="ok"]{
+    color: #088178;
+}
+
+.price-drop-hint{
+    margin: 6px 0 0;
+    font-size: 12px;
+    color: #088178;
+}
+
 @media (max-width: 1024px){
 
     #dashboard{

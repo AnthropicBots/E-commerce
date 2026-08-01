@@ -761,6 +761,12 @@
             Loading reviews...
         </p>
 
+        <!--
+            Rating histogram (#1349). "4.2 stars" from a hundred reviews and
+            from two are the same number and very different information.
+        -->
+        <div id="review-breakdown" class="review-breakdown"></div>
+
         <form id="review-form">
 
             <fieldset class="review-rating-field">
@@ -843,6 +849,13 @@
             </button>
 
         </form>
+
+        <!--
+            Sort control and pager (#1349). The list was ordered strictly by
+            recency and returned every review a product had ever received in
+            one unbounded response.
+        -->
+        <div id="review-controls" class="review-controls"></div>
 
         <div
             class="review-container"

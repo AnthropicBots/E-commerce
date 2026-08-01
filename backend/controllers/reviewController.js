@@ -1,5 +1,14 @@
 const db = require("../config/db");
 const Review = require("../models/Review");
+
+// Engagement and moderation (#1349). Every rule there spans more than one row
+// and therefore needs a transaction, which is why it is a service rather than
+// more handler code.
+const reviewModerationService = require("../services/reviewModerationService");
+
+/** Cap on photos per review. */
+const MAX_REVIEW_IMAGES = 5;
+const { ReviewError, REPORT_REASONS } = require("../services/reviewModerationService");
 const {
     safeArray,
     safeInteger,
@@ -17,6 +26,12 @@ async function productExists(productId) {
 }
 
 async function refreshProductReviewStats(productId, connection = db) {
+    // Approved, undeleted reviews only.
+    //
+    // This used to average *every* review the product had. `is_approved`
+    // existed but nothing filtered on it, so a review a moderator rejected
+    // still contributed its stars to the product's rating -- the flag was
+    // completely inert (#1349).
     const [stats] = await connection.query(
         `
             SELECT
@@ -24,6 +39,8 @@ async function refreshProductReviewStats(productId, connection = db) {
                 COUNT(*) AS review_count
             FROM reviews
             WHERE product_id = ?
+                AND moderation_status = 'approved'
+                AND deleted_at IS NULL
         `,
         [productId]
     );
@@ -64,42 +81,34 @@ const getProductReviews = async (req, res) => {
             });
         }
 
-        const [reviews] = await db.query(
-            `
-                SELECT
-                    r.id,
-                    r.product_id,
-                    r.user_id,
-                    u.name AS user_name,
-                    r.rating,
-                    r.comment,
-                    r.created_at
-                FROM reviews r
-                JOIN users u ON u.id = r.user_id
-                WHERE r.product_id = ?
-                ORDER BY r.created_at DESC, r.id DESC
-            `,
-            [productId]
-        );
+        // Paginated, sortable and filtered to approved.
+        //
+        // The previous version returned every review a product had ever
+        // received, in one unbounded response, ordered only by recency, and
+        // including ones a moderator had rejected (#1349).
+        //
+        // `viewerId` is optional -- this route is public -- and is used only to
+        // tell the client which reviews it has already voted on, so the button
+        // renders as pressed instead of discovering it on click.
+        const result = await reviewModerationService.listProductReviews(productId, {
+            page: req.query.page,
+            limit: req.query.limit,
+            sort: req.query.sort,
+            viewerId: req.user?.id
+        });
 
-        const [stats] = await db.query(
-            `
-                SELECT
-                    rating AS average_rating,
-                    num_reviews AS review_count
-                FROM products
-                WHERE id = ?
-                LIMIT 1
-            `,
-            [productId]
-        );
+        const breakdown = await reviewModerationService.getRatingBreakdown(productId);
 
         return res.status(200).json({
             success: true,
             message: "Reviews fetched successfully",
-            averageRating: Number(stats?.[0]?.average_rating || 0),
-            reviewCount: Number(stats?.[0]?.review_count || 0),
-            reviews: safeArray(reviews).map((review) => new Review(review))
+            averageRating: breakdown.average,
+            reviewCount: breakdown.total,
+            verifiedCount: breakdown.verifiedCount,
+            ratingDistribution: breakdown.distribution,
+            pagination: result.pagination,
+            sort: result.sort,
+            reviews: result.reviews
         });
     } catch (error) {
         console.error("GET PRODUCT REVIEWS ERROR:", error);
@@ -116,6 +125,12 @@ const createProductReview = async (req, res) => {
     const userId = safeUUID(req.user?.id);
     const rating = safeInteger(req.body.rating);
     const comment = sanitizeString(req.body.comment);
+
+    // `title` and `images` are columns that existed from the start and that
+    // nothing ever wrote, so a shopper could neither title a review nor attach
+    // a photo of what actually arrived (#1349).
+    const title = sanitizeString(req.body.title || "").slice(0, 255) || null;
+    const images = normalizeReviewImages(req.body.images);
 
     if (!productId) {
         return res.status(400).json({
@@ -200,12 +215,29 @@ const createProductReview = async (req, res) => {
             });
         }
 
+        // is_verified is set here rather than left at its default.
+        //
+        // The purchase check immediately above has already established that
+        // this user has a `delivered` order containing the product -- which is
+        // exactly what the badge means. Every existing review was therefore a
+        // verified purchase carrying `is_verified = 0`, because nothing ever
+        // wrote the column (#1349).
         const [result] = await connection.query(
             `
-                INSERT INTO reviews (product_id, user_id, rating, comment)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO reviews (
+                    product_id, user_id, rating, title, comment, images,
+                    is_verified, is_approved, moderation_status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 1, 1, 'approved')
             `,
-            [productId, userId, rating, comment]
+            [
+                productId,
+                userId,
+                rating,
+                title,
+                comment,
+                images.length ? JSON.stringify(images) : null
+            ]
         );
 
         const stats = await refreshProductReviewStats(productId, connection);
@@ -248,9 +280,26 @@ const deleteProductReview = async (req, res) => {
     try {
         await connection.beginTransaction();
 
+        // Soft delete.
+        //
+        // `deleted_at` and `deleted_by` were in the schema from the start and
+        // ignored: this was a hard `DELETE FROM reviews`, which left no record
+        // that the review had existed, who removed it, or why. That is exactly
+        // the record you want when a seller disputes a takedown (#1349).
         const [result] = await connection.query(
-            "DELETE FROM reviews WHERE id = ? AND product_id = ?",
-            [reviewId, productId]
+            `UPDATE reviews
+                SET deleted_at = NOW(),
+                    deleted_by = ?,
+                    moderation_status = 'rejected',
+                    is_approved = 0,
+                    moderation_notes = ?
+              WHERE id = ? AND product_id = ? AND deleted_at IS NULL`,
+            [
+                safeUUID(req.user?.id),
+                sanitizeString(req.body?.reason || "").slice(0, 1000) || null,
+                reviewId,
+                productId
+            ]
         );
 
         if (result.affectedRows === 0) {
@@ -284,8 +333,217 @@ const deleteProductReview = async (req, res) => {
     }
 };
 
+/**
+ * Normalise the `images` field of a review submission.
+ *
+ * Only http(s) URLs are kept, capped in count and length. The column is JSON,
+ * so anything that survives here is rendered on the product page -- a
+ * `javascript:` URL in an image list is a stored XSS, and the repo has already
+ * had one class of that (#1276).
+ *
+ * @param {*} value
+ * @returns {string[]}
+ */
+function normalizeReviewImages(value) {
+    if (!Array.isArray(value)) return [];
+
+    return value
+        .slice(0, MAX_REVIEW_IMAGES)
+        .map((url) => sanitizeString(url || "").slice(0, 500))
+        .filter((url) => /^https?:\/\//i.test(url));
+}
+
+/**
+ * Map a service error onto a response.
+ *
+ * ReviewError carries the status it wants. Anything else is unexpected, so the
+ * detail goes to the log and the caller gets a generic message (#1076).
+ */
+function handleServiceError(res, error, context) {
+    if (error instanceof ReviewError) {
+        return res.status(error.status).json({
+            success: false,
+            message: error.message,
+            code: error.code
+        });
+    }
+
+    console.error(`${context}:`, error);
+
+    return res.status(500).json({
+        success: false,
+        message: "Something went wrong. Please try again."
+    });
+}
+
+/**
+ * POST /api/products/:id/reviews/:reviewId/helpful
+ *
+ * Idempotent: a second vote from the same user reports `alreadyVoted` rather
+ * than inflating the counter.
+ */
+const markReviewHelpful = async (req, res) => {
+    const reviewId = safeInteger(req.params.reviewId);
+
+    if (!reviewId) {
+        return res.status(400).json({ success: false, message: "Invalid review ID" });
+    }
+
+    try {
+        const result = await reviewModerationService.voteHelpful(req.user?.id, reviewId);
+
+        return res.status(200).json({
+            success: true,
+            message: result.alreadyVoted
+                ? "You have already marked this review as helpful"
+                : "Thanks for the feedback",
+            ...result
+        });
+    } catch (error) {
+        return handleServiceError(res, error, "MARK REVIEW HELPFUL ERROR");
+    }
+};
+
+/**
+ * DELETE /api/products/:id/reviews/:reviewId/helpful
+ */
+const unmarkReviewHelpful = async (req, res) => {
+    const reviewId = safeInteger(req.params.reviewId);
+
+    if (!reviewId) {
+        return res.status(400).json({ success: false, message: "Invalid review ID" });
+    }
+
+    try {
+        const result = await reviewModerationService.unvoteHelpful(req.user?.id, reviewId);
+
+        return res.status(200).json({ success: true, message: "Vote withdrawn", ...result });
+    } catch (error) {
+        return handleServiceError(res, error, "UNMARK REVIEW HELPFUL ERROR");
+    }
+};
+
+/**
+ * POST /api/products/:id/reviews/:reviewId/report
+ *
+ * The response is deliberately identical whether or not this report pushed the
+ * review over the auto-flag threshold. Telling a reporter "two more and it
+ * disappears" is an invitation to organise.
+ */
+const reportReview = async (req, res) => {
+    const reviewId = safeInteger(req.params.reviewId);
+
+    if (!reviewId) {
+        return res.status(400).json({ success: false, message: "Invalid review ID" });
+    }
+
+    try {
+        const result = await reviewModerationService.reportReview(req.user?.id, reviewId, {
+            reason: req.body?.reason,
+            details: req.body?.details
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: result.alreadyReported
+                ? "You have already reported this review"
+                : "Thanks — this review has been sent for moderation",
+            reviewId: result.reviewId
+        });
+    } catch (error) {
+        return handleServiceError(res, error, "REPORT REVIEW ERROR");
+    }
+};
+
+/**
+ * GET /api/products/reviews/moderation/reasons
+ *
+ * So the client does not carry its own copy of the list and drift from it.
+ */
+const getReportReasons = (req, res) => {
+    return res.status(200).json({ success: true, reasons: REPORT_REASONS });
+};
+
+/**
+ * GET /api/products/reviews/moderation/queue  (admin)
+ *
+ * Pending first, most-reported first. There was no queue at all, so moderation
+ * was reactive to whatever an admin happened to read.
+ */
+const getModerationQueue = async (req, res) => {
+    try {
+        const queue = await reviewModerationService.getModerationQueue({
+            status: req.query.status,
+            page: req.query.page,
+            limit: req.query.limit
+        });
+
+        return res.status(200).json({ success: true, ...queue });
+    } catch (error) {
+        return handleServiceError(res, error, "REVIEW MODERATION QUEUE ERROR");
+    }
+};
+
+/**
+ * GET /api/products/reviews/:reviewId/reports  (admin)
+ *
+ * The reports themselves, so a moderator sees the case rather than the count.
+ */
+const getReviewReports = async (req, res) => {
+    const reviewId = safeInteger(req.params.reviewId);
+
+    if (!reviewId) {
+        return res.status(400).json({ success: false, message: "Invalid review ID" });
+    }
+
+    try {
+        const reports = await reviewModerationService.getReviewReports(reviewId);
+
+        return res.status(200).json({ success: true, reviewId, reports });
+    } catch (error) {
+        return handleServiceError(res, error, "GET REVIEW REPORTS ERROR");
+    }
+};
+
+/**
+ * PATCH /api/products/reviews/:reviewId/moderate  (admin)
+ *
+ * Approve or reject, with a note recorded against the moderator. Refreshes the
+ * product's cached rating, because a rejected review must stop counting toward
+ * it -- the defect this whole change started from.
+ */
+const moderateReview = async (req, res) => {
+    const reviewId = safeInteger(req.params.reviewId);
+
+    if (!reviewId) {
+        return res.status(400).json({ success: false, message: "Invalid review ID" });
+    }
+
+    try {
+        const result = await reviewModerationService.moderateReview(req.user?.id, reviewId, {
+            status: req.body?.status,
+            notes: req.body?.notes
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: `Review ${result.status}`,
+            ...result
+        });
+    } catch (error) {
+        return handleServiceError(res, error, "MODERATE REVIEW ERROR");
+    }
+};
+
 module.exports = {
     getProductReviews,
     createProductReview,
-    deleteProductReview
+    deleteProductReview,
+    markReviewHelpful,
+    unmarkReviewHelpful,
+    reportReview,
+    getReportReasons,
+    getModerationQueue,
+    getReviewReports,
+    moderateReview
 };

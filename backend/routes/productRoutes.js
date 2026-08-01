@@ -25,7 +25,14 @@ router.post('/products/review', authMiddleware, validateProductReview, async (re
 const {
     getProductReviews,
     createProductReview,
-    deleteProductReview
+    deleteProductReview,
+    markReviewHelpful,
+    unmarkReviewHelpful,
+    reportReview,
+    getReportReasons,
+    getModerationQueue,
+    getReviewReports,
+    moderateReview
 } = require("../controllers/reviewController");
 
 const { authorizeRoles } = require("../middleware/rbacMiddleware");

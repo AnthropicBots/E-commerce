@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "message": "Login successful",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example",
+  "refreshToken": "refresh_example_token",
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440001",
+    "name": "Shopper",
+    "email": "shopper@example.com",
+    "role": "customer"
+  }
+}

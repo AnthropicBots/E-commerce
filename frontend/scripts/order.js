@@ -274,6 +274,10 @@ function initSocketOrderTracker(targetOrderId) {
             if (data && (String(data.orderId) === String(targetOrderId) || String(data.id) === String(targetOrderId))) {
                 if (typeof AppUtils !== "undefined" && AppUtils.notify) {
                     AppUtils.notify(`Order status updated: ${(data.status || "").toUpperCase()}`, "info");
+
+                    // Re-read the timeline so the newly recorded transition
+                    // appears without a page reload.
+                    window.OrderTimeline?.load(targetOrderId);
                 }
                 fetchOrderStatus();
             }
@@ -291,5 +295,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     fetchOrderStatus();
+
+    // Status history (#1351). The four tracking steps were hardcoded with no
+    // dates behind them, because an order's status was a single mutable field
+    // and "shipped on the 4th" was not information this page could reach.
+    window.OrderTimeline?.load(orderId);
+
     initSocketOrderTracker(orderId);
 });

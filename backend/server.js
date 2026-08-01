@@ -505,6 +505,13 @@ async function bootstrap() {
         } catch (err) {
             console.error("Warning: Failed to start stock-alert scheduler:", err.message);
         }
+
+        try {
+            const { startPriceDropJob } = require("./jobs/priceDropJob");
+            startPriceDropJob();
+        } catch (err) {
+            console.error("Warning: Failed to start wishlist price-drop job:", err.message);
+        }
     }
 
     // Start HTTP listening only after services finish initializations

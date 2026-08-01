@@ -191,6 +191,12 @@
                     </div>
                 </div>
 
+                <!--
+                    Dated activity list (#1351), rendered from the recorded
+                    status history rather than from the single current status.
+                -->
+                <div id="order-timeline" class="order-timeline"></div>
+
                 <!-- Items -->
                 <div class="order-items">
                     <h3>
@@ -261,6 +267,8 @@
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
     <!-- Order Script -->
+    <!-- Must load before order.js, which calls OrderTimeline.load() -->
+    <script defer src="scripts/order-timeline.js"></script>
     <script defer src="scripts/order.js"></script>
     <script defer src="scripts/ui.js"></script>
 
