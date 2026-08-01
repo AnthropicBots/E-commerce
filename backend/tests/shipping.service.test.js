@@ -38,6 +38,8 @@ const STANDARD = {
     label: 'Standard delivery',
     description: 'Arrives in three to six days.',
     base_rate: '49.00',
+    min_days: 3,
+    max_days: 6,
     is_default: 1,
     sort_order: 10
 };
@@ -47,6 +49,8 @@ const EXPRESS = {
     label: 'Express delivery',
     description: 'Arrives in one to two days.',
     base_rate: '149.00',
+    min_days: 1,
+    max_days: 2,
     is_default: 0,
     sort_order: 20
 };
@@ -311,6 +315,90 @@ describe('rules reaching the quote', () => {
         // because a table could not be read.
         expect(options.map((option) => option.cost)).toEqual([49, 149]);
         expect(freeShipping).toBeNull();
+    });
+});
+
+describe('the delivery window an option promises', () => {
+    // A fixed placement date, so the window is arithmetic rather than a race
+    // with the clock.
+    const PLACED_AT = new Date(2026, 7, 1);
+
+    it('runs from the option\'s near end to its far end', () => {
+        expect(
+            shipping.deliveryWindow({ placedAt: PLACED_AT, minDays: 3, maxDays: 6 })
+        ).toMatchObject({ from: '2026-08-04', to: '2026-08-07' });
+    });
+
+    it('crosses a month boundary correctly', () => {
+        expect(
+            shipping.deliveryWindow({
+                placedAt: new Date(2026, 7, 30),
+                minDays: 3,
+                maxDays: 6
+            })
+        ).toMatchObject({ from: '2026-09-02', to: '2026-09-05' });
+    });
+
+    it('pushes the window out for a destination the courier is slower to reach', () => {
+        const slowerBy = 3;
+
+        expect(
+            shipping.deliveryWindow({
+                placedAt: PLACED_AT,
+                minDays: 3,
+                maxDays: 6,
+                destinationEtaDays:
+                    SHIPPING_CONFIG.BASELINE_DESTINATION_ETA_DAYS + slowerBy
+            })
+        ).toMatchObject({ from: '2026-08-07', to: '2026-08-10' });
+    });
+
+    it('does not pull the window in for a destination that looks faster', () => {
+        // A short lead time may just be a figure nobody has kept up to date.
+        // Shortening a promise on that basis is how a store misses it.
+        expect(
+            shipping.deliveryWindow({
+                placedAt: PLACED_AT,
+                minDays: 3,
+                maxDays: 6,
+                destinationEtaDays: 1
+            })
+        ).toMatchObject({ from: '2026-08-04', to: '2026-08-07' });
+    });
+
+    it('promises nothing when the option states no window', () => {
+        expect(
+            shipping.deliveryWindow({ placedAt: PLACED_AT, minDays: null, maxDays: 6 })
+        ).toBeNull();
+        expect(
+            shipping.deliveryWindow({ placedAt: PLACED_AT, minDays: 3, maxDays: null })
+        ).toBeNull();
+    });
+
+    it('promises nothing when the placement date is unusable', () => {
+        expect(
+            shipping.deliveryWindow({ placedAt: 'not a date', minDays: 3, maxDays: 6 })
+        ).toBeNull();
+    });
+
+    it('names the option the estimate belongs to', async () => {
+        await expect(
+            shipping.estimateDelivery({
+                methodCode: 'express',
+                placedAt: PLACED_AT
+            })
+        ).resolves.toMatchObject({
+            code: 'express',
+            label: 'Express delivery',
+            from: '2026-08-02',
+            to: '2026-08-03'
+        });
+    });
+
+    it('estimates nothing for an option that is not offered', async () => {
+        await expect(
+            shipping.estimateDelivery({ methodCode: 'teleport', placedAt: PLACED_AT })
+        ).resolves.toBeNull();
     });
 });
 

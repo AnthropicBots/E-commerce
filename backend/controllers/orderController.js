@@ -1009,6 +1009,10 @@ const exportOrders = async (req, res) => {
  *
  * The administrative roles additionally see the actor, the request metadata
  * and internal reasons; everyone else sees only their own stated reasons.
+ *
+ * The delivery option the order was sold, its charge and the window it was
+ * promised for ride along, because "when is this arriving" is the question the
+ * timeline is opened to answer (#1430).
  */
 const getOrderTimeline = async (req, res) => {
     const id = safeUUID(req.params.id);
@@ -1024,7 +1028,9 @@ const getOrderTimeline = async (req, res) => {
     const canReadAnyOrder = hasPermission(req.user, PERMISSIONS.ORDER_READ_ANY);
     const canSeeInternalDetail = isAdminRole(req.user?.role);
 
-    let query = "SELECT id, status, created_at FROM orders WHERE id = ?";
+    let query =
+        "SELECT id, status, created_at, shipping_method, shipping_cost, " +
+        "estimated_delivery_from, estimated_delivery FROM orders WHERE id = ?";
     const params = [id];
 
     if (!canReadAnyOrder) {
