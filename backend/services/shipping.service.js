@@ -34,6 +34,11 @@ const toMethod = (row) => ({
     label: sanitizeString(row.label),
     description: sanitizeString(row.description) || null,
     rate: safeNumber(row.base_rate),
+    // Null where an option states no delivery promise, which is different from
+    // promising same-day. Preserved as null so the estimate is omitted rather
+    // than invented.
+    minDays: row.min_days === null ? null : safeInteger(row.min_days, 0),
+    maxDays: row.max_days === null ? null : safeInteger(row.max_days, 0),
     isDefault: Boolean(row.is_default),
     sortOrder: safeInteger(row.sort_order, 0),
 });
@@ -43,7 +48,8 @@ const readMethods = async () => {
 
     try {
         const [rows] = await db.query(
-            `SELECT code, label, description, base_rate, is_default, sort_order
+            `SELECT code, label, description, base_rate, min_days, max_days,
+                    is_default, sort_order
                FROM shipping_methods
               WHERE is_active = 1
               ORDER BY sort_order ASC, code ASC`,
@@ -135,8 +141,12 @@ const listRules = () => {
  * and "the rule says Maharashtra". A pincode the store does not serve resolves
  * to nothing, and rules scoped to a place then simply do not match.
  *
+ * The lead time that record carries comes back too, because it is the one
+ * thing the store knows about how long this destination actually takes, and
+ * the delivery promise is quoted against it.
+ *
  * @param {{ pincode?: string, city?: string, state?: string }} [destination]
- * @returns {Promise<{ pincode: string|null, city: string|null, state: string|null }>}
+ * @returns {Promise<{ pincode: string|null, city: string|null, state: string|null, etaDays: number|null }>}
  */
 const resolveDestination = async (destination = {}) => {
     const pincode = sanitizeString(destination.pincode || destination.zip);
@@ -144,9 +154,10 @@ const resolveDestination = async (destination = {}) => {
         pincode: pincode || null,
         city: sanitizeString(destination.city) || null,
         state: sanitizeString(destination.state) || null,
+        etaDays: null,
     };
 
-    if (!pincode || (resolved.city && resolved.state)) {
+    if (!pincode) {
         return resolved;
     }
 
@@ -159,6 +170,10 @@ const resolveDestination = async (destination = {}) => {
             // Mumbai pincode is somewhere else.
             resolved.city = sanitizeString(row.city) || resolved.city;
             resolved.state = sanitizeString(row.state) || resolved.state;
+            resolved.etaDays =
+                row.eta_days === null || row.eta_days === undefined
+                    ? null
+                    : safeInteger(row.eta_days, 0);
         }
     } catch (error) {
         logger.warn(`Destination ${pincode} could not be resolved: ${error.message}`);
@@ -185,6 +200,113 @@ const basketWeightKg = (lines) =>
 
         return total + unit * qty;
     }, 0);
+
+// Dates are built and formatted in the process's own timezone rather than via
+// an ISO slice, because `orders.created_at` comes back from the driver as a
+// local-time Date. Converting to UTC to format it would move an order placed
+// late in the evening onto the previous day and quietly shift every date the
+// customer is shown.
+const addDays = (date, days) => {
+    const shifted = new Date(date.getTime());
+    shifted.setDate(shifted.getDate() + days);
+    return shifted;
+};
+
+const toDateString = (date) =>
+    [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0"),
+    ].join("-");
+
+/**
+ * The window an option promises, as two dates.
+ *
+ * Pure, so the arithmetic can be pinned without a clock or a database.
+ *
+ * The destination shifts the window later but never earlier. Somewhere the
+ * courier is slower to reach genuinely takes longer; somewhere it is faster
+ * to reach might simply be a lead time nobody has kept up to date, and
+ * shortening a promise on that basis is how a store misses it.
+ *
+ * @param {Object} input
+ * @param {Date} input.placedAt
+ * @param {number|null} input.minDays
+ * @param {number|null} input.maxDays
+ * @param {number|null} [input.destinationEtaDays]
+ * @returns {{ from: string, to: string, minDays: number, maxDays: number }|null}
+ */
+const deliveryWindow = ({
+    placedAt,
+    minDays,
+    maxDays,
+    destinationEtaDays = null,
+} = {}) => {
+    if (minDays === null || minDays === undefined) return null;
+    if (maxDays === null || maxDays === undefined) return null;
+
+    const placed = placedAt instanceof Date ? placedAt : new Date(placedAt);
+
+    if (Number.isNaN(placed.getTime())) return null;
+
+    const slowerBy =
+        destinationEtaDays === null || destinationEtaDays === undefined
+            ? 0
+            : Math.max(
+                  0,
+                  safeInteger(destinationEtaDays, 0) -
+                      SHIPPING_CONFIG.BASELINE_DESTINATION_ETA_DAYS,
+              );
+
+    const from = safeInteger(minDays, 0) + slowerBy;
+    const to = safeInteger(maxDays, 0) + slowerBy;
+
+    return {
+        from: toDateString(addDays(placed, from)),
+        to: toDateString(addDays(placed, to)),
+        minDays: from,
+        maxDays: to,
+    };
+};
+
+/**
+ * The delivery promise for one option to one destination.
+ *
+ * Returns null when the option states no window, when the code names nothing,
+ * or when there is no usable placement date -- all three of which mean the
+ * honest answer is to show no estimate at all.
+ *
+ * @param {Object} input
+ * @param {any} input.methodCode
+ * @param {Object} [input.destination]
+ * @param {Date|string} [input.placedAt]
+ * @returns {Promise<Object|null>}
+ */
+const estimateDelivery = async ({
+    methodCode,
+    destination = null,
+    placedAt = new Date(),
+} = {}) => {
+    const [methods, place] = await Promise.all([
+        listMethods(),
+        resolveDestination(destination || {}),
+    ]);
+
+    const method = methods.find(
+        (candidate) => candidate.code === sanitizeString(methodCode),
+    );
+
+    if (!method) return null;
+
+    const window = deliveryWindow({
+        placedAt,
+        minDays: method.minDays,
+        maxDays: method.maxDays,
+        destinationEtaDays: place.etaDays,
+    });
+
+    return window ? { ...window, code: method.code, label: method.label } : null;
+};
 
 /**
  * The option a checkout gets when it does not choose one.
@@ -398,6 +520,8 @@ module.exports = {
     resolveMethod,
     resolveDestination,
     basketWeightKg,
+    deliveryWindow,
+    estimateDelivery,
     toPricingDescriptor,
     quoteOptions,
     clearCache,

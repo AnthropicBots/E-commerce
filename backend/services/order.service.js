@@ -358,6 +358,15 @@ const createOrderService = async (connection, orderData) => {
             shippingMethod: delivery.selected,
         });
 
+        // The delivery promise is recorded, not recomputed on read. It is a
+        // commitment made now, and an operator retuning an option next month
+        // must not silently move the date this order was sold on. Null when
+        // the chosen option states no window.
+        const estimate = await shipping.estimateDelivery({
+            methodCode: delivery.selected.code,
+            destination: { pincode: zip, city, state },
+        });
+
         const verification = pricing.verifyClaimedTotal(
             claimedTotal,
             breakdown.total,
@@ -411,6 +420,8 @@ const createOrderService = async (connection, orderData) => {
                 tax,
                 shipping_method,
                 shipping_cost,
+                estimated_delivery_from,
+                estimated_delivery,
                 discount,
                 discount_code,
                 promo_code,
@@ -421,7 +432,7 @@ const createOrderService = async (connection, orderData) => {
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         `;
 
         const [orderResult] = await connection.query(orderQuery, [
@@ -443,6 +454,8 @@ const createOrderService = async (connection, orderData) => {
             breakdown.tax,
             delivery.selected.code,
             breakdown.shipping,
+            estimate ? estimate.from : null,
+            estimate ? estimate.to : null,
             discountAmount,
             appliedPromoCode,
             appliedPromoCode,

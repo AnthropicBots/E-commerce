@@ -47,6 +47,32 @@
     }
 
     /**
+     * Format a date-only value for display.
+     *
+     * The delivery window arrives as two YYYY-MM-DD strings. Parsing those
+     * with the Date constructor would read them as UTC midnight and render the
+     * previous day west of Greenwich, so the parts are handed over explicitly.
+     */
+    function formatDay(value) {
+        if (!value) return "";
+
+        var parts = String(value).slice(0, 10).split("-");
+        if (parts.length !== 3) return "";
+
+        var date = new Date(
+            Number(parts[0]),
+            Number(parts[1]) - 1,
+            Number(parts[2])
+        );
+        if (isNaN(date.getTime())) return "";
+
+        return date.toLocaleDateString(undefined, {
+            day: "numeric",
+            month: "short"
+        });
+    }
+
+    /**
      * Format a timestamp for display.
      *
      * Returns an empty string for anything unparseable rather than "Invalid
@@ -111,6 +137,48 @@
 
             existing.textContent = formatted;
         });
+    }
+
+    /**
+     * The delivery promise, on the panel that has always had a slot for it.
+     *
+     * `#estimated-delivery` has read "-" on every order since the page was
+     * written, because nothing recorded a promise to put there. The option the
+     * order was sold goes alongside it, so the date is attributable: "arriving
+     * by the 12th" means something different under standard and under express.
+     *
+     * A window collapses to one date when both ends fall on the same day,
+     * because "8 Aug – 8 Aug" reads as a mistake.
+     */
+    function renderDelivery(delivery) {
+        var target = document.getElementById("estimated-delivery");
+        if (!target) return;
+
+        if (!delivery) {
+            target.textContent = "-";
+            return;
+        }
+
+        var method = document.getElementById("delivery-method");
+
+        if (method) {
+            method.textContent =
+                delivery.charge > 0
+                    ? delivery.method.label
+                    : delivery.method.label + " (free)";
+        }
+
+        if (!delivery.estimate) {
+            // No estimate is a real answer here: the order has arrived, or was
+            // cancelled, or predates the delivery options entirely.
+            target.textContent = "-";
+            return;
+        }
+
+        var from = formatDay(delivery.estimate.from);
+        var to = formatDay(delivery.estimate.to);
+
+        target.textContent = from === to ? from : from + " – " + to;
     }
 
     /**
@@ -188,6 +256,7 @@
             if (!response || !response.success || !response.data) return null;
 
             renderSteps(response.data.steps);
+            renderDelivery(response.data.delivery);
             renderHistory(response.data.history);
 
             return response.data;
@@ -200,7 +269,9 @@
     window.OrderTimeline = {
         load: loadOrderTimeline,
         renderSteps: renderSteps,
+        renderDelivery: renderDelivery,
         renderHistory: renderHistory,
-        formatMoment: formatMoment
+        formatMoment: formatMoment,
+        formatDay: formatDay
     };
 })();

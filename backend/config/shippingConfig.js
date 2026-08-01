@@ -29,6 +29,13 @@ const SHIPPING_CONFIG = Object.freeze({
     DEFAULT_ITEM_WEIGHT_KG:
         Number(process.env.SHIPPING_DEFAULT_ITEM_WEIGHT_KG) || 0.5,
 
+    // The destination lead time a delivery window is quoted against. It matches
+    // the default on `serviceable_pincodes.eta_days`, so a pincode nobody has
+    // tuned neither lengthens nor shortens the promise. Somewhere slower than
+    // this pushes the window out by the difference.
+    BASELINE_DESTINATION_ETA_DAYS:
+        Number(process.env.SHIPPING_BASELINE_ETA_DAYS) || 5,
+
     // Used only when `shipping_methods` cannot be read. The rate is the flat
     // rate the pricing engine has always applied, so a store running on the
     // fallback charges what it charged before this existed.
@@ -37,6 +44,8 @@ const SHIPPING_CONFIG = Object.freeze({
         label: "Standard delivery",
         description: "Arrives in three to six days.",
         rate: PRICING_CONFIG.SHIPPING_FLAT_RATE,
+        minDays: 3,
+        maxDays: 6,
         isDefault: true,
         sortOrder: 10,
     }),
