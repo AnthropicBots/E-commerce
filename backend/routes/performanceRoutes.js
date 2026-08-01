@@ -1,92 +1,39 @@
 // backend/routes/performanceRoutes.js
+//
+// Agent performance monitoring routes.
+//
+// Rebuilt in #1355. Two generations of this router had been merged by keeping
+// *both* sides: `/track`, `/dashboard/:agentId`, `/feedback`, `/comparison` and
+// `/stats` each appeared twice, and the seam fell inside a handler --
+//
+//     res.status(500).json({
+//         success: false,
+//         error: 'Failed to get dashboard'
+//     const agentPerformanceService = require('../services/agentPerformanceService');
+//
+// -- leaving an unclosed object literal, an unclosed catch block, and a `const`
+// where a property was expected. Hence "Unexpected token 'const'" at line 58,
+// which took the parse gate and the boot gate down with it, since server.js
+// requires this router.
+//
+// The duplicated half called `agentPerformanceMonitor` from
+// '../services/agentPerformanceMonitorService'. That module does not exist: the
+// file on disk is `agentPerfomanceMonitorService.js` -- "Perfomance", missing
+// the `r` -- so the require threw MODULE_NOT_FOUND and every handler in that
+// half would have called a method on `undefined`. It is dropped entirely.
+//
+// `agentPerformanceService` implements all seven methods these routes need, so
+// this is now a single set of routes against a single service.
+
 const express = require('express');
 const router = express.Router();
+
 const authMiddleware = require('../middleware/authMiddleware');
-
-const { agentPerformanceMonitor } = require('../services/agentPerformanceMonitorService');
-
-/**
- * POST /api/performance/track
- * Track agent performance
- */
-router.post('/track', authMiddleware, async (req, res) => {
-    try {
-        const { agentId, transactionData } = req.body;
-
-        if (!agentId || !transactionData) {
-            return res.status(400).json({
-                success: false,
-                error: 'Agent ID and transaction data are required'
-            });
-        }
-
-        const performance = await agentPerformanceMonitor.trackPerformance(agentId, transactionData);
-
-        res.json({
-            success: true,
-            data: performance
-        });
-    } catch (error) {
-        console.error('Track performance error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message || 'Failed to track performance'
-        });
-    }
-});
-
-/**
- * GET /api/performance/dashboard/:agentId
- * Get agent performance dashboard
- */
-router.get('/dashboard/:agentId', authMiddleware, async (req, res) => {
-    try {
-        const { agentId } = req.params;
-        const userId = req.user.id;
-
-        const dashboard = await agentPerformanceMonitor.getDashboard(agentId, userId);
-
-        res.json({
-            success: true,
-            data: dashboard
-        });
-    } catch (error) {
-        console.error('Dashboard error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get dashboard'
 const agentPerformanceService = require('../services/agentPerformanceService');
 
 /**
- * GET /api/performance/dashboard/:agentId
- * Get agent performance dashboard
- */
-router.get('/dashboard/:agentId', authMiddleware, async (req, res) => {
-    try {
-        const { agentId } = req.params;
-        const userId = req.user.id;
-
-        // Verify user owns this agent
-        // Add ownership check here
-
-        const dashboard = await agentPerformanceService.getPerformanceDashboard(agentId, userId);
-
-        res.json({
-            success: true,
-            data: dashboard
-        });
-    } catch (error) {
-        console.error('Dashboard error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get dashboard'
-        });
-    }
-});
-
-/**
  * POST /api/performance/track
- * Track agent performance
+ * Record a negotiation outcome for an agent.
  */
 router.post('/track', authMiddleware, async (req, res) => {
     try {
@@ -99,87 +46,57 @@ router.post('/track', authMiddleware, async (req, res) => {
             });
         }
 
-        const performance = await agentPerformanceService.trackPerformance(agentId, negotiationData);
+        const performance = await agentPerformanceService.trackPerformance(
+            agentId,
+            negotiationData
+        );
 
-        res.json({
-            success: true,
-            data: performance
-        });
+        res.json({ success: true, data: performance });
     } catch (error) {
         console.error('Track performance error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to track performance'
-
-        });
+        res.status(500).json({ success: false, error: 'Failed to track performance' });
     }
 });
 
 /**
- * POST /api/performance/feedback
- * Submit agent feedback
+ * GET /api/performance/dashboard/:agentId
+ * Performance dashboard for one agent.
  */
-router.post('/feedback', authMiddleware, async (req, res) => {
+router.get('/dashboard/:agentId', authMiddleware, async (req, res) => {
     try {
-        const { agentId, feedback } = req.body;
+        const { agentId } = req.params;
         const userId = req.user.id;
 
+        const dashboard = await agentPerformanceService.getPerformanceDashboard(
+            agentId,
+            userId
+        );
 
-        if (!agentId || !feedback) {
-            return res.status(400).json({
-                success: false,
-                error: 'Agent ID and feedback are required'
-            });
-        }
-
-        const result = await agentPerformanceMonitor.submitFeedback(agentId, req.user.id, feedback);
-
-        const result = await agentPerformanceService.submitFeedback(agentId, userId, feedback);
-
-        res.json({
-            success: true,
-            data: result
-        });
+        res.json({ success: true, data: dashboard });
     } catch (error) {
-        console.error('Feedback error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to submit feedback'
-        });
+        console.error('Dashboard error:', error);
+        res.status(500).json({ success: false, error: 'Failed to get dashboard' });
     }
 });
 
 /**
  * GET /api/performance/alerts/:agentId
- * Get agent performance alerts
+ * Outstanding performance alerts for an agent.
  */
-router.get('/alerts/:agentId', authMiddleware, (req, res) => {
+router.get('/alerts/:agentId', authMiddleware, async (req, res) => {
     try {
-        const alerts = agentPerformanceMonitor.getAgentAlerts(req.params.agentId);
+        const alerts = await agentPerformanceService.getAgentAlerts(req.params.agentId);
 
-        res.json({
-            success: true,
-            data: alerts
-        });
+        res.json({ success: true, data: alerts });
     } catch (error) {
         console.error('Get alerts error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get alerts'
-        });
+        res.status(500).json({ success: false, error: 'Failed to get alerts' });
     }
 });
 
 /**
- * GET /api/performance/comparison/:agentId
- * Get model comparison
- */
-router.get('/comparison/:agentId', authMiddleware, async (req, res) => {
-    try {
-        const comparison = await agentPerformanceMonitor.getModelComparison(req.params.agentId);
-
  * POST /api/performance/alerts/resolve/:alertId
- * Resolve performance alert
+ * Mark an alert resolved.
  */
 router.post('/alerts/resolve/:alertId', authMiddleware, async (req, res) => {
     try {
@@ -188,69 +105,78 @@ router.post('/alerts/resolve/:alertId', authMiddleware, async (req, res) => {
 
         const result = await agentPerformanceService.resolveAlert(alertId, userId);
 
-        res.json({
-            success: true,
-            data: result
-        });
+        res.json({ success: true, data: result });
     } catch (error) {
         console.error('Resolve alert error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to resolve alert'
-        });
+        res.status(500).json({ success: false, error: 'Failed to resolve alert' });
+    }
+});
+
+/**
+ * POST /api/performance/feedback
+ * Submit feedback on an agent.
+ */
+router.post('/feedback', authMiddleware, async (req, res) => {
+    try {
+        const { agentId, feedback } = req.body;
+        const userId = req.user.id;
+
+        if (!agentId || !feedback) {
+            return res.status(400).json({
+                success: false,
+                error: 'Agent ID and feedback are required'
+            });
+        }
+
+        const result = await agentPerformanceService.submitFeedback(
+            agentId,
+            userId,
+            feedback
+        );
+
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error('Feedback error:', error);
+        res.status(500).json({ success: false, error: 'Failed to submit feedback' });
     }
 });
 
 /**
  * GET /api/performance/comparison
- * Get model comparison
+ * Compare agent models against each other.
+ *
+ * The duplicated half declared this as `/comparison/:agentId`. The surviving
+ * service method takes no argument -- `getModelComparison()` compares models
+ * across the fleet -- so the parameterised form could only ever have ignored
+ * its own parameter.
  */
 router.get('/comparison', authMiddleware, async (req, res) => {
     try {
         const comparison = await agentPerformanceService.getModelComparison();
 
-        res.json({
-            success: true,
-            data: comparison
-        });
+        res.json({ success: true, data: comparison });
     } catch (error) {
         console.error('Comparison error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get comparison'
-
-            error: 'Failed to get model comparison'
-        });
+        res.status(500).json({ success: false, error: 'Failed to get model comparison' });
     }
 });
 
 /**
  * GET /api/performance/stats
- * Get performance statistics (admin only)
+ * Fleet-wide statistics. Admin only.
  */
 router.get('/stats', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'admin') {
-            return res.status(403).json({
-                success: false,
-                error: 'Admin access required'
-            });
+            return res.status(403).json({ success: false, error: 'Admin access required' });
         }
-
-        const stats = await agentPerformanceMonitor.getStatistics();
 
         const stats = await agentPerformanceService.getStatistics();
 
-        res.json({
-            success: true,
-            data: stats
-        });
+        res.json({ success: true, data: stats });
     } catch (error) {
         console.error('Stats error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get statistics'
-        });
+        res.status(500).json({ success: false, error: 'Failed to get statistics' });
     }
 });
 
