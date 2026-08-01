@@ -76,7 +76,15 @@ const CART_RECOVERY_CONFIG = Object.freeze({
     // Lines quoted in the message. A basket of thirty items does not need
     // thirty lines of email to be recognisable.
     MAX_ITEMS_IN_MESSAGE:
-        Number(process.env.CART_RECOVERY_MAX_ITEMS_IN_MESSAGE) || 5
+        Number(process.env.CART_RECOVERY_MAX_ITEMS_IN_MESSAGE) || 5,
+
+    // How long a restore link stays usable. Long enough to outlive the whole
+    // sequence, so the first message's link still works for somebody who opens
+    // their mail on Monday; short enough that a link sitting in a mailbox is
+    // not indefinitely valuable to whoever else ends up reading it.
+    RESTORE_LINK_TTL_MINUTES:
+        Number(process.env.CART_RECOVERY_RESTORE_LINK_TTL_MINUTES) ||
+        3 * MINUTES_PER_DAY
 });
 
 module.exports = CART_RECOVERY_CONFIG;

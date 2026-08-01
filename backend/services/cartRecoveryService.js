@@ -39,6 +39,7 @@ const cartRecoveryConfig = require('../config/cartRecoveryConfig');
 const logger = require('../utils/logger');
 const { safeInteger, safeUUID } = require('../utils/helpers');
 const { sendNotificationEmail } = require('./notificationEmailService');
+const { issueRestoreToken, buildRestoreUrl } = require('./cartRestoreService');
 const {
     notificationBroker,
     NOTIFICATION_TYPES
@@ -258,10 +259,11 @@ async function recordRecoverySend({ cartId, userId, stage, channels }) {
  * @param {string} context.userName
  * @param {Array} context.items
  * @param {number} context.lineCount
+ * @param {string} [context.restoreUrl]
  * @param {string} [context.preferencesUrl]
  * @returns {{subject: string, text: string}}
  */
-function buildRecoveryMessage({ userName, items, lineCount, preferencesUrl }) {
+function buildRecoveryMessage({ userName, items, lineCount, restoreUrl, preferencesUrl }) {
     const lines = items.map(
         (item) => `  - ${item.name}${item.quantity > 1 ? ` x${item.quantity}` : ''}`
     );
@@ -280,6 +282,7 @@ function buildRecoveryMessage({ userName, items, lineCount, preferencesUrl }) {
             `${greeting}\n\n` +
             'Your basket is still here:\n\n' +
             `${lines.join('\n')}\n\n` +
+            (restoreUrl ? `Pick up where you left off: ${restoreUrl}\n\n` : '') +
             (preferencesUrl
                 ? `Manage preferences / unsubscribe: ${preferencesUrl}\n`
                 : '')
@@ -443,6 +446,12 @@ async function deliverRecoveryMessage({
     const lineCount = safeInteger(candidate.line_count, 0);
     const items = await loadBasketPreview(cartId, maxItemsInMessage);
 
+    // One link per message, minted here rather than reused across the sequence.
+    // Issuing supersedes the basket's previous link, so a shopper never has two
+    // live credentials for one cart just because we asked twice.
+    const { token } = await issueRestoreToken({ cartId, userId });
+    const restoreUrl = buildRestoreUrl(token);
+
     await notificationBroker.publish(
         NOTIFICATION_TYPES.CART_RECOVERY,
         {
@@ -450,6 +459,7 @@ async function deliverRecoveryMessage({
             cartId,
             stage,
             itemCount: lineCount,
+            restoreUrl,
             items: items.map((item) => ({
                 name: item.name,
                 price: item.price,
@@ -466,6 +476,7 @@ async function deliverRecoveryMessage({
             userName: candidate.user_name,
             items,
             lineCount,
+            restoreUrl,
             preferencesUrl
         });
 
