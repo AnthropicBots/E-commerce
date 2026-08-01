@@ -519,6 +519,15 @@ async function bootstrap() {
         } catch (err) {
             console.error("Warning: Failed to start wishlist price-drop job:", err.message);
         }
+
+        // Abandoned-cart recovery (#1429). The lifecycle sweep decides what is
+        // abandoned; this decides what to say about it, and to whom.
+        try {
+            const { startCartRecoveryJob } = require("./jobs/cartRecoveryJob");
+            startCartRecoveryJob();
+        } catch (err) {
+            console.error("Warning: Failed to start cart recovery job:", err.message);
+        }
     }
 
     // Start HTTP listening only after services finish initializations

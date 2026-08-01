@@ -1739,6 +1739,43 @@ const mergeGuestCartIntoAccount = async () => {
     return accepted ? merged : getCart();
 };
 
+// ---------- Recovery attribution (#1429) ----------
+// A basket restored from a recovery link hands back a reference to the link it
+// came through. Checkout sends it on, so the order can record that it was
+// recovered instead of the figure being guessed from timestamps afterwards.
+//
+// It lives here rather than with the restore landing page because the two ends
+// are on different pages: the reference is written on the cart page and read on
+// the checkout page, and only utils is loaded by both.
+
+const RECOVERY_REF_KEY = "cart_recovery_ref";
+
+// Housekeeping, not enforcement. The server has its own attribution window and
+// is the only thing that decides what counts; this just stops a reference from
+// a fortnight ago riding along on every order in the meantime.
+const RECOVERY_REF_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+
+const rememberRecoveryRef = (reference) => {
+    if (!reference) return;
+
+    setJSON(RECOVERY_REF_KEY, { ref: String(reference), storedAt: Date.now() });
+};
+
+const getRecoveryRef = () => {
+    const stored = getJSON(RECOVERY_REF_KEY, null);
+
+    if (!stored || !stored.ref) return null;
+
+    if (Date.now() - safeNumber(stored.storedAt, 0) > RECOVERY_REF_TTL_MS) {
+        removeStorage(RECOVERY_REF_KEY);
+        return null;
+    }
+
+    return stored.ref;
+};
+
+const clearRecoveryRef = () => removeStorage(RECOVERY_REF_KEY);
+
 const getCartCount = (
     cart = getCart()
 ) => {
@@ -2026,6 +2063,9 @@ window.AppUtils = {
     mergeCartLines,
     hydrateCartFromServer,
     mergeGuestCartIntoAccount,
+    rememberRecoveryRef,
+    getRecoveryRef,
+    clearRecoveryRef,
     validateCoupon,
     calculateCartTotals,
     fetchCartQuote,

@@ -13,6 +13,7 @@ const paymentService = require("../services/payment.service");
 const CURRENCY = require("../config/currency");
 const { generateInvoicePdf } = require("../services/invoice.service");
 const inventoryReservationService = require("../services/inventoryReservationService");
+const stockCounter = require("../services/stockCounterService");
 
 const {
     safeNumber,
@@ -541,19 +542,22 @@ const getOrderStatus = async (req, res) => {
  * for.
  */
 const performOrderStatusUpdate = async (connection, id, currentStatus, newStatus, context = {}) => {
-    // if cancelling a previously un-cancelled order, restore stock
+    // If cancelling a previously un-cancelled order, put the units back on the
+    // counter the sale took them from. Crediting only the product total would
+    // leave the size the shopper actually cancelled permanently short.
     if (newStatus === "cancelled" && currentStatus !== "cancelled") {
         const [items] = await connection.query(
-            "SELECT product_id, qty FROM order_items WHERE order_id = ?",
+            "SELECT product_id, variant_id, qty FROM order_items WHERE order_id = ?",
             [id]
         );
 
         for (const item of safeArray(items)) {
             if (item.product_id) {
-                await connection.query(
-                    "UPDATE products SET stock = stock + ? WHERE id = ?",
-                    [item.qty, item.product_id]
-                );
+                await stockCounter.restoreStock(connection, {
+                    productId: item.product_id,
+                    variantId: item.variant_id,
+                    quantity: item.qty
+                });
             }
         }
     }
@@ -1080,6 +1084,32 @@ const getFulfilmentReport = async (req, res) => {
     }
 };
 
+// What the recovery programme brought back, and which message brought it
+// (#1429). Read straight off the orders that recorded it, so the figure does
+// not move when the reporting code does.
+const getRecoveryReport = async (req, res) => {
+    try {
+        const days = safeInteger(req.query.days, 30);
+
+        const [revenue, byStage] = await Promise.all([
+            cartRecoveryAttribution.getRecoveredRevenue({ days }),
+            cartRecoveryAttribution.getRecoveryByStage({ days })
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            data: { ...revenue, byStage }
+        });
+    } catch (error) {
+        console.error("GET RECOVERY REPORT ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to build the recovery report"
+        });
+    }
+};
+
 module.exports = {
     createOrder,
     getAllOrders,
@@ -1087,6 +1117,7 @@ module.exports = {
     getOrderById,
     getOrderTimeline,
     getFulfilmentReport,
+    getRecoveryReport,
     getOrderStatus,
     updateOrderStatus,
     cancelUserOrder,
