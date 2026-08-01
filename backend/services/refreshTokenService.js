@@ -1,22 +1,16 @@
 // backend/services/refreshTokenService.js
 // Automatic Token Rotation (ATR) + reuse detection (#1261)
 const crypto = require('crypto');
-const Redis = require('ioredis');
 const db = require('../config/db');
 
 const REFRESH_TOKEN_TTL_DAYS = parseInt(process.env.REFRESH_TOKEN_TTL_DAYS, 10) || 30;
 const REDIS_FAMILY_TTL_SEC = REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60;
 const FINGERPRINT_STRICT = process.env.REFRESH_FINGERPRINT_STRICT === 'true';
 
-const redis = new Redis({
-    host: process.env.REDIS_HOST || 'localhost',
-    port: process.env.REDIS_PORT || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
-    retryStrategy: (times) => Math.min(times * 50, 2000),
-    maxRetriesPerRequest: 3,
-    lazyConnect: true,
-    enableOfflineQueue: false
-});
+// Shared client -- see config/redis.js. A per-module `new Redis({ ... })`
+// means an extra connection and an extra reconnect loop per module, and
+// makes the module impossible to load without a live Redis (#1341).
+const redis = require("../config/redis");
 
 let redisReady = false;
 redis.connect().then(() => { redisReady = true; }).catch(() => { redisReady = false; });

@@ -28,11 +28,6 @@ Two independent packages (no monorepo tooling):
   `backend/scripts/migrate.js`. Never pipe SQL into `mysql` by hand — the runner
   records what it applied and checksums it, so out-of-band SQL desynchronises it.
 - `migrations/0001_baseline_schema.sql` is the adopted baseline and is immutable
-- `migrations/README.md` records which definition won for each table that used to
-  be declared more than once, and why
-- `backend/sql/` holds feature schemas not yet folded into the sequence; they are
-  not applied by the runner. New schema changes go in `migrations/`
-- `docs/legacy/ecommerce-mysql-dump.sql` is a historical dump, not a setup step
 - DB uses utf8mb4 charset, connection pool with auto-retry and exponential backoff
 
 ## Setup
