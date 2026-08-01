@@ -21,7 +21,12 @@
 // needs to know that logging in would help.
 
 const db = require('../config/db');
-const { PERMISSIONS, hasPermission, isAdminRole } = require('../config/policy');
+const {
+    PERMISSIONS,
+    hasPermission,
+    isAdminRole,
+    markPolicyMiddleware
+} = require('../config/policy');
 
 // Table and column names are interpolated into SQL, so they are constrained to
 // plain identifiers. They come from route wiring rather than from a request,
@@ -130,7 +135,7 @@ function requireOwnership(loadOwnerId, options = {}) {
         throw new Error(`Unknown permission: ${privilegedPermission}`);
     }
 
-    return async function ownershipGuard(req, res, next) {
+    return markPolicyMiddleware(async function ownershipGuard(req, res, next) {
         const userId = callerId(req);
 
         if (!req.user || userId === null) {
@@ -170,7 +175,7 @@ function requireOwnership(loadOwnerId, options = {}) {
                 message: 'Failed to verify access to this resource'
             });
         }
-    };
+    }, { ownership: resourceName, allowPrivileged });
 }
 
 module.exports = requireOwnership;

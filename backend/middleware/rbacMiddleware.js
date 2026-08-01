@@ -11,13 +11,19 @@
 const User = require("../models/User");
 const logger = require("../utils/logger");
 const db = require("../config/db");
-const { ADMIN_ROLES, ERROR_CODES, expandRoles, satisfiesRoles } = require("../config/policy");
+const {
+    ADMIN_ROLES,
+    ERROR_CODES,
+    expandRoles,
+    markPolicyMiddleware,
+    satisfiesRoles
+} = require("../config/policy");
 
 // =====================
 // MAIN RBAC MIDDLEWARE
 // =====================
 const authorizeRoles = (...roles) => {
-    return async (req, res, next) => {
+    return markPolicyMiddleware(async function authorizeRolesMiddleware(req, res, next) {
         try {
             // STEP 1: Check if user is authenticated
             if (!req.user || !req.user.id) {
@@ -143,7 +149,7 @@ const authorizeRoles = (...roles) => {
                 message: "An error occurred while verifying access. Please try again."
             });
         }
-    };
+    }, { roles: expandRoles(roles) });
 };
 
 // =====================

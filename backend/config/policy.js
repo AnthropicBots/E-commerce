@@ -127,6 +127,36 @@ const ERROR_CODES = Object.freeze({
 });
 
 /**
+ * Stamped onto every middleware that carries an access decision.
+ *
+ * The route audit needs to tell a guard from an ordinary handler, and function
+ * names are not a safe signal: they survive minification badly, and a handler
+ * called `checkAccess` that checks nothing would pass a name test. A symbol
+ * can only be present because this module put it there.
+ */
+const POLICY_MARKER = Symbol.for('ecommerce.policyMiddleware');
+
+/**
+ * Declare a middleware as policy-bearing.
+ *
+ * @param {Function} middleware
+ * @param {object} [meta] describes what the middleware enforces, for reporting
+ * @returns {Function} the same middleware
+ */
+function markPolicyMiddleware(middleware, meta = {}) {
+    middleware[POLICY_MARKER] = { ...meta };
+    return middleware;
+}
+
+/**
+ * @param {*} middleware
+ * @returns {boolean} true when the middleware carries an access decision
+ */
+function isPolicyMiddleware(middleware) {
+    return typeof middleware === 'function' && Boolean(middleware[POLICY_MARKER]);
+}
+
+/**
  * Reduce anything role-shaped to a comparable string.
  * Roles arrive from JWT claims and from MySQL, so casing and padding vary.
  *
@@ -253,7 +283,7 @@ function authorize(permission) {
         throw new Error(`Unknown permission: ${permission}`);
     }
 
-    return function authorizePermission(req, res, next) {
+    return markPolicyMiddleware(function authorizePermission(req, res, next) {
         if (!req.user) {
             return res.status(401).json({
                 success: false,
@@ -271,7 +301,7 @@ function authorize(permission) {
         }
 
         return next();
-    };
+    }, { permission });
 }
 
 module.exports = {
@@ -282,6 +312,9 @@ module.exports = {
     ROLE_PERMISSIONS,
     ADMIN_ROLES,
     ERROR_CODES,
+    POLICY_MARKER,
+    markPolicyMiddleware,
+    isPolicyMiddleware,
     normalizeRole,
     isValidRole,
     isAdminRole,
