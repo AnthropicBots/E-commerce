@@ -84,6 +84,15 @@ const CART_RECOVERY_CONFIG = Object.freeze({
     // not indefinitely valuable to whoever else ends up reading it.
     RESTORE_LINK_TTL_MINUTES:
         Number(process.env.CART_RECOVERY_RESTORE_LINK_TTL_MINUTES) ||
+        3 * MINUTES_PER_DAY,
+
+    // How long after spending a link an order still counts as recovered by it.
+    // Someone who restores a basket, sleeps on it and buys the next morning was
+    // recovered; someone whose browser kept the reference for a fortnight and
+    // then bought something unrelated was not. Matching the link's own lifetime
+    // keeps the two windows from having to be reasoned about separately.
+    ATTRIBUTION_WINDOW_MINUTES:
+        Number(process.env.CART_RECOVERY_ATTRIBUTION_WINDOW_MINUTES) ||
         3 * MINUTES_PER_DAY
 });
 

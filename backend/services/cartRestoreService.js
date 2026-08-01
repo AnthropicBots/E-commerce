@@ -81,10 +81,13 @@ function sha256(value) {
  * @param {object} params
  * @param {string} params.cartId
  * @param {string} params.userId
+ * @param {string} [params.recoveryLogId] - The send this link was minted for,
+ *   so an order arriving through it can be credited to the message that earned
+ *   it rather than to the programme in general (#1429).
  * @param {number} [params.ttlMinutes]
  * @returns {Promise<{token: string, tokenId: string, expiresInMinutes: number}>}
  */
-async function issueRestoreToken({ cartId, userId, ttlMinutes }) {
+async function issueRestoreToken({ cartId, userId, recoveryLogId, ttlMinutes }) {
     const cart = safeUUID(cartId);
     const owner = safeUUID(userId);
 
@@ -109,9 +112,9 @@ async function issueRestoreToken({ cartId, userId, ttlMinutes }) {
 
     await db.query(
         `INSERT INTO cart_restore_tokens
-            (id, token_hash, cart_id, user_id, expires_at)
-         VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? MINUTE))`,
-        [tokenId, sha256(token), cart, owner, ttl]
+            (id, token_hash, cart_id, user_id, recovery_log_id, expires_at)
+         VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? MINUTE))`,
+        [tokenId, sha256(token), cart, owner, safeUUID(recoveryLogId), ttl]
     );
 
     return { token, tokenId, expiresInMinutes: ttl };
@@ -136,8 +139,13 @@ function buildRestoreUrl(token) {
 /**
  * Spend a restore link and hand back the basket it covers.
  *
+ * The `recoveryRef` in the reply is the identifier of the link that was just
+ * spent, so an order placed from the restored basket can say which link earned
+ * it (#1429). It is not a second credential: the link it names is already
+ * spent, and presenting the reference buys nothing but a line in a report.
+ *
  * @param {string} rawToken
- * @returns {Promise<{items: Array, itemCount: number}>}
+ * @returns {Promise<{items: Array, itemCount: number, recoveryRef: string}>}
  * @throws {Error} With `status` and `code` set, for every refusal.
  */
 async function redeemRestoreToken(rawToken) {
@@ -200,7 +208,7 @@ async function redeemRestoreToken(rawToken) {
         );
     }
 
-    return { items, itemCount: items.length };
+    return { items, itemCount: items.length, recoveryRef: record.id };
 }
 
 /**

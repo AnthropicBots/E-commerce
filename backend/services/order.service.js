@@ -10,9 +10,7 @@ const logger = require("../utils/logger");
 const { validatePromo } = require("./promo.service");
 const pricing = require("./pricing.service");
 const cartLifecycle = require("./cartLifecycleService");
-const stockCounter = require("./stockCounterService");
-
-const { NO_VARIANT_ID } = stockCounter;
+const cartRecoveryAttribution = require("./cartRecoveryAttributionService");
 
 // Marks the one failure the client can act on, so controllers can answer with
 // the specific figures instead of a generic server error.
@@ -215,6 +213,9 @@ const createOrderService = async (connection, orderData) => {
             // deletes the saved address -- and this only records *which* saved
             // address the order came from.
             address_id,
+            // Abandoned-cart recovery (#1429). The reference to the restore
+            // link this basket came back through, if it came back through one.
+            recovery_ref,
         } = orderData;
 
         // validate empty cart
@@ -269,6 +270,17 @@ const createOrderService = async (connection, orderData) => {
         const crypto = require("crypto");
         const orderId = crypto.randomUUID();
 
+        // Resolved on this connection, inside the caller's transaction: an
+        // order that rolls back must not leave a claim that it was recovered.
+        // A reference that does not check out costs the order nothing -- it is
+        // simply not attributed.
+        const { recoveryTokenId, recoveredCartId } =
+            await cartRecoveryAttribution.resolveAttribution({
+                recoveryRef: recovery_ref,
+                userId: user_id,
+                connection,
+            });
+
         // create order
         const orderQuery = `
             INSERT INTO orders (
@@ -292,12 +304,14 @@ const createOrderService = async (connection, orderData) => {
                 discount,
                 discount_code,
                 promo_code,
+                recovery_token_id,
+                recovered_cart_id,
                 discount_amount,
                 final_amount,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         `;
 
         const [orderResult] = await connection.query(orderQuery, [
@@ -321,6 +335,8 @@ const createOrderService = async (connection, orderData) => {
             discountAmount,
             appliedPromoCode,
             appliedPromoCode,
+            recoveryTokenId,
+            recoveredCartId,
             discountAmount,
             breakdown.total,
         ]);
@@ -430,6 +446,10 @@ const createOrderService = async (connection, orderData) => {
                 );
                 logger.info(`Recorded promo usage for user ${user_id} and promo ${appliedPromoId}`);
             }
+        }
+
+        if (recoveredCartId) {
+            logger.info(`Order ${orderId} recovered cart ${recoveredCartId}`);
         }
 
         logger.info(`Order created successfully: ${orderId} by user ${user_id || 'guest'}`);

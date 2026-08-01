@@ -101,6 +101,10 @@ const restoreCartFromLink = async () => {
     // be signed in.
     AppUtils.saveCart(merged);
 
+    // Carried to checkout so an order out of this basket is recorded as
+    // recovered rather than inferred to be (#1429).
+    AppUtils.rememberRecoveryRef(response.recoveryRef);
+
     AppUtils.notify("Your basket is back.", "success");
 };
 
