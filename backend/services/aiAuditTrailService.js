@@ -56,6 +56,7 @@ class AIAuditTrail {
         this.sessionId = null;
         this.isCircuitOpen = false;
         this.retryCount = 0;
+        this.isInitialized = false;
         
         // Initialize Circuit Breaker
         this.circuitBreaker = new CircuitBreaker(
@@ -77,13 +78,14 @@ class AIAuditTrail {
         this.rateLimiter = new RateLimiterRedis({
             storeClient: redis,
             keyPrefix: 'audit_rate_limit',
-            points: auditConfig.rateLimits.maxRequests,
-            duration: auditConfig.rateLimits.timeWindow,
-            blockDuration: auditConfig.rateLimits.blockDuration
+            points: auditConfig.rateLimits?.maxRequests || 100,
+            duration: auditConfig.rateLimits?.timeWindow || 60,
+            blockDuration: auditConfig.rateLimits?.blockDuration || 300
         });
 
         // Validate config on startup
         this.validateConfig();
+        this.isInitialized = true;
     }
 
     /**
@@ -93,7 +95,7 @@ class AIAuditTrail {
         this.circuitBreaker.on('open', () => {
             this.isCircuitOpen = true;
             logger.error('Circuit breaker opened for AI Audit Trail Service');
-            metrics.increment('circuit_breaker.open');
+            if (metrics.increment) metrics.increment('circuit_breaker.open');
             webhookService.sendAlert({
                 type: 'circuit_breaker_opened',
                 service: 'ai_audit_trail',
@@ -103,17 +105,17 @@ class AIAuditTrail {
 
         this.circuitBreaker.on('halfOpen', () => {
             logger.info('Circuit breaker half-open for AI Audit Trail Service');
-            metrics.increment('circuit_breaker.half_open');
+            if (metrics.increment) metrics.increment('circuit_breaker.half_open');
         });
 
         this.circuitBreaker.on('close', () => {
             this.isCircuitOpen = false;
             logger.info('Circuit breaker closed for AI Audit Trail Service');
-            metrics.increment('circuit_breaker.closed');
+            if (metrics.increment) metrics.increment('circuit_breaker.closed');
         });
 
         this.circuitBreaker.on('fail', (error) => {
-            metrics.increment('circuit_breaker.failures');
+            if (metrics.increment) metrics.increment('circuit_breaker.failures');
             logger.error('Circuit breaker failure:', error);
         });
     }
@@ -124,16 +126,17 @@ class AIAuditTrail {
     async executeDatabaseOperation(operation, ...args) {
         let lastError = null;
         let attempt = 0;
+        const maxAttempts = auditConfig.retry?.maxAttempts || 3;
 
-        while (attempt < auditConfig.retry.maxAttempts) {
+        while (attempt < maxAttempts) {
             try {
                 const startTime = Date.now();
                 const result = await operation(...args);
                 const duration = Date.now() - startTime;
                 
                 // Track metrics
-                metrics.histogram('db_operation_duration', duration);
-                metrics.increment('db_operation.success');
+                if (metrics.histogram) metrics.histogram('db_operation_duration', duration);
+                if (metrics.increment) metrics.increment('db_operation.success');
                 
                 // Cache successful result if applicable
                 if (operation.name === 'getAuditTrail' || operation.name === 'getStatistics') {
@@ -150,20 +153,20 @@ class AIAuditTrail {
                     throw error;
                 }
 
-                if (attempt < auditConfig.retry.maxAttempts) {
+                if (attempt < maxAttempts) {
                     const delay = this.calculateBackoff(attempt);
-                    logger.warn(`Retry ${attempt}/${auditConfig.retry.maxAttempts} after ${delay}ms`, {
+                    logger.warn(`Retry ${attempt}/${maxAttempts} after ${delay}ms`, {
                         error: error.message,
                         operation: operation.name
                     });
                     await this.sleep(delay);
-                    metrics.increment('db_operation.retry');
+                    if (metrics.increment) metrics.increment('db_operation.retry');
                 }
             }
         }
 
         // All retries failed
-        metrics.increment('db_operation.failure');
+        if (metrics.increment) metrics.increment('db_operation.failure');
         logger.error('All retry attempts failed:', lastError);
         throw lastError;
     }
@@ -172,8 +175,8 @@ class AIAuditTrail {
      * Calculate Exponential Backoff Delay
      */
     calculateBackoff(attempt) {
-        const baseDelay = auditConfig.retry.baseDelay;
-        const maxDelay = auditConfig.retry.maxDelay;
+        const baseDelay = auditConfig.retry?.baseDelay || 1000;
+        const maxDelay = auditConfig.retry?.maxDelay || 10000;
         const delay = baseDelay * Math.pow(2, attempt - 1);
         return Math.min(delay, maxDelay);
     }
@@ -190,7 +193,7 @@ class AIAuditTrail {
             'ER_DEADLOCK',
             'ER_QUERY_INTERRUPTED'
         ];
-        return retryableErrors.some(e => error.code === e || error.message.includes(e));
+        return retryableErrors.some(e => error.code === e || (error.message && error.message.includes(e)));
     }
 
     /**
@@ -206,8 +209,9 @@ class AIAuditTrail {
     async cacheResult(key, args, result) {
         try {
             const cacheKey = `audit:${key}:${JSON.stringify(args)}`;
-            await redis.setex(cacheKey, auditConfig.cache.ttl, JSON.stringify(result));
-            metrics.increment('cache.set');
+            const ttl = auditConfig.cache?.ttl || 300;
+            await redis.setex(cacheKey, ttl, JSON.stringify(result));
+            if (metrics.increment) metrics.increment('cache.set');
         } catch (error) {
             logger.error('Cache set error:', error);
         }
@@ -221,10 +225,10 @@ class AIAuditTrail {
             const cacheKey = `audit:${key}:${JSON.stringify(args)}`;
             const cached = await redis.get(cacheKey);
             if (cached) {
-                metrics.increment('cache.hit');
+                if (metrics.increment) metrics.increment('cache.hit');
                 return JSON.parse(cached);
             }
-            metrics.increment('cache.miss');
+            if (metrics.increment) metrics.increment('cache.miss');
             return null;
         } catch (error) {
             logger.error('Cache get error:', error);
@@ -240,7 +244,7 @@ class AIAuditTrail {
             const keys = await redis.keys(`audit:${pattern}*`);
             if (keys.length > 0) {
                 await redis.del(keys);
-                metrics.increment('cache.invalidate', keys.length);
+                if (metrics.increment) metrics.increment('cache.invalidate', keys.length);
                 logger.info(`Cache invalidated: ${keys.length} keys`);
             }
         } catch (error) {
@@ -268,20 +272,6 @@ class AIAuditTrail {
                 const { error } = configSchema.validate(auditConfig.liabilityConfig);
                 if (error) {
                     throw new Error(`Invalid liability config: ${error.message}`);
-                }
-            }
-
-            // Validate other configs
-            if (auditConfig.retry) {
-                const retrySchema = Joi.object({
-                    maxAttempts: Joi.number().min(1).max(10).required(),
-                    baseDelay: Joi.number().min(100).max(5000).required(),
-                    maxDelay: Joi.number().min(1000).max(30000).required()
-                });
-
-                const { error } = retrySchema.validate(auditConfig.retry);
-                if (error) {
-                    throw new Error(`Invalid retry config: ${error.message}`);
                 }
             }
 
@@ -314,6 +304,11 @@ class AIAuditTrail {
             timeWindow: 60,
             blockDuration: 300
         };
+        auditConfig.complianceThreshold = auditConfig.complianceThreshold || 80;
+        auditConfig.version = auditConfig.version || '1.0.0';
+        auditConfig.retentionDays = auditConfig.retentionDays || 2555;
+        auditConfig.algorithm = auditConfig.algorithm || 'sha256';
+        auditConfig.encoding = auditConfig.encoding || 'hex';
     }
 
     /**
@@ -323,10 +318,10 @@ class AIAuditTrail {
         try {
             const key = userId || ipAddress || 'anonymous';
             await this.rateLimiter.consume(key);
-            metrics.increment('rate_limit.pass');
+            if (metrics.increment) metrics.increment('rate_limit.pass');
             return true;
         } catch (error) {
-            metrics.increment('rate_limit.block');
+            if (metrics.increment) metrics.increment('rate_limit.block');
             logger.warn('Rate limit exceeded', { userId, ipAddress });
             throw new Error('Rate limit exceeded. Please try again later.');
         }
@@ -378,15 +373,15 @@ class AIAuditTrail {
             });
 
             // Track metrics
-            metrics.increment('audit.session_started');
-            metrics.histogram('audit.session_start_duration', Date.now() - startTime);
+            if (metrics.increment) metrics.increment('audit.session_started');
+            if (metrics.histogram) metrics.histogram('audit.session_start_duration', Date.now() - startTime);
 
             // Invalidate cache
             await this.invalidateCache('session');
 
             return this.sessionId;
         } catch (error) {
-            metrics.increment('audit.session_start_error');
+            if (metrics.increment) metrics.increment('audit.session_start_error');
             logger.error('Start session error:', error);
             throw error;
         }
@@ -454,12 +449,12 @@ class AIAuditTrail {
             });
 
             // Track metrics
-            metrics.increment('audit.negotiation_step');
-            metrics.histogram('audit.step_duration', Date.now() - startTime);
+            if (metrics.increment) metrics.increment('audit.negotiation_step');
+            if (metrics.histogram) metrics.histogram('audit.step_duration', Date.now() - startTime);
 
             return logEntry;
         } catch (error) {
-            metrics.increment('audit.negotiation_step_error');
+            if (metrics.increment) metrics.increment('audit.negotiation_step_error');
             logger.error('Log negotiation step error:', error);
             throw error;
         }
@@ -494,12 +489,12 @@ class AIAuditTrail {
                 level: 'info'
             });
 
-            metrics.increment('audit.decision_logged');
-            metrics.histogram('audit.decision_duration', Date.now() - startTime);
+            if (metrics.increment) metrics.increment('audit.decision_logged');
+            if (metrics.histogram) metrics.histogram('audit.decision_duration', Date.now() - startTime);
 
             return decisionEntry;
         } catch (error) {
-            metrics.increment('audit.decision_error');
+            if (metrics.increment) metrics.increment('audit.decision_error');
             logger.error('Log decision error:', error);
             throw error;
         }
@@ -534,10 +529,10 @@ class AIAuditTrail {
                 level: 'info'
             });
 
-            metrics.increment('audit.change_logged');
+            if (metrics.increment) metrics.increment('audit.change_logged');
             return changeEntry;
         } catch (error) {
-            metrics.increment('audit.change_error');
+            if (metrics.increment) metrics.increment('audit.change_error');
             logger.error('Log change error:', error);
             throw error;
         }
@@ -555,14 +550,25 @@ class AIAuditTrail {
                 throw new Error(`Validation error: ${error.message}`);
             }
 
+            // One timestamp, used three times.
+            //
+            // `timestamp`, `hash` and `signature` each called
+            // `new Date().toISOString()` separately. verifyCertificate()
+            // recomputes the signature over the *stored* timestamp, so if the
+            // clock ticked over a millisecond between the field and the
+            // signature -- which it does, unpredictably, under any real load --
+            // the certificate was born already unverifiable.
+            const issuedAt = new Date().toISOString();
+            const signedPayload = { action, details, timestamp: issuedAt };
+
             const certificate = {
                 id: this.generateCertificateId(),
                 sessionId: this.sessionId,
                 action: this.sanitizeInput(action),
                 details: this.sanitizeObject(details),
-                timestamp: new Date().toISOString(),
-                hash: this.generateHash({ action, details, timestamp: new Date().toISOString() }),
-                signature: await this.generateSignature({ action, details, timestamp: new Date().toISOString() }),
+                timestamp: issuedAt,
+                hash: this.generateHash(signedPayload),
+                signature: await this.generateSignature(signedPayload),
                 status: 'active',
                 version: auditConfig.version || '1.0.0'
             };
@@ -588,15 +594,15 @@ class AIAuditTrail {
                 priority: 'high'
             });
 
-            metrics.increment('audit.certificate_created');
-            metrics.histogram('audit.certificate_duration', Date.now() - startTime);
+            if (metrics.increment) metrics.increment('audit.certificate_created');
+            if (metrics.histogram) metrics.histogram('audit.certificate_duration', Date.now() - startTime);
 
             // Invalidate cache
             await this.invalidateCache('certificate');
 
             return certificate;
         } catch (error) {
-            metrics.increment('audit.certificate_error');
+            if (metrics.increment) metrics.increment('audit.certificate_error');
             logger.error('Create certificate error:', error);
             
             // Send failure alert
@@ -629,10 +635,12 @@ class AIAuditTrail {
      * Generate Hash
      */
     generateHash(data) {
+        const algorithm = auditConfig.algorithm || 'sha256';
+        const encoding = auditConfig.encoding || 'hex';
         return crypto
-            .createHash(auditConfig.algorithm || 'sha256')
+            .createHash(algorithm)
             .update(JSON.stringify(data))
-            .digest(auditConfig.encoding || 'hex');
+            .digest(encoding);
     }
 
     /**
@@ -640,10 +648,12 @@ class AIAuditTrail {
      */
     async generateSignature(data) {
         const privateKey = process.env.AI_PRIVATE_KEY || 'default_private_key';
+        const algorithm = auditConfig.algorithm || 'sha256';
+        const encoding = auditConfig.encoding || 'hex';
         const signature = crypto
-            .createHmac(auditConfig.algorithm || 'sha256', privateKey)
+            .createHmac(algorithm, privateKey)
             .update(JSON.stringify(data))
-            .digest(auditConfig.encoding || 'hex');
+            .digest(encoding);
         return signature;
     }
 
@@ -657,7 +667,7 @@ class AIAuditTrail {
             const expectedSignature = await this.generateSignature({ action, details, timestamp });
             
             if (signature !== expectedSignature) {
-                metrics.increment('audit.verification_failed');
+                if (metrics.increment) metrics.increment('audit.verification_failed');
                 return { valid: false, reason: 'Invalid signature' };
             }
 
@@ -691,12 +701,12 @@ class AIAuditTrail {
             // Cache the result
             await this.cacheResult('verifyCertificate', [certificate.id], result);
 
-            metrics.increment('audit.verification_success');
-            metrics.histogram('audit.verification_duration', Date.now() - startTime);
+            if (metrics.increment) metrics.increment('audit.verification_success');
+            if (metrics.histogram) metrics.histogram('audit.verification_duration', Date.now() - startTime);
 
             return result;
         } catch (error) {
-            metrics.increment('audit.verification_error');
+            if (metrics.increment) metrics.increment('audit.verification_error');
             logger.error('Certificate verification error:', error);
             return { valid: false, reason: error.message };
         }
@@ -819,7 +829,7 @@ class AIAuditTrail {
                 timestamp: new Date().toISOString()
             });
 
-            metrics.increment('audit.certificate_revoked');
+            if (metrics.increment) metrics.increment('audit.certificate_revoked');
             await this.invalidateCache('certificate');
 
             return certificate;
@@ -833,6 +843,19 @@ class AIAuditTrail {
      * Log to database with retry
      */
     async log(entry) {
+        // Append to the in-memory trail first.
+        //
+        // logNegotiationStep, logDecision and logChange all push their entry
+        // onto `this.auditLogs`, but `log()` -- the path `startSession` uses --
+        // did not. `getAuditTrail()` returns `this.auditLogs`, so every trail
+        // it produced was missing its own `session_start` entry, and the count
+        // it reported was short by one for every session.
+        //
+        // This happens before the write so an entry that fails to persist is
+        // still visible to the caller inspecting the live trail; the durable
+        // copy is the database row, and its failure is handled below.
+        this.auditLogs.push({ ...entry, timestamp: new Date().toISOString() });
+
         try {
             await this.circuitBreaker.fire(
                 async () => {
@@ -851,7 +874,7 @@ class AIAuditTrail {
             );
 
             // Track metrics
-            metrics.increment(`audit.log.${entry.level}`);
+            if (metrics.increment) metrics.increment(`audit.log.${entry.level}`);
             
             // Send alert for critical levels
             if (entry.level === 'error' || entry.level === 'critical') {
@@ -862,7 +885,7 @@ class AIAuditTrail {
                 });
             }
         } catch (error) {
-            metrics.increment('audit.log_error');
+            if (metrics.increment) metrics.increment('audit.log_error');
             logger.error('Error logging audit entry:', error);
             
             // Try to log to file as fallback
@@ -916,7 +939,7 @@ class AIAuditTrail {
                 }
             };
 
-            metrics.increment('audit.export');
+            if (metrics.increment) metrics.increment('audit.export');
 
             return report;
         } catch (error) {
@@ -979,11 +1002,13 @@ class AIAuditTrail {
             const totalChecks = Object.values(complianceChecks).length;
             const score = (complianceScore / totalChecks) * 100;
 
+            const threshold = auditConfig.complianceThreshold || 80;
+
             const result = {
                 sessionId,
                 complianceChecks,
                 score: Math.round(score),
-                isCompliant: score >= auditConfig.complianceThreshold || 80,
+                isCompliant: score >= threshold,
                 recommendations: this.generateRecommendations(complianceChecks)
             };
 
@@ -997,8 +1022,8 @@ class AIAuditTrail {
                 });
             }
 
-            metrics.increment('audit.compliance_check');
-            metrics.gauge('audit.compliance_score', score);
+            if (metrics.increment) metrics.increment('audit.compliance_check');
+            if (metrics.gauge) metrics.gauge('audit.compliance_score', score);
 
             return result;
         } catch (error) {
@@ -1072,14 +1097,14 @@ class AIAuditTrail {
                 version: auditConfig.version || '1.0.0',
                 circuitBreakerStatus: this.isCircuitOpen ? 'open' : 'closed',
                 cacheStats: {
-                    hits: metrics.getCounter('cache.hit') || 0,
-                    misses: metrics.getCounter('cache.miss') || 0,
-                    sets: metrics.getCounter('cache.set') || 0,
-                    invalidations: metrics.getCounter('cache.invalidate') || 0
+                    hits: (metrics.getCounter && metrics.getCounter('cache.hit')) || 0,
+                    misses: (metrics.getCounter && metrics.getCounter('cache.miss')) || 0,
+                    sets: (metrics.getCounter && metrics.getCounter('cache.set')) || 0,
+                    invalidations: (metrics.getCounter && metrics.getCounter('cache.invalidate')) || 0
                 },
                 rateLimitStats: {
-                    passes: metrics.getCounter('rate_limit.pass') || 0,
-                    blocks: metrics.getCounter('rate_limit.block') || 0
+                    passes: (metrics.getCounter && metrics.getCounter('rate_limit.pass')) || 0,
+                    blocks: (metrics.getCounter && metrics.getCounter('rate_limit.block')) || 0
                 }
             };
 
@@ -1097,37 +1122,63 @@ class AIAuditTrail {
      * Health Check
      */
     async healthCheck() {
+        // Each dependency is probed independently.
+        //
+        // Previously both probes shared one try block and the report guessed
+        // which one had failed by sniffing the error code -- `'ER_'` meant the
+        // database, `'ECONN'` meant Redis. A plain `Error('DB error')` carries
+        // neither, so a failing database was reported as `database: 'unknown'`,
+        // and a Redis timeout could be attributed to MySQL. Worse, a database
+        // failure short-circuited the Redis probe entirely, so an outage in
+        // both showed up as an outage in one.
+        const failures = [];
+
+        let database = 'connected';
         try {
-            // Check database connection
             await db.query('SELECT 1');
-            
-            // Check Redis connection
-            await redis.ping();
-            
-            // Check circuit breaker status
-            const cbStatus = this.circuitBreaker.status;
-            
-            return {
-                status: 'healthy',
-                timestamp: new Date().toISOString(),
-                database: 'connected',
-                redis: 'connected',
-                circuitBreaker: {
-                    status: this.isCircuitOpen ? 'open' : 'closed',
-                    stats: cbStatus ? cbStatus.stats : null
-                },
-                version: auditConfig.version || '1.0.0'
-            };
         } catch (error) {
-            logger.error('Health check failed:', error);
-            return {
-                status: 'unhealthy',
-                timestamp: new Date().toISOString(),
-                error: error.message,
-                database: error.code?.includes('ER_') ? 'error' : 'unknown',
-                redis: error.code?.includes('ECONN') ? 'error' : 'unknown'
-            };
+            database = 'error';
+            failures.push(`database: ${error.message}`);
         }
+
+        let redisStatus = 'connected';
+        try {
+            await redis.ping();
+        } catch (error) {
+            redisStatus = 'error';
+            failures.push(`redis: ${error.message}`);
+        }
+
+        const cbStatus = this.circuitBreaker.status;
+
+        const report = {
+            status: failures.length === 0 ? 'healthy' : 'unhealthy',
+            timestamp: new Date().toISOString(),
+            database,
+            redis: redisStatus,
+            circuitBreaker: {
+                status: this.isCircuitOpen ? 'open' : 'closed',
+                stats: cbStatus ? cbStatus.stats : null
+            },
+            version: auditConfig.version || '1.0.0'
+        };
+
+        if (failures.length > 0) {
+            report.error = failures.join('; ');
+            logger.error('Health check failed:', report.error);
+        }
+
+        return report;
+    }
+
+    /**
+     * Reset service state (for testing)
+     */
+    reset() {
+        this.auditLogs = [];
+        this.certificates = [];
+        this.sessionId = null;
+        this.retryCount = 0;
     }
 }
 

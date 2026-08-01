@@ -44,7 +44,12 @@
             "women",
             "Women",
             "men",
-            "Men"
+            "Men",
+            "Footwear",
+            "Kids Wear",
+            "Watches",
+            "Bags",
+            "Accessories"
         ],
         electronics: [
             "Electronics",
@@ -190,6 +195,50 @@
         ],
         outdoortoys: [
             "Outdoor Toys"
+        ],
+        notebooks: [
+            "Notebooks",
+            "Notebook",
+            "Exercise Books",
+            "Journals",
+            "Diaries"
+        ],
+        pens: [
+            "Pens",
+            "Pen",
+            "Ball Pens",
+            "Gel Pens",
+            "Fountain Pens"
+        ],
+        pencils: [
+            "Pencils",
+            "Pencil",
+            "Color Pencils",
+            "Colored Pencils",
+            "Mechanical Pencils"
+        ],
+        schoolbags: [
+            "School Bags",
+            "School Bag",
+            "Backpacks",
+            "Backpack",
+            "Bags"
+        ],
+        officesupplies: [
+            "Office Supplies",
+            "Office Supply",
+            "Files",
+            "Folders",
+            "Staplers",
+            "Desk Organizers"
+        ],
+        artsupplies: [
+            "Art Supplies",
+            "Art Supply",
+            "Paints",
+            "Brushes",
+            "Sketchbooks",
+            "Drawing Supplies"
         ]
     };
 
@@ -236,15 +285,15 @@
     };
 
     const getProductReviewCount = (product) => {
-        const count = Number(
-            product?.num_reviews ??
-            product?.numReviews ??
-            product?.reviewCount ??
-            0
-        );
-
-        return Number.isFinite(count) ? count : 0;
-    };
+    const count = Number(
+        product?.num_reviews ??
+        product?.numReviews ??
+        product?.reviewCount ??
+        product?.sales_count ??  // ← ADD THIS LINE
+        0
+    );
+    return Number.isFinite(count) ? count : 0;
+};
 
     const getSearchHaystack = (product) =>
         [
@@ -362,7 +411,7 @@
             "price-low-high": (a, b) => getProductPrice(a) - getProductPrice(b),
             "price-high-low": (a, b) => getProductPrice(b) - getProductPrice(a),
             popularity: (a, b) => getProductReviewCount(b) - getProductReviewCount(a),
-            "highest-rated": (a, b) => getProductRating(b) - getProductRating(a),
+            "highest-rated": (a, b) => getProductRating(b) - getProductRating(a) || getProductTitle(a).localeCompare(getProductTitle(b)),
             "alphabetical-az": (a, b) =>
                 getProductTitle(a).localeCompare(getProductTitle(b))
         };

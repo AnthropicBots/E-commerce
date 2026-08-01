@@ -21,11 +21,17 @@ exports.getRecommendation = async (req, res) => {
       });
     }
 
+    const safeContext =
+      context &&
+        typeof context === "object" &&
+        !Array.isArray(context)
+        ? context
+        : {};
+
     const result = await getAIRecommendation(query, {
       userId: req.user.id,
-      ...context
+      ...safeContext
     });
-
     res.json({
       success: true,
       data: result.data,

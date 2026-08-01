@@ -1,0 +1,433 @@
+/*
+ * frontend/styles/addresses.css
+ *
+ * Saved address book (#1347). Serves two surfaces:
+ *   - the manager on profile.html (.address-*)
+ *   - the picker on checkout.html (.saved-address-*)
+ *
+ * Both follow the existing card language of profile.css and checkout.css --
+ * white surface, 16px radius, soft shadow -- so the section does not read as
+ * bolted on. Colours come from the palette already in base.css rather than new
+ * hex values, and the dark-mode block mirrors the one shipped for the other
+ * pages in #1096/#1156, so this section does not stay white when the rest of
+ * the page turns.
+ */
+
+/* ============================================================
+   PROFILE: address manager
+   ============================================================ */
+
+#address-book {
+    display: flex;
+    justify-content: center;
+}
+
+.address-book-inner {
+    width: 100%;
+    max-width: 1100px;
+}
+
+.address-book-head h2 {
+    margin-bottom: 6px;
+}
+
+.address-book-head p {
+    color: #6c757d;
+    margin-bottom: 24px;
+    max-width: 60ch;
+}
+
+.address-list {
+    display: grid;
+    /* auto-fill rather than auto-fit: a single saved address should stay a
+       card-sized card, not stretch across the whole viewport. */
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+    margin-bottom: 32px;
+}
+
+.address-empty {
+    color: #6c757d;
+    padding: 24px;
+    background: #f8f9fa;
+    border-radius: 12px;
+    border: 1px dashed #d5d9dd;
+}
+
+.address-card {
+    background: #fff;
+    border: 1px solid #e6e8eb;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.address-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+}
+
+/* The default is the address that will actually be used, so it is marked with
+   a border rather than only a badge -- findable without reading. */
+.address-card.is-default {
+    border-color: #088178;
+    box-shadow: 0 8px 30px rgba(8, 129, 120, 0.12);
+}
+
+.address-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.address-card-head h4 {
+    margin: 0;
+    font-size: 17px;
+}
+
+.address-badge,
+.saved-address-badge {
+    background: #088178;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 999px;
+}
+
+.address-card-recipient {
+    font-weight: 600;
+    color: #1d2b32;
+    margin: 0;
+}
+
+.address-card-line {
+    color: #6c757d;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.address-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.address-card-actions button {
+    border: 1px solid #d5d9dd;
+    background: transparent;
+    color: #1d2b32;
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.address-card-actions button:hover {
+    background: #088178;
+    border-color: #088178;
+    color: #fff;
+}
+
+.address-card-actions button.danger:hover {
+    background: #d64545;
+    border-color: #d64545;
+}
+
+/* Keyboard users need to see focus; the hover style alone is invisible to
+   them. */
+.address-card-actions button:focus-visible,
+.address-save-btn:focus-visible,
+.saved-address-option:focus-within {
+    outline: 2px solid #088178;
+    outline-offset: 2px;
+}
+
+/* ============================================================
+   PROFILE: add / edit form
+   ============================================================ */
+
+.address-form {
+    background: #fff;
+    border: 1px solid #e6e8eb;
+    border-radius: 16px;
+    padding: 28px;
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.06);
+}
+
+.address-form h3 {
+    margin: 0 0 20px;
+}
+
+.address-form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.address-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.address-field > span {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1d2b32;
+}
+
+/* The asterisk is decorative: `required` on the input is what actually carries
+   the meaning to assistive technology, so it is aria-hidden in the markup. */
+.address-field > span em {
+    color: #d64545;
+    font-style: normal;
+    margin-left: 2px;
+}
+
+.address-field input[type="text"],
+.address-field input[type="tel"] {
+    padding: 11px 13px;
+    border: 1px solid #d5d9dd;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    background: #fff;
+    color: #1d2b32;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.address-field input:focus {
+    outline: none;
+    border-color: #088178;
+    box-shadow: 0 0 0 3px rgba(8, 129, 120, 0.15);
+}
+
+.address-field-wide {
+    grid-column: span 2;
+}
+
+.address-field-checkbox {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    align-self: end;
+    padding-bottom: 11px;
+}
+
+.address-field-checkbox input {
+    width: 17px;
+    height: 17px;
+    accent-color: #088178;
+    cursor: pointer;
+}
+
+.address-field-checkbox span {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.address-save-btn {
+    background: #088178;
+    color: #fff;
+    border: none;
+    padding: 12px 26px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.address-save-btn:hover {
+    background: #066b64;
+    transform: translateY(-1px);
+}
+
+/* ============================================================
+   CHECKOUT: saved-address picker
+   ============================================================ */
+
+.saved-addresses {
+    background: #f8f9fa;
+    border: 1px solid #e6e8eb;
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 26px;
+}
+
+.saved-addresses h3 {
+    margin: 0 0 14px;
+    font-size: 16px;
+}
+
+.saved-address-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+}
+
+.saved-address-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    padding: 14px;
+    background: #fff;
+    border: 1px solid #d5d9dd;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.saved-address-option:hover {
+    border-color: #088178;
+}
+
+.saved-address-option.is-selected {
+    border-color: #088178;
+    box-shadow: 0 0 0 2px rgba(8, 129, 120, 0.18);
+}
+
+.saved-address-option input[type="radio"] {
+    margin-top: 3px;
+    accent-color: #088178;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.saved-address-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.saved-address-label {
+    font-weight: 600;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.saved-address-recipient {
+    font-size: 13px;
+    color: #1d2b32;
+}
+
+.saved-address-line {
+    font-size: 13px;
+    color: #6c757d;
+    line-height: 1.45;
+    /* Long single-token addresses (no spaces) would otherwise push the card
+       wider than its grid track and scroll the page sideways. */
+    overflow-wrap: anywhere;
+}
+
+.saved-address-clear {
+    margin-top: 14px;
+    background: transparent;
+    border: none;
+    color: #088178;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 4px 0;
+    text-decoration: underline;
+}
+
+.saved-address-clear:hover {
+    color: #066b64;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 799px) {
+    .address-list,
+    .saved-address-list {
+        grid-template-columns: 1fr;
+    }
+
+    .address-form {
+        padding: 20px;
+    }
+
+    .address-form-row {
+        grid-template-columns: 1fr;
+    }
+
+    /* The two-column span is meaningless once the grid is single-column, and
+       leaving it set makes the field overflow its track. */
+    .address-field-wide {
+        grid-column: auto;
+    }
+
+    .address-field-checkbox {
+        padding-bottom: 0;
+    }
+}
+
+/* ============================================================
+   DARK MODE
+   ============================================================
+   Mirrors the treatment the other pages received in #1096 and #1156. Without
+   it this section stays white while the rest of the page turns, which is the
+   exact defect those issues were filed for.
+*/
+
+body.dark-mode .address-card,
+body.dark-mode .address-form,
+body.dark-mode .saved-address-option {
+    background: #1e1e1e;
+    border-color: #333;
+    color: #e8e8e8;
+}
+
+body.dark-mode .saved-addresses,
+body.dark-mode .address-empty {
+    background: #181818;
+    border-color: #333;
+    color: #b8b8b8;
+}
+
+body.dark-mode .address-card-recipient,
+body.dark-mode .address-card-head h4,
+body.dark-mode .address-field > span,
+body.dark-mode .saved-address-label,
+body.dark-mode .saved-address-recipient,
+body.dark-mode .address-form h3 {
+    color: #e8e8e8;
+}
+
+body.dark-mode .address-card-line,
+body.dark-mode .address-book-head p,
+body.dark-mode .saved-address-line {
+    color: #a8a8a8;
+}
+
+body.dark-mode .address-field input[type="text"],
+body.dark-mode .address-field input[type="tel"] {
+    background: #262626;
+    border-color: #3a3a3a;
+    color: #e8e8e8;
+}
+
+body.dark-mode .address-card-actions button {
+    border-color: #3a3a3a;
+    color: #e8e8e8;
+}

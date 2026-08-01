@@ -55,7 +55,7 @@ const helmetMiddleware = helmet({
                 "https://js.stripe.com",
                 "https://cdn.jsdelivr.net"
             ],
-            
+            scriptSrcAttr: ["'none'"],
             styleSrc: [
                 "'self'",
                 "'unsafe-inline'",
@@ -74,6 +74,7 @@ const helmetMiddleware = helmet({
             imgSrc: [
                 "'self'",
                 "data:",
+                "blob:",
                 "https:",
                 "http:",
                 "https://ui-avatars.com",
@@ -108,7 +109,7 @@ const helmetMiddleware = helmet({
             reportUri: isProduction ? "/api/csp-report" : null
         },
         
-        reportOnly: !isProduction
+        reportOnly: false
     },
     
     originAgentCluster: true,

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorize } = require('../middleware/auth');
+const { authMiddleware } = require('../middleware/authMiddleware');
+const { authorizeRoles } = require('../middleware/rbacMiddleware');
 const {
     createNegotiation,
     getNegotiation,
@@ -21,19 +22,19 @@ const {
 } = require('../middleware/legalCompliance');
 
 // Protected routes
-router.post('/negotiation', protect, createNegotiation);
-router.get('/negotiation/:negotiationId', protect, getNegotiation);
-router.get('/negotiation/:negotiationId/audit', protect, getAuditTrail);
-router.get('/negotiation/:negotiationId/audit/export', protect, exportAuditTrail);
-router.post('/negotiation/:negotiationId/certificate', protect, issueCertificate);
-router.get('/certificate/:certificateId/verify', protect, verifyCertificate);
-router.get('/negotiation/:negotiationId/compliance', protect, checkCompliance);
-router.get('/negotiation/:negotiationId/compliance/report', protect, generateComplianceReport);
-router.post('/negotiation/:negotiationId/audit-ready', protect, authorize('admin'), markAuditReady);
+router.post('/negotiation', authMiddleware, createNegotiation);
+router.get('/negotiation/:negotiationId', authMiddleware, getNegotiation);
+router.get('/negotiation/:negotiationId/audit', authMiddleware, getAuditTrail);
+router.get('/negotiation/:negotiationId/audit/export', authMiddleware, exportAuditTrail);
+router.post('/negotiation/:negotiationId/certificate', authMiddleware, issueCertificate);
+router.get('/certificate/:certificateId/verify', authMiddleware, verifyCertificate);
+router.get('/negotiation/:negotiationId/compliance', authMiddleware, checkCompliance);
+router.get('/negotiation/:negotiationId/compliance/report', authMiddleware, generateComplianceReport);
+router.post('/negotiation/:negotiationId/audit-ready', authMiddleware, authorizeRoles('admin'), markAuditReady);
 
 // Routes with compliance checks
 router.post('/negotiation/:negotiationId/action', 
-    protect,
+    authMiddleware,
     logLegalEvent,
     checkLegalCompliance,
     requireCertificate,

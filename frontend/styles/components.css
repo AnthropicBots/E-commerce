@@ -145,26 +145,27 @@ html, body {
 
 .category-menu-dropdown {
     position: absolute;
-    top: calc(100% + 16px);
+    top: calc(100% + 8px);
     left: 0;
     display: grid;
-    grid-template-columns: minmax(190px, 0.72fr) minmax(520px, 1.8fr);
-    width: min(920px, calc(100vw - 48px));
-    min-height: 420px;
+    grid-template-columns: minmax(170px, 0.65fr) minmax(460px, 1.75fr);
+    width: min(720px, calc(100vw - 32px));
+    min-height: 280px;
+    max-height: 380px;
     padding: 0;
     border: 1px solid rgba(8, 129, 120, 0.14);
     border-radius: 8px;
     background: var(--white, #ffffff);
-    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.14);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
     overflow: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateY(8px) scale(0.98);
+    transform: translateY(6px) scale(0.98);
     transform-origin: top left;
     transition:
-        opacity 0.22s ease,
-        transform 0.22s ease,
-        visibility 0.22s ease;
+        opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+        transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+        visibility 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     visibility: hidden;
     z-index: 10001;
 }
@@ -182,9 +183,7 @@ html, body {
     transform: rotate(45deg);
 }
 
-.category-menu-item.is-open .category-menu-dropdown,
-.category-menu-item:hover .category-menu-dropdown,
-.category-menu-item:focus-within .category-menu-dropdown {
+.category-menu-item.is-open .category-menu-dropdown {
     opacity: 1;
     pointer-events: auto;
     transform: translateY(0) scale(1);
@@ -194,22 +193,24 @@ html, body {
 .mega-menu-sidebar {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 14px;
+    gap: 2px;
+    padding: 8px 10px;
     background: #f6faf9;
     border-right: 1px solid rgba(8, 129, 120, 0.12);
+    max-height: 380px;
+    overflow-y: auto;
 }
 
 .mega-menu-category {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     width: 100%;
-    min-height: 40px;
-    padding: 10px 12px;
+    min-height: 32px;
+    padding: 6px 10px;
     border-radius: 6px;
     color: var(--text-dark, #222);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 700;
     text-align: left;
     white-space: nowrap;
@@ -220,7 +221,7 @@ html, body {
 }
 
 .mega-menu-category i {
-    width: 20px;
+    width: 18px;
     color: var(--primary-color, #088178);
     text-align: center;
 }
@@ -230,8 +231,8 @@ html, body {
 .mega-menu-category.is-active {
     background: #ffffff;
     color: var(--primary-color, #088178);
-    box-shadow: 0 8px 18px rgba(8, 129, 120, 0.12);
-    transform: translateX(3px);
+    box-shadow: 0 4px 12px rgba(8, 129, 120, 0.1);
+    transform: translateX(2px);
 }
 
 .mega-menu-category:focus-visible,
@@ -244,10 +245,12 @@ html, body {
 
 .mega-menu-content {
     position: relative;
-    padding: 24px;
+    padding: 16px 20px;
     background:
         linear-gradient(135deg, rgba(255, 153, 0, 0.08), transparent 34%),
         #ffffff;
+    max-height: 380px;
+    overflow-y: auto;
 }
 
 .mega-menu-panel {
@@ -264,23 +267,23 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    padding-bottom: 14px;
-    margin-bottom: 18px;
+    gap: 12px;
+    padding-bottom: 8px;
+    margin-bottom: 12px;
     border-bottom: 1px solid rgba(8, 129, 120, 0.14);
 }
 
 .mega-menu-panel-header h3 {
     margin: 0;
     color: var(--text-dark, #222);
-    font-size: 22px;
+    font-size: 18px;
     font-weight: 800;
     line-height: 1.2;
 }
 
 .mega-menu-panel-header a {
     color: var(--primary-color, #088178);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     text-decoration: none;
     white-space: nowrap;
@@ -292,24 +295,24 @@ html, body {
 
 .mega-menu-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(150px, 1fr));
-    gap: 10px 14px;
+    grid-template-columns: repeat(2, minmax(130px, 1fr));
+    gap: 6px 10px;
 }
 
 .category-menu-link {
     display: flex;
     align-items: center;
-    min-height: 44px;
-    padding: 11px 12px;
+    min-height: 34px;
+    padding: 6px 10px;
     border-radius: 6px;
     color: var(--text-dark, #222);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     text-decoration: none;
     transition:
-        background-color 0.25s ease,
-        color 0.25s ease,
-        transform 0.25s ease;
+        background-color 0.2s ease,
+        color 0.2s ease,
+        transform 0.2s ease;
 }
 
 .category-menu-link:hover,
@@ -589,6 +592,89 @@ html, body {
     font-size: 18px;
     width: 24px;
     text-align: center;
+}
+
+/* Grocery Category Card Styles */
+.grocery-category-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    text-decoration: none;
+    background: #ffffff;
+    border: 1px solid rgba(8, 129, 120, 0.08);
+    border-radius: 12px;
+    padding: 12px 6px;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+.grocery-category-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--primary-color, #088178);
+    box-shadow: 0 10px 20px rgba(8, 129, 120, 0.1);
+}
+
+.grocery-card-img-wrapper {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    overflow: hidden;
+    margin-bottom: 8px;
+    border: 2px solid #f6faf9;
+    transition: all 0.3s ease;
+    background: #f6faf9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.grocery-category-card:hover .grocery-card-img-wrapper {
+    border-color: var(--primary-color, #088178);
+    transform: scale(1.08);
+}
+
+.grocery-card-img-wrapper img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.grocery-category-card span {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-dark, #222);
+    transition: color 0.3s ease;
+    line-height: 1.2;
+}
+
+.grocery-category-card:hover span {
+    color: var(--primary-color, #088178);
+}
+
+/* Dark Theme overrides */
+body.dark-theme .grocery-category-card {
+    background: #222;
+    border-color: #333;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+body.dark-theme .grocery-category-card:hover {
+    border-color: #39a4d6;
+    box-shadow: 0 10px 20px rgba(57, 164, 214, 0.15);
+}
+
+body.dark-theme .grocery-card-img-wrapper {
+    border-color: #1a1a1a;
+    background: #1a1a1a;
+}
+
+body.dark-theme .grocery-category-card span {
+    color: #e0e0e0;
+}
+
+body.dark-theme .grocery-category-card:hover span {
+    color: #39a4d6;
 }
 
 .mobile-badge {

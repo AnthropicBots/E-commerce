@@ -3,48 +3,19 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Compare products side-by-side with interactive glassmorphic matrix and spec highlights.">
+    <title>Compare Products | AnthropicBots E-Commerce</title>
 
-    <title>Compare Products | Cara Fashion Store</title>
+    <link rel="icon" type="image/png" href="assets/images/logo.png">
 
-    <link
-        rel="icon"
-        type="image/png"
-        href="assets/images/logo.png"
-    >
-
-    <link
-        rel="stylesheet"
-        href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css"
-    >
-
-    <link
-        rel="stylesheet"
-        href="styles/base.css"
-    >
-
-    <link
-        rel="stylesheet"
-        href="styles/layout.css"
-    >
-
-    <link
-        rel="stylesheet"
-        href="styles/components.css"
-    >
-
-    <link
-        rel="stylesheet"
-        href="styles/product-card.css"
-    >
-
-    <link
-        rel="stylesheet"
-        href="styles/style.css"
-    >
+    <link rel="stylesheet" href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css">
+    <link rel="stylesheet" href="styles/base.css">
+    <link rel="stylesheet" href="styles/layout.css">
+    <link rel="stylesheet" href="styles/components.css">
+    <link rel="stylesheet" href="styles/product-card.css">
+    <link rel="stylesheet" href="styles/style.css">
+    <link rel="stylesheet" href="styles/compare.css">
 </head>
 
 <body>
@@ -53,48 +24,58 @@
     <div id="navbar"></div>
 
     <!-- Compare Section -->
-    <section
-        id="compare-page"
-        class="section-p1"
-    >
-        <h2>
-            Compare Products
-        </h2>
+    <section id="compare-page" class="section-p1">
+        <div class="compare-page-header">
+            <h2>Product Specification Comparison</h2>
+            <p>Compare features, specifications, ratings, and prices side by side.</p>
+        </div>
 
-        <p>
-            Compare selected products side by side
-        </p>
+        <!-- Glassmorphic Toolbar -->
+        <div class="compare-toolbar">
+            <div class="compare-toolbar-group">
+                <label for="compare-sort-select"><strong>Sort By:</strong></label>
+                <select id="compare-sort-select" class="compare-select">
+                    <option value="">Default</option>
+                    <option value="price-asc">Price: Low to High</option>
+                    <option value="price-desc">Price: High to Low</option>
+                    <option value="rating-desc">Highest Rated</option>
+                    <option value="name-asc">Name: A-Z</option>
+                </select>
+            </div>
 
-        <div
-            id="compare-container"
-            class="products-grid"
-        ></div>
+            <div class="compare-toolbar-group">
+                <label class="toggle-diff-label">
+                    <input type="checkbox" id="toggle-diff-checkbox">
+                    <span>Show Differences Only</span>
+                </label>
+            </div>
+
+            <div class="compare-toolbar-group">
+                <button type="button" id="clear-compare-btn" class="btn" style="padding: 8px 16px; background: #ef4444; color: #fff; border-radius: 8px;">
+                    <i class="fas fa-trash-alt"></i> Clear Comparison
+                </button>
+            </div>
+        </div>
+
+        <!-- Glassmorphic Comparison Matrix Container -->
+        <div id="compare-container" class="compare-matrix-wrapper">
+            <div id="compare-matrix-content">
+                <p style="text-align: center; padding: 40px;">Loading comparison matrix...</p>
+            </div>
+        </div>
     </section>
 
     <!-- Footer -->
     <div id="footer"></div>
 
     <!-- Core Scripts -->
-    <script
-        src="scripts/config.js"
-    ></script>
-
-    <script
-        src="scripts/toast.js"
-    ></script>
-
-    <script
-        src="scripts/utils.js"
-    ></script>
-
-    <script
-        src="scripts/components.js"
-    ></script>
+    <script src="scripts/config.js"></script>
+    <script src="scripts/toast.js"></script>
+    <script src="scripts/utils.js"></script>
+    <script src="scripts/components.js"></script>
 
     <!-- Compare Script -->
-    <script
-        src="scripts/compare.js"
-    ></script>
+    <script src="scripts/compare.js"></script>
 
 </body>
 

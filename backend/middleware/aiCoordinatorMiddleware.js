@@ -1,7 +1,12 @@
+// backend/middleware/aiCoordinatorMiddleware.js
 const { AIAgentCoordinator } = require('../services/aiAgentCoordinator');
 const rateLimit = require('express-rate-limit');
 const logger = require('../utils/logger');
 const { sanitizeString } = require('../utils/helpers');
+
+// ============================================
+// CONSTANTS
+// ============================================
 
 const coordinator = new AIAgentCoordinator();
 
@@ -31,6 +36,10 @@ const validActions = [
     'validate', 'predict', 'optimize', 'review'
 ];
 
+// ============================================
+// VALIDATION FUNCTIONS
+// ============================================
+
 function validateAction(action) {
     if (!action || typeof action !== 'string') {
         throw new Error('Action must be a non-empty string');
@@ -55,6 +64,33 @@ function validateData(data) {
     return data;
 }
 
+function validateApprovalId(approvalId) {
+    if (!approvalId || typeof approvalId !== 'string' || approvalId.trim().length === 0) {
+        throw new Error('Approval ID is required and must be a non-empty string');
+    }
+    return approvalId.trim();
+}
+
+function validateDecision(decision) {
+    if (!decision || !['approve', 'reject'].includes(decision)) {
+        throw new Error('Decision must be "approve" or "reject"');
+    }
+    return decision;
+}
+
+function validateNotes(notes) {
+    if (notes !== undefined && notes !== null) {
+        if (typeof notes !== 'string') {
+            throw new Error('Notes must be a string');
+        }
+        if (notes.length > 1000) {
+            throw new Error('Notes cannot exceed 1000 characters');
+        }
+        return sanitizeString(notes.trim());
+    }
+    return null;
+}
+
 function sanitizeData(data) {
     if (typeof data === 'string') {
         return sanitizeString(data);
@@ -77,17 +113,30 @@ function getPriority(userRole) {
     return priorityMap[userRole] || 20;
 }
 
+// ============================================
+// SESSION CLEANUP
+// ============================================
+
 function cleanupSessions() {
     const now = Date.now();
+    let cleaned = 0;
     for (const [agentId, session] of coordinator.agentSessions) {
         if (now - session.lastAction > MAX_SESSION_AGE) {
             coordinator.agentSessions.delete(agentId);
+            cleaned++;
             logger.debug(`Cleaned up inactive session: ${agentId}`);
         }
+    }
+    if (cleaned > 0) {
+        logger.info(`Cleaned ${cleaned} inactive sessions`);
     }
 }
 
 setInterval(cleanupSessions, 60000);
+
+// ============================================
+// MIDDLEWARE
+// ============================================
 
 async function aiCoordinatorMiddleware(req, res, next) {
     const startTime = Date.now();
@@ -186,197 +235,221 @@ async function aiCoordinatorMiddleware(req, res, next) {
             requestId
         });
     }
+}
 
-    async function handleApproval(req, res) {
-        try {
-            const { approvalId } = req.params;
-            const { decision, notes } = req.body;
-            const approverId = req.user?.id || 'system';
+// ============================================
+// APPROVAL HANDLER
+// ============================================
 
-            if (!approvalId) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Approval ID is required'
-                });
-            }
+async function handleApproval(req, res) {
+    try {
+        const { approvalId } = req.params;
+        const { decision, notes } = req.body;
+        const approverId = req.user?.id || 'system';
 
-            if (!decision || !['approve', 'reject'].includes(decision)) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Decision must be "approve" or "reject"'
-                });
-            }
-
-            const sanitizedNotes = notes ? sanitizeString(notes.trim()) : null;
-
-            let result;
-            if (decision === 'approve') {
-                result = await coordinator.approveAction(approvalId, approverId, sanitizedNotes);
-            } else {
-                result = await coordinator.rejectAction(approvalId, approverId, sanitizedNotes);
-            }
-
-            logger.info(`Approval ${decision}d`, {
-                approvalId,
-                approverId,
-                decision,
-                notes: sanitizedNotes
-            });
-
-            res.json({
-                success: true,
-                message: `Action ${decision}d successfully`,
-                data: result
-            });
-
-        } catch (error) {
-            logger.error('Approval handling error:', error);
-
-            return res.status(500).json({
+        if (!approvalId) {
+            return res.status(400).json({
                 success: false,
-                error: 'Failed to process approval'
+                error: 'Approval ID is required'
             });
         }
-    }
 
-    async function getCoordinatorStatus(req, res) {
-        try {
-            if (req.user?.role !== 'admin') {
-                logger.warn(`Unauthorized status access attempt by user ${req.user?.id}`);
-                return res.status(403).json({
-                    success: false,
-                    error: 'Admin access required'
-                });
-            }
-
-            const status = {
-                coordinator: coordinator.getStatus(),
-                metrics: coordinator.getMetrics ? coordinator.getMetrics() : null,
-                activeActions: await coordinator.getActiveActions().catch(() => []),
-                pendingApprovals: await coordinator.getPendingApprovals().catch(() => []),
-                sessionCount: coordinator.agentSessions.size,
-                timestamp: new Date().toISOString()
-            };
-
-            res.json({
-                success: true,
-                data: status
-            });
-
-        } catch (error) {
-            logger.error('Status error:', error);
-            res.status(500).json({
+        if (!decision || !['approve', 'reject'].includes(decision)) {
+            return res.status(400).json({
                 success: false,
-                error: 'Failed to get coordinator status'
+                error: 'Decision must be "approve" or "reject"'
             });
         }
+
+        const sanitizedNotes = notes ? sanitizeString(notes.trim()) : null;
+
+        let result;
+        if (decision === 'approve') {
+            result = await coordinator.approveAction(approvalId, approverId, sanitizedNotes);
+        } else {
+            result = await coordinator.rejectAction(approvalId, approverId, sanitizedNotes);
+        }
+
+        logger.info(`Approval ${decision}d`, {
+            approvalId,
+            approverId,
+            decision,
+            notes: sanitizedNotes
+        });
+
+        res.json({
+            success: true,
+            message: `Action ${decision}d successfully`,
+            data: result
+        });
+
+    } catch (error) {
+        logger.error('Approval handling error:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to process approval'
+        });
     }
+}
 
-    async function getAgentSession(req, res) {
-        try {
-            const agentId = req.params.agentId || req.user?.id;
+// ============================================
+// COORDINATOR STATUS
+// ============================================
 
-            if (!agentId) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Agent ID is required'
-                });
-            }
-
-            if (req.user?.role !== 'admin' && req.user?.id !== agentId) {
-                return res.status(403).json({
-                    success: false,
-                    error: 'Unauthorized access'
-                });
-            }
-
-            const session = coordinator.agentSessions.get(agentId);
-
-            if (!session) {
-                return res.status(404).json({
-                    success: false,
-                    error: 'Agent session not found'
-                });
-            }
-
-            res.json({
-                success: true,
-                data: {
-                    agentId,
-                    ...session,
-                    age: Date.now() - session.createdAt.getTime()
-                }
-            });
-
-        } catch (error) {
-            logger.error('Agent session error:', error);
-            res.status(500).json({
+async function getCoordinatorStatus(req, res) {
+    try {
+        if (req.user?.role !== 'admin') {
+            logger.warn(`Unauthorized status access attempt by user ${req.user?.id}`);
+            return res.status(403).json({
                 success: false,
-                error: 'Failed to get agent session'
+                error: 'Admin access required'
             });
         }
-    }
 
-    function clearInactiveSessions(req, res) {
-        try {
-            if (req.user?.role !== 'admin') {
-                return res.status(403).json({
-                    success: false,
-                    error: 'Admin access required'
-                });
+        const status = {
+            coordinator: coordinator.getStatus(),
+            metrics: coordinator.getMetrics ? coordinator.getMetrics() : null,
+            activeActions: await coordinator.getActiveActions().catch(() => []),
+            pendingApprovals: await coordinator.getPendingApprovals().catch(() => []),
+            sessionCount: coordinator.agentSessions.size,
+            timestamp: new Date().toISOString()
+        };
+
+        res.json({
+            success: true,
+            data: status
+        });
+
+    } catch (error) {
+        logger.error('Status error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get coordinator status'
+        });
+    }
+}
+
+// ============================================
+// AGENT SESSION
+// ============================================
+
+async function getAgentSession(req, res) {
+    try {
+        const agentId = req.params.agentId || req.user?.id;
+
+        if (!agentId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Agent ID is required'
+            });
+        }
+
+        if (req.user?.role !== 'admin' && req.user?.id !== agentId) {
+            return res.status(403).json({
+                success: false,
+                error: 'Unauthorized access'
+            });
+        }
+
+        const session = coordinator.agentSessions.get(agentId);
+
+        if (!session) {
+            return res.status(404).json({
+                success: false,
+                error: 'Agent session not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                agentId,
+                ...session,
+                age: Date.now() - session.createdAt.getTime()
             }
+        });
 
-            const before = coordinator.agentSessions.size;
-            cleanupSessions();
-            const after = coordinator.agentSessions.size;
+    } catch (error) {
+        logger.error('Agent session error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get agent session'
+        });
+    }
+}
 
-            res.json({
-                success: true,
-                message: `Cleared ${before - after} inactive sessions`,
-                before,
-                after
-            });
+// ============================================
+// CLEAR SESSIONS
+// ============================================
 
-        } catch (error) {
-            logger.error('Clear sessions error:', error);
-            res.status(500).json({
+function clearInactiveSessions(req, res) {
+    try {
+        if (req.user?.role !== 'admin') {
+            return res.status(403).json({
                 success: false,
-                error: 'Failed to clear sessions'
+                error: 'Admin access required'
             });
         }
+
+        const before = coordinator.agentSessions.size;
+        cleanupSessions();
+        const after = coordinator.agentSessions.size;
+
+        res.json({
+            success: true,
+            message: `Cleared ${before - after} inactive sessions`,
+            before,
+            after
+        });
+
+    } catch (error) {
+        logger.error('Clear sessions error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to clear sessions'
+        });
     }
+}
 
-    async function healthCheck(req, res) {
-        try {
-            const status = {
-                status: 'healthy',
-                coordinator: coordinator.getStatus(),
-                sessionCount: coordinator.agentSessions.size,
-                timestamp: new Date().toISOString()
-            };
+// ============================================
+// HEALTH CHECK
+// ============================================
 
-            res.json({
-                success: true,
-                data: status
-            });
+async function healthCheck(req, res) {
+    try {
+        const status = {
+            status: 'healthy',
+            coordinator: coordinator.getStatus(),
+            sessionCount: coordinator.agentSessions.size,
+            timestamp: new Date().toISOString()
+        };
 
-        } catch (error) {
-            res.status(503).json({
-                success: false,
-                error: 'Coordinator service unavailable',
-                timestamp: new Date().toISOString()
-            });
-        }
+        res.json({
+            success: true,
+            data: status
+        });
+
+    } catch (error) {
+        res.status(503).json({
+            success: false,
+            error: 'Coordinator service unavailable',
+            timestamp: new Date().toISOString()
+        });
     }
+}
 
-    module.exports = {
-        aiCoordinatorMiddleware,
-        handleApproval,
-        getCoordinatorStatus,
-        getAgentSession,
-        clearInactiveSessions,
-        healthCheck,
-        coordinator,
-        actionLimiter,
-        validActions
-    }}
+// ============================================
+// EXPORTS - MOVED OUTSIDE THE FUNCTION ✅
+// ============================================
+
+module.exports = {
+    aiCoordinatorMiddleware,
+    handleApproval,
+    getCoordinatorStatus,
+    getAgentSession,
+    clearInactiveSessions,
+    healthCheck,
+    coordinator,
+    actionLimiter,
+    validActions
+};

@@ -1,4 +1,16 @@
 -- ============================================
+-- BASELINE (0001)
+-- ============================================
+--
+-- The schema established installations already have, adopted verbatim as the
+-- starting point of the sequence. It is not idempotent -- it declares stored
+-- procedures that cannot be redeclared -- so a database that already has these
+-- tables adopts the sequence with `npm run migrate:baseline`, which records this
+-- version as applied without running it. A fresh database runs it normally.
+--
+-- Nothing in this file may change. Later migrations amend the schema.
+--
+-- ============================================
 -- ENHANCED DATABASE SCHEMA FOR E-COMMERCE PLATFORM
 -- Includes: Audit Trail, Soft Delete, Indexes, 
 -- Inventory Management, Coupons, Shipping Tracking,
@@ -10,12 +22,11 @@
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id CHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
-    role ENUM('customer', 'support', 'admin', 'seller') DEFAULT 'customer',
-    refresh_token VARCHAR(255),
+    `role` ENUM('customer', 'support', 'admin', 'seller') DEFAULT 'customer',
     avatar VARCHAR(500),
     phone VARCHAR(20),
     address TEXT,
@@ -30,20 +41,64 @@ CREATE TABLE IF NOT EXISTS users (
     login_count INT DEFAULT 0,
     failed_login_attempts INT DEFAULT 0,
     locked_until DATETIME,
-    created_by INT,
-    updated_by INT,
-    deleted_by INT,
+    created_by CHAR(36),
+    updated_by CHAR(36),
+    deleted_by CHAR(36),
     deleted_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     INDEX idx_users_email (email),
-    INDEX idx_users_role (role),
+    INDEX idx_users_role (`role`),
     INDEX idx_users_is_active (is_active),
     INDEX idx_users_deleted_at (deleted_at),
     INDEX idx_users_last_login (last_login),
     INDEX idx_users_verified (is_verified),
     INDEX idx_users_locked (locked_until)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- REFRESH TOKEN FAMILIES (#1261)
+-- Automatic Token Rotation + reuse detection
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    family_id CHAR(36) NOT NULL,
+    token_hash CHAR(64) NOT NULL,
+    parent_token_hash CHAR(64) NULL,
+    device_fingerprint CHAR(64) NOT NULL,
+    user_agent VARCHAR(512) NULL,
+    ip_hash CHAR(64) NULL,
+    status ENUM('active', 'rotated', 'revoked', 'reuse_detected') NOT NULL DEFAULT 'active',
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    rotated_at DATETIME NULL,
+    revoked_at DATETIME NULL,
+    last_used_at DATETIME NULL,
+    UNIQUE KEY uq_refresh_token_hash (token_hash),
+    INDEX idx_rt_user (user_id),
+    INDEX idx_rt_family (family_id),
+    INDEX idx_rt_status (status),
+    INDEX idx_rt_family_status (family_id, status),
+    INDEX idx_rt_expires (expires_at),
+    CONSTRAINT fk_rt_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS refresh_token_security_events (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NULL,
+    family_id CHAR(36) NULL,
+    event_type VARCHAR(64) NOT NULL,
+    details JSON NULL,
+    ip_hash CHAR(64) NULL,
+    user_agent VARCHAR(512) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_rtse_user (user_id),
+    INDEX idx_rtse_family (family_id),
+    INDEX idx_rtse_type (event_type),
+    INDEX idx_rtse_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
@@ -60,11 +115,15 @@ CREATE TABLE IF NOT EXISTS categories (
     icon VARCHAR(100),
     level INT DEFAULT 0,
     path VARCHAR(500),
+    -- MPTT (Modified Preorder Tree Traversal) bounds — enable O(range) subtree reads
+    -- alongside the adjacency-list parent_id used by the recursive CTE fetch (#1264)
+    lft INT DEFAULT NULL,
+    rgt INT DEFAULT NULL,
     is_active TINYINT(1) DEFAULT 1,
     display_order INT DEFAULT 0,
-    created_by INT,
-    updated_by INT,
-    deleted_by INT,
+    created_by CHAR(36),
+    updated_by CHAR(36),
+    deleted_by CHAR(36),
     deleted_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -74,16 +133,23 @@ CREATE TABLE IF NOT EXISTS categories (
     INDEX idx_path (path(255)),
     INDEX idx_slug (slug),
     INDEX idx_active (is_active),
-    INDEX idx_deleted_at (deleted_at)
+    INDEX idx_deleted_at (deleted_at),
+    INDEX idx_categories_lft_rgt (lft, rgt),
+    INDEX idx_categories_parent_active (parent_id, is_active, deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Existing installs: add MPTT columns if missing (safe / idempotent pattern)
+-- ALTER TABLE categories ADD COLUMN IF NOT EXISTS lft INT DEFAULT NULL;
+-- ALTER TABLE categories ADD COLUMN IF NOT EXISTS rgt INT DEFAULT NULL;
+-- CREATE INDEX IF NOT EXISTS idx_categories_lft_rgt ON categories (lft, rgt);
 
 -- ============================================
 -- PRODUCTS TABLE (Enhanced)
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS products (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    seller_id INT,
+    id CHAR(36) PRIMARY KEY,
+    seller_id CHAR(36),
     name VARCHAR(255) NOT NULL,
     description TEXT,
     short_description VARCHAR(500),
@@ -113,9 +179,9 @@ CREATE TABLE IF NOT EXISTS products (
     is_active TINYINT(1) DEFAULT 1,
     views_count INT DEFAULT 0,
     sold_count INT DEFAULT 0,
-    created_by INT,
-    updated_by INT,
-    deleted_by INT,
+    created_by CHAR(36),
+    updated_by CHAR(36),
+    deleted_by CHAR(36),
     deleted_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -151,7 +217,7 @@ CREATE TABLE IF NOT EXISTS products (
     INDEX idx_featured_status (featured, status),
     
     -- Partial index for active products
-    INDEX idx_active_products (status, price) WHERE status = 'active' AND deleted_at IS NULL,
+    INDEX idx_active_products (status, price, deleted_at),
     
     -- Full-text search indexes
     FULLTEXT INDEX ft_product_search (name, description, short_description, meta_keywords),
@@ -164,7 +230,7 @@ CREATE TABLE IF NOT EXISTS products (
 
 CREATE TABLE IF NOT EXISTS product_variants (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    product_id INT NOT NULL,
+    product_id CHAR(36) NOT NULL,
     sku VARCHAR(100) UNIQUE,
     attributes JSON NOT NULL,
     price DECIMAL(10,2),
@@ -173,9 +239,9 @@ CREATE TABLE IF NOT EXISTS product_variants (
     weight DECIMAL(10,2),
     image VARCHAR(500),
     is_active TINYINT(1) DEFAULT 1,
-    created_by INT,
-    updated_by INT,
-    deleted_by INT,
+    created_by CHAR(36),
+    updated_by CHAR(36),
+    deleted_by CHAR(36),
     deleted_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -192,8 +258,8 @@ CREATE TABLE IF NOT EXISTS product_variants (
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS orders (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT,
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36),
     order_number VARCHAR(50) UNIQUE,
     customer_name VARCHAR(255) NOT NULL,
     customer_email VARCHAR(255) NOT NULL,
@@ -206,13 +272,18 @@ CREATE TABLE IF NOT EXISTS orders (
     shipping_address JSON NOT NULL,
     payment_method VARCHAR(50),
     payment_status ENUM('pending', 'paid', 'failed', 'refunded', 'partially_refunded') DEFAULT 'pending',
+    payment_intent_id VARCHAR(255),
+    transaction_id VARCHAR(255),
     shipping_method VARCHAR(50),
     shipping_cost DECIMAL(10,2) DEFAULT 0,
     tax DECIMAL(10,2) DEFAULT 0,
     discount DECIMAL(10,2) DEFAULT 0,
     discount_code VARCHAR(50),
+    promo_code VARCHAR(50),
+    discount_amount DECIMAL(10,2) DEFAULT 0,
     subtotal DECIMAL(10,2) NOT NULL,
     total DECIMAL(10,2) NOT NULL,
+    final_amount DECIMAL(10,2) DEFAULT 0,
     status ENUM('pending', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded', 'on_hold') DEFAULT 'pending',
     notes TEXT,
     admin_notes TEXT,
@@ -223,17 +294,19 @@ CREATE TABLE IF NOT EXISTS orders (
     refunded_at DATETIME,
     ip_address VARCHAR(45),
     user_agent TEXT,
-    created_by INT,
-    updated_by INT,
-    deleted_by INT,
+    created_by CHAR(36),
+    updated_by CHAR(36),
+    deleted_by CHAR(36),
     deleted_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     CONSTRAINT chk_total CHECK (total >= 0),
+    CONSTRAINT chk_final_amount CHECK (final_amount >= 0),
     CONSTRAINT chk_shipping_cost CHECK (shipping_cost >= 0),
     CONSTRAINT chk_tax CHECK (tax >= 0),
     CONSTRAINT chk_discount CHECK (discount >= 0),
+    CONSTRAINT chk_discount_amount CHECK (discount_amount >= 0),
     
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
     
@@ -246,18 +319,19 @@ CREATE TABLE IF NOT EXISTS orders (
     INDEX idx_orders_deleted_at (deleted_at),
     INDEX idx_orders_tracking (tracking_number),
     INDEX idx_orders_email (customer_email),
+    INDEX idx_orders_promo_code (promo_code),
     
     -- Composite indexes
     INDEX idx_status_created (status, created_at),
     INDEX idx_user_status (user_id, status),
     INDEX idx_payment_status_created (payment_status, created_at),
     INDEX idx_status_updated (status, updated_at),
-    INDEX idx_shipping_date (shipping_date) WHERE status = 'shipped',
+    INDEX idx_shipping_date (status, shipping_date),
     
     -- JSON indexes for shipping address
-    INDEX idx_shipping_city ((shipping_address->>'$.city')),
-    INDEX idx_shipping_state ((shipping_address->>'$.state')),
-    INDEX idx_shipping_country ((shipping_address->>'$.country'))
+    INDEX idx_shipping_city ((CAST(shipping_address->>'$.city' AS CHAR(100)))),
+    INDEX idx_shipping_state ((CAST(shipping_address->>'$.state' AS CHAR(100)))),
+    INDEX idx_shipping_country ((CAST(shipping_address->>'$.country' AS CHAR(100))))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
@@ -266,8 +340,8 @@ CREATE TABLE IF NOT EXISTS orders (
 
 CREATE TABLE IF NOT EXISTS order_items (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    order_id INT NOT NULL,
-    product_id INT,
+    order_id CHAR(36) NOT NULL,
+    product_id CHAR(36),
     variant_id INT,
     name VARCHAR(255) NOT NULL,
     price DECIMAL(10,2) NOT NULL,
@@ -281,9 +355,9 @@ CREATE TABLE IF NOT EXISTS order_items (
     total DECIMAL(10,2) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
-    CONSTRAINT chk_price CHECK (price >= 0),
+    CONSTRAINT chk_order_items_price CHECK (price >= 0),
     CONSTRAINT chk_qty CHECK (qty > 0),
-    CONSTRAINT chk_total CHECK (total >= 0),
+    CONSTRAINT chk_order_items_total CHECK (total >= 0),
     
     FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
@@ -300,9 +374,9 @@ CREATE TABLE IF NOT EXISTS order_items (
 
 CREATE TABLE IF NOT EXISTS inventory_transactions (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    product_id INT NOT NULL,
+    product_id CHAR(36) NOT NULL,
     variant_id INT,
-    order_id INT,
+    order_id CHAR(36),
     quantity_change INT NOT NULL,
     previous_quantity INT NOT NULL,
     new_quantity INT NOT NULL,
@@ -310,7 +384,7 @@ CREATE TABLE IF NOT EXISTS inventory_transactions (
     notes TEXT,
     reference_type VARCHAR(50),
     reference_id INT,
-    created_by INT,
+    created_by CHAR(36),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
@@ -328,14 +402,14 @@ CREATE TABLE IF NOT EXISTS inventory_transactions (
 
 CREATE TABLE IF NOT EXISTS inventory_alerts (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    product_id INT NOT NULL,
+    product_id CHAR(36) NOT NULL,
     variant_id INT,
     threshold INT NOT NULL,
     current_stock INT NOT NULL,
     alert_type ENUM('low_stock', 'out_of_stock', 'excess_stock') DEFAULT 'low_stock',
     status ENUM('pending', 'resolved', 'dismissed') DEFAULT 'pending',
     resolved_at DATETIME,
-    resolved_by INT,
+    resolved_by CHAR(36),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
@@ -355,7 +429,7 @@ CREATE TABLE IF NOT EXISTS coupons (
     id INT AUTO_INCREMENT PRIMARY KEY,
     code VARCHAR(50) NOT NULL UNIQUE,
     type ENUM('percentage', 'fixed', 'free_shipping') NOT NULL,
-    value DECIMAL(10,2) NOT NULL,
+    `value` DECIMAL(10,2) NOT NULL,
     minimum_order_amount DECIMAL(10,2),
     maximum_discount_amount DECIMAL(10,2),
     usage_limit INT,
@@ -371,14 +445,14 @@ CREATE TABLE IF NOT EXISTS coupons (
     description TEXT,
     terms_conditions TEXT,
     used_count INT DEFAULT 0,
-    created_by INT,
-    updated_by INT,
-    deleted_by INT,
+    created_by CHAR(36),
+    updated_by CHAR(36),
+    deleted_by CHAR(36),
     deleted_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
-    CONSTRAINT chk_value CHECK (value >= 0),
+    CONSTRAINT chk_value CHECK (`value` >= 0),
     CONSTRAINT chk_min_order CHECK (minimum_order_amount >= 0 OR minimum_order_amount IS NULL),
     CONSTRAINT chk_max_discount CHECK (maximum_discount_amount >= 0 OR maximum_discount_amount IS NULL),
     CONSTRAINT chk_usage_limit CHECK (usage_limit >= 0 OR usage_limit IS NULL),
@@ -395,8 +469,8 @@ CREATE TABLE IF NOT EXISTS coupons (
 CREATE TABLE IF NOT EXISTS coupon_usage (
     id INT AUTO_INCREMENT PRIMARY KEY,
     coupon_id INT NOT NULL,
-    user_id INT NOT NULL,
-    order_id INT NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    order_id CHAR(36) NOT NULL,
     discount_amount DECIMAL(10,2) NOT NULL,
     used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ip_address VARCHAR(45),
@@ -417,7 +491,7 @@ CREATE TABLE IF NOT EXISTS coupon_usage (
 
 CREATE TABLE IF NOT EXISTS shipments (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    order_id INT NOT NULL,
+    order_id CHAR(36) NOT NULL,
     tracking_number VARCHAR(100) UNIQUE,
     carrier VARCHAR(100),
     shipping_method VARCHAR(100),
@@ -429,9 +503,9 @@ CREATE TABLE IF NOT EXISTS shipments (
     weight DECIMAL(10,2),
     dimensions JSON,
     shipping_cost DECIMAL(10,2),
-    created_by INT,
-    updated_by INT,
-    deleted_by INT,
+    created_by CHAR(36),
+    updated_by CHAR(36),
+    deleted_by CHAR(36),
     deleted_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -459,12 +533,12 @@ CREATE TABLE IF NOT EXISTS shipment_tracking (
     carrier_status_code VARCHAR(50),
     estimated_delivery DATE,
     is_delivered TINYINT(1) DEFAULT 0,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `timestamp` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE,
     
     INDEX idx_shipment_tracking_shipment (shipment_id),
-    INDEX idx_shipment_tracking_timestamp (timestamp),
+    INDEX idx_shipment_tracking_timestamp (`timestamp`),
     INDEX idx_shipment_tracking_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -491,7 +565,7 @@ CREATE TABLE IF NOT EXISTS courier_webhooks (
 
 CREATE TABLE IF NOT EXISTS payment_transactions (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    order_id INT NOT NULL,
+    order_id CHAR(36) NOT NULL,
     transaction_id VARCHAR(100) UNIQUE NOT NULL,
     payment_gateway VARCHAR(50) NOT NULL,
     gateway_transaction_id VARCHAR(100),
@@ -507,8 +581,8 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
     error_code VARCHAR(50),
     error_message TEXT,
     retry_count INT DEFAULT 0,
-    created_by INT,
-    updated_by INT,
+    created_by CHAR(36),
+    updated_by CHAR(36),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
@@ -539,7 +613,7 @@ CREATE TABLE IF NOT EXISTS payment_retry_logs (
 
 CREATE TABLE IF NOT EXISTS refunds (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    order_id INT NOT NULL,
+    order_id CHAR(36) NOT NULL,
     payment_transaction_id INT NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
     reason VARCHAR(255),
@@ -548,7 +622,7 @@ CREATE TABLE IF NOT EXISTS refunds (
     refund_method VARCHAR(50),
     notes TEXT,
     processed_at DATETIME,
-    created_by INT,
+    created_by CHAR(36),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
@@ -563,12 +637,46 @@ CREATE TABLE IF NOT EXISTS refunds (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
+-- CUSTOMER RETURNS / REFUND REQUESTS (RMA)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS refund_requests (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    order_id CHAR(36) NOT NULL,
+    order_item_id INT,
+    product_id CHAR(36),
+    reason TEXT NOT NULL,
+    quantity INT NOT NULL DEFAULT 1,
+    status ENUM('pending', 'approved', 'rejected', 'refunded') DEFAULT 'pending',
+    admin_note TEXT,
+    reviewed_by CHAR(36),
+    reviewed_at DATETIME,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_refund_requests_quantity CHECK (quantity > 0),
+
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (order_item_id) REFERENCES order_items(id) ON DELETE SET NULL,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
+    FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL,
+
+    INDEX idx_refund_requests_user (user_id),
+    INDEX idx_refund_requests_order (order_id),
+    INDEX idx_refund_requests_status (status),
+    INDEX idx_refund_requests_order_item (order_item_id),
+    INDEX idx_refund_requests_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
 -- SECURITY TABLES (New)
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
+    user_id CHAR(36) NOT NULL,
     token VARCHAR(255) NOT NULL UNIQUE,
     expires_at TIMESTAMP NOT NULL,
     used TINYINT(1) DEFAULT 0,
@@ -585,7 +693,7 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
+    user_id CHAR(36) NOT NULL,
     token VARCHAR(255) NOT NULL UNIQUE,
     expires_at TIMESTAMP NOT NULL,
     used TINYINT(1) DEFAULT 0,
@@ -602,7 +710,7 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
 
 CREATE TABLE IF NOT EXISTS user_sessions (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
+    user_id CHAR(36) NOT NULL,
     session_token VARCHAR(255) NOT NULL UNIQUE,
     ip_address VARCHAR(45),
     user_agent TEXT,
@@ -620,6 +728,36 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     INDEX idx_user_sessions_expires (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- One row per signed-in device. Rotation on renewal inserts a successor in the
+-- same family and marks the predecessor superseded, so a superseded row that is
+-- presented again is a replay rather than an ordinary expiry.
+--
+-- Only the SHA-256 digest of the refresh token is stored: a copy of this table
+-- does not hand over the ability to impersonate anyone.
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    family_id CHAR(36) NOT NULL,
+    token_hash CHAR(64) NOT NULL UNIQUE,
+    device_label VARCHAR(120),
+    user_agent TEXT,
+    ip_address VARCHAR(45),
+    issued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME DEFAULT NULL,
+    expires_at DATETIME NOT NULL,
+    revoked_at DATETIME DEFAULT NULL,
+    revoked_reason VARCHAR(40) DEFAULT NULL,
+    replaced_by CHAR(36) DEFAULT NULL,
+
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+
+    INDEX idx_auth_sessions_token (token_hash),
+    INDEX idx_auth_sessions_user (user_id),
+    INDEX idx_auth_sessions_family (family_id),
+    INDEX idx_auth_sessions_expires (expires_at),
+    INDEX idx_auth_sessions_live (user_id, revoked_at, expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS login_attempts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
@@ -635,7 +773,7 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 
 CREATE TABLE IF NOT EXISTS api_tokens (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
+    user_id CHAR(36) NOT NULL,
     name VARCHAR(100),
     token VARCHAR(255) NOT NULL UNIQUE,
     permissions JSON,
@@ -658,13 +796,13 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 
 CREATE TABLE IF NOT EXISTS wishlist_items (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    product_id INT NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    product_id CHAR(36) NOT NULL,
     variant_id INT,
     notes TEXT,
-    created_by INT,
-    updated_by INT,
-    deleted_by INT,
+    created_by CHAR(36),
+    updated_by CHAR(36),
+    deleted_by CHAR(36),
     deleted_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -685,8 +823,8 @@ CREATE TABLE IF NOT EXISTS wishlist_items (
 
 CREATE TABLE IF NOT EXISTS reviews (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    product_id INT NOT NULL,
-    user_id INT NOT NULL,
+    product_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
     rating TINYINT NOT NULL,
     title VARCHAR(255),
     comment TEXT NOT NULL,
@@ -696,12 +834,12 @@ CREATE TABLE IF NOT EXISTS reviews (
     helpful_count INT DEFAULT 0,
     reported_count INT DEFAULT 0,
     moderation_notes TEXT,
-    deleted_by INT,
+    deleted_by CHAR(36),
     deleted_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
-    CONSTRAINT chk_rating CHECK (rating >= 1 AND rating <= 5),
+    CONSTRAINT chk_reviews_rating CHECK (rating >= 1 AND rating <= 5),
     CONSTRAINT chk_helpful_count CHECK (helpful_count >= 0),
     CONSTRAINT chk_reported_count CHECK (reported_count >= 0),
     
@@ -721,8 +859,8 @@ CREATE TABLE IF NOT EXISTS reviews (
 
 CREATE TABLE IF NOT EXISTS user_interactions (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    product_id INT NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    product_id CHAR(36) NOT NULL,
     interaction_type ENUM('view', 'cart_add', 'wishlist_add', 'purchase') NOT NULL,
     session_id VARCHAR(255),
     ip_address VARCHAR(45),
@@ -757,9 +895,9 @@ CREATE TABLE IF NOT EXISTS serviceable_pincodes (
     delivery_charges DECIMAL(10,2) DEFAULT 0,
     cod_available TINYINT(1) DEFAULT 1,
     is_active TINYINT(1) DEFAULT 1,
-    created_by INT,
-    updated_by INT,
-    deleted_by INT,
+    created_by CHAR(36),
+    updated_by CHAR(36),
+    deleted_by CHAR(36),
     deleted_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -780,8 +918,8 @@ CREATE TABLE IF NOT EXISTS serviceable_pincodes (
 
 CREATE TABLE IF NOT EXISTS chat_conversations (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    customer_id INT NOT NULL,
-    assigned_admin_id INT,
+    customer_id CHAR(36) NOT NULL,
+    assigned_admin_id CHAR(36),
     status ENUM('open', 'pending', 'closed', 'archived') DEFAULT 'open',
     priority ENUM('low', 'medium', 'high', 'urgent') DEFAULT 'medium',
     subject VARCHAR(255),
@@ -789,9 +927,9 @@ CREATE TABLE IF NOT EXISTS chat_conversations (
     archived_at DATETIME,
     rating TINYINT,
     feedback TEXT,
-    created_by INT,
-    updated_by INT,
-    deleted_by INT,
+    created_by CHAR(36),
+    updated_by CHAR(36),
+    deleted_by CHAR(36),
     deleted_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -814,14 +952,14 @@ CREATE TABLE IF NOT EXISTS chat_conversations (
 CREATE TABLE IF NOT EXISTS chat_messages (
     id INT AUTO_INCREMENT PRIMARY KEY,
     conversation_id INT NOT NULL,
-    sender_id INT NOT NULL,
+    sender_id CHAR(36) NOT NULL,
     sender_type ENUM('customer', 'admin', 'system') NOT NULL,
     message TEXT NOT NULL,
     attachments JSON,
     is_read TINYINT(1) DEFAULT 0,
     is_edited TINYINT(1) DEFAULT 0,
     is_deleted TINYINT(1) DEFAULT 0,
-    deleted_by INT,
+    deleted_by CHAR(36),
     deleted_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -842,7 +980,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 CREATE TABLE IF NOT EXISTS message_reads (
     id INT AUTO_INCREMENT PRIMARY KEY,
     message_id INT NOT NULL,
-    user_id INT NOT NULL,
+    user_id CHAR(36) NOT NULL,
     read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     FOREIGN KEY (message_id) REFERENCES chat_messages(id) ON DELETE CASCADE,
@@ -859,7 +997,7 @@ CREATE TABLE IF NOT EXISTS message_reads (
 
 CREATE TABLE IF NOT EXISTS activity_logs (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT,
+    user_id CHAR(36),
     action VARCHAR(100) NOT NULL,
     resource_type VARCHAR(50),
     resource_id INT,
@@ -904,6 +1042,9 @@ BEGIN
     DELETE FROM password_reset_tokens WHERE expires_at < NOW() OR used = 1;
     DELETE FROM email_verification_tokens WHERE expires_at < NOW() OR used = 1;
     DELETE FROM user_sessions WHERE expires_at < NOW() OR is_active = 0;
+    -- Superseded rows are kept until they expire; deleting them earlier would
+    -- throw away the evidence that makes a replay recognisable.
+    DELETE FROM auth_sessions WHERE expires_at < NOW();
     DELETE FROM api_tokens WHERE expires_at < NOW() OR is_active = 0;
     
     -- Delete old user interactions
@@ -1048,3 +1189,126 @@ INSERT INTO serviceable_pincodes (pincode, city, state, eta_days, cod_available)
 ('411001', 'Pune', 'Maharashtra', 3, 1),
 ('226001', 'Lucknow', 'Uttar Pradesh', 5, 1)
 ON DUPLICATE KEY UPDATE eta_days = VALUES(eta_days);
+
+-- ============================================
+-- INVENTORY LOCKS (New)
+-- ============================================
+
+-- A reservation is held against the line the shopper chose, so it carries the
+-- same variant/colour/size identity as the cart line. Deliberately NOT unique:
+-- a shopper can hold several reservations for one line, and consuming a
+-- purchase walks those rows.
+CREATE TABLE IF NOT EXISTS inventory_locks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    product_id CHAR(36) NOT NULL,
+    variant_id INT NOT NULL DEFAULT 0,
+    color VARCHAR(50) NOT NULL DEFAULT '',
+    size VARCHAR(50) NOT NULL DEFAULT '',
+    quantity INT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    
+    INDEX idx_inventory_locks_user (user_id),
+    INDEX idx_inventory_locks_product (product_id),
+    INDEX idx_inventory_locks_line (product_id, variant_id, color, size),
+    INDEX idx_inventory_locks_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- CART ITEMS (New)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS cart_items (
+    user_id CHAR(36) NOT NULL,
+    product_id CHAR(36) NOT NULL,
+    -- variant_id 0 and empty colour/size mean "nothing chosen". Sentinels
+    -- rather than NULLs because NULL never compares equal to NULL, which would
+    -- let the same line slip past the primary key twice. No foreign key on
+    -- variant_id: a deployment without product_variants still has to work.
+    variant_id INT NOT NULL DEFAULT 0,
+    color VARCHAR(50) NOT NULL DEFAULT '',
+    size VARCHAR(50) NOT NULL DEFAULT '',
+    quantity INT NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, product_id, variant_id, color, size),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    INDEX idx_cart_items_user (user_id),
+    INDEX idx_cart_items_product (product_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- RECENTLY VIEWED (New)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS recently_viewed (
+    user_id CHAR(36) NOT NULL,
+    product_id CHAR(36) NOT NULL,
+    viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, product_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    INDEX idx_recently_viewed_user (user_id),
+    INDEX idx_recently_viewed_product (product_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- ============================================
+-- USER ADDRESSES (saved address book, #1347)
+-- ============================================
+--
+-- `users` still carries a single flattened address inline (address, city,
+-- state, zip, country). Nothing reads it, and it cannot express the common
+-- cases: a second address, a different recipient, or a default. This table
+-- replaces it. See migrations/add_user_addresses.sql for the backfill and
+-- for the `orders.address_id` link.
+
+CREATE TABLE IF NOT EXISTS user_addresses (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+
+    label VARCHAR(50) NOT NULL DEFAULT 'Home',
+
+    -- Per-address, not inherited from the account: ordering to a family
+    -- member or an office front desk is ordinary, and the courier needs the
+    -- person who will take the parcel.
+    recipient_name VARCHAR(255) NOT NULL,
+    recipient_phone VARCHAR(20) NOT NULL,
+
+    address_line1 VARCHAR(255) NOT NULL,
+    address_line2 VARCHAR(255),
+    landmark VARCHAR(255),
+    city VARCHAR(100) NOT NULL,
+    state VARCHAR(100) NOT NULL,
+    postal_code VARCHAR(20) NOT NULL,
+    country VARCHAR(100) NOT NULL DEFAULT 'India',
+
+    is_default TINYINT(1) NOT NULL DEFAULT 0,
+    last_used_at DATETIME,
+
+    -- Soft delete: orders.address_id references this table.
+    deleted_at DATETIME,
+    deleted_by CHAR(36),
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_user_addresses_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+
+    -- At most one live default per account, enforced by the database.
+    -- MySQL has no partial indexes; only the default row stores its user_id
+    -- here, and NULLs do not collide in a UNIQUE index.
+    default_marker CHAR(36)
+        GENERATED ALWAYS AS (
+            CASE WHEN is_default = 1 AND deleted_at IS NULL THEN user_id ELSE NULL END
+        ) STORED,
+    UNIQUE KEY uq_user_addresses_one_default (default_marker),
+
+    INDEX idx_user_addresses_user (user_id, deleted_at),
+    INDEX idx_user_addresses_default (user_id, is_default),
+    INDEX idx_user_addresses_last_used (user_id, last_used_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -174,6 +174,12 @@ const clearAuthData = () => {
     removeStorage(
         CONFIG.STORAGE_KEYS.USER
     );
+
+    // Signing out must not leave a cart attached to the browser, or the next
+    // shopper on this machine inherits it.
+    discardCartStorage();
+
+    dispatchCartUpdated([]);
 };
 
 const requireAuth = () => {
@@ -211,8 +217,68 @@ const requireAuth = () => {
     return user;
 };
 
+// Endpoints that establish or renew a session themselves. A 401 from one of
+// these is the answer, not a signal that the session needs renewing, so they are
+// never retried behind a refresh.
+const SESSION_ENDPOINTS = [
+    "/auth/login",
+    "/auth/signup",
+    "/auth/verify-signup",
+    "/auth/refresh-token",
+    "/auth/forgot-password",
+    "/auth/reset-password"
+];
+
+const isRenewable = (
+    url
+) => {
+
+    return !SESSION_ENDPOINTS.some(
+        (endpoint) => url.startsWith(endpoint)
+    );
+};
+
+// The renewal currently in flight, if any, and whether the shopper has already
+// been told their session ended.
+let pendingRefresh = null;
+
+let hasSignedOut = false;
+
+// Ends the session once however many requests discovered it was over.
+const signOutOnce = (
+    message
+) => {
+
+    if (
+        hasSignedOut
+    ) {
+
+        return;
+    }
+
+    hasSignedOut = true;
+
+    clearAuthData();
+
+    notify(
+        message
+        || "Session expired. Please login again.",
+        "error"
+    );
+
+    setTimeout(
+        () => {
+
+            window.location.href =
+                "signin.html";
+
+        },
+        1000
+    );
+};
+
 // refresh token
-const refreshAccessToken =
+const performRefresh =
     async () => {
 
         try {
@@ -223,8 +289,6 @@ const refreshAccessToken =
             if (
                 !refreshToken
             ) {
-
-                clearAuthData();
 
                 return null;
             }
@@ -260,8 +324,6 @@ const refreshAccessToken =
                 ||
                 !data.accessToken
             ) {
-
-                clearAuthData();
 
                 return null;
             }
@@ -302,11 +364,30 @@ const refreshAccessToken =
                 error
             );
 
-            clearAuthData();
-
             return null;
         }
     };
+
+// Requests that hit an expired session at the same moment share one renewal and
+// then continue, rather than each starting their own and racing one another into
+// a sign-out.
+const refreshAccessToken = () => {
+
+    if (
+        !pendingRefresh
+    ) {
+
+        pendingRefresh =
+            performRefresh().finally(
+                () => {
+
+                    pendingRefresh = null;
+                }
+            );
+    }
+
+    return pendingRefresh;
+};
 
 // api request
 const apiRequest =
@@ -381,11 +462,15 @@ const apiRequest =
                 response.status === 401
                 &&
                 retry
+                &&
+                isRenewable(url)
             ) {
 
                 const newToken =
                     await refreshAccessToken();
 
+                // Replayed with `retry` off, so a request is only ever tried a
+                // second time -- never a third.
                 if (
                     newToken
                 ) {
@@ -397,22 +482,7 @@ const apiRequest =
                     );
                 }
 
-                clearAuthData();
-
-                notify(
-                    "Session expired. Please login again.",
-                    "error"
-                );
-
-                setTimeout(
-                    () => {
-
-                        window.location.href =
-                            "signin.html";
-
-                    },
-                    1000
-                );
+                signOutOnce();
 
                 return {
 
@@ -446,11 +516,22 @@ const apiRequest =
                 !response.ok
             ) {
 
-                throw new Error(
-                    data.message
-                    ||
-                    `Request failed (${response.status})`
-                );
+                const failure =
+                    new Error(
+                        data.message
+                        ||
+                        `Request failed (${response.status})`
+                    );
+
+                // Carried through the catch below so callers can branch on a
+                // specific server-side condition instead of matching on text.
+                failure.status =
+                    response.status;
+
+                failure.code =
+                    data.code;
+
+                throw failure;
             }
 
             return data;
@@ -502,6 +583,12 @@ const apiRequest =
 
                 success: false,
 
+                status:
+                    error.status,
+
+                code:
+                    error.code,
+
                 message:
                     error.message
                     || "Request failed"
@@ -531,16 +618,71 @@ const $$ = (
 };
 
 // price formatter
-const formatPrice = (
-    price
-) => {
+//
+// Pass the currency descriptor from a server breakdown to render an amount in
+// the currency it was actually priced in; without one the local configuration
+const CURRENCY_STORAGE_KEY = "activeCurrency";
 
-    return `₹${parseFloat(
-        price || 0
-    ).toFixed(2)}`;
+const getSelectedCurrency = () => {
+    return localStorage.getItem(CURRENCY_STORAGE_KEY) || CONFIG.CURRENCY_INFO.CODE;
 };
 
-// image fallback
+const getCurrencyInfo = (code = getSelectedCurrency()) => {
+    return (CONFIG.SUPPORTED_CURRENCIES && CONFIG.SUPPORTED_CURRENCIES[code]) || CONFIG.CURRENCY_INFO;
+};
+
+const setSelectedCurrency = (code) => {
+    if (!CONFIG.SUPPORTED_CURRENCIES || !CONFIG.SUPPORTED_CURRENCIES[code]) return;
+    localStorage.setItem(CURRENCY_STORAGE_KEY, code);
+    window.dispatchEvent(new CustomEvent("currencyUpdated", { detail: { currency: code } }));
+};
+
+const formatPrice = (price, overrideCurrency = null) => {
+    const numericPrice = parseFloat(price || 0);
+    const currCode = typeof overrideCurrency === "string" 
+        ? overrideCurrency 
+        : (overrideCurrency && overrideCurrency.CODE ? overrideCurrency.CODE : getSelectedCurrency());
+    const info = getCurrencyInfo(currCode);
+    const convertedAmount = numericPrice * (info.RATE || 1.0);
+
+    try {
+        return new Intl.NumberFormat(info.LOCALE || "en-US", {
+            style: "currency",
+            currency: info.CODE || "USD",
+            minimumFractionDigits: info.MINOR_UNIT_EXPONENT !== undefined ? info.MINOR_UNIT_EXPONENT : 2
+        }).format(convertedAmount);
+    } catch (e) {
+        return `${info.SYMBOL || "$"}${convertedAmount.toFixed(2)}`;
+    }
+};
+
+const initCurrencySelector = () => {
+    const selector = document.getElementById("currency-selector");
+    if (selector) {
+        selector.value = getSelectedCurrency();
+        if (!selector.dataset.currencyBound) {
+            selector.dataset.currencyBound = "true";
+            selector.addEventListener("change", (e) => {
+                setSelectedCurrency(e.target.value);
+            });
+        }
+    }
+};
+
+if (typeof window !== "undefined") {
+    window.addEventListener("DOMContentLoaded", initCurrencySelector);
+    window.addEventListener("componentsLoaded", initCurrencySelector);
+}
+
+// image fallback constants & handlers
+const FALLBACK_PRODUCT_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'%3E%3Crect width='400' height='400' fill='%23f3f4f6'/%3E%3Cg fill='%239ca3af' text-anchor='middle'%3E%3Cpath d='M160 140c0-11 9-20 20-20s20 9 20 20-9 20-20 20-20-9-20-20zm80 80H160l25-33 15 20 30-40 40 53z'/%3E%3Cpath d='M130 110h140c11 0 20 9 20 20v140c0 11-9 20-20 20H130c-11 0-20-9-20-20V130c0-11 9-20 20-20zm0 160h140V130H130v140z'/%3E%3Ctext x='200' y='310' font-family='sans-serif' font-size='16' font-weight='500'%3ENo Image Available%3C/text%3E%3C/g%3E%3C/svg%3E";
+
+const handleImageError = (img) => {
+    if (!img || img.dataset.fallbackApplied === "true") return;
+    img.dataset.fallbackApplied = "true";
+    img.src = FALLBACK_PRODUCT_IMAGE;
+};
+
 const defaultImage = (
     url
 ) => {
@@ -553,7 +695,7 @@ const defaultImage = (
         url.trim()
     )
         ? url
-        : "assets/images/default-product.png";
+        : FALLBACK_PRODUCT_IMAGE;
 };
 
 // safe array
@@ -701,6 +843,73 @@ const throttle = (
 const CART_UPDATED_EVENT =
     "cartUpdated";
 
+// The stored cart is an envelope rather than a bare array because it has to be
+// possible to tell a genuine guest cart apart from a stale mirror of an account
+// cart and from another account's leftovers.
+const CART_SCHEMA_VERSION = 2;
+
+// Not a valid user id, so it can never collide with one.
+const GUEST_CART_OWNER =
+    "guest";
+
+const CART_SYNC_DEBOUNCE_MS = 600;
+
+// The envelope this tab last wrote, used to arbitrate against another tab's
+// write by timestamp.
+let lastWrittenCart = null;
+
+// The last cart the server confirmed, and therefore what a rejected change is
+// rolled back to.
+let serverAcknowledgedItems = null;
+
+const isAuthenticated = () =>
+    Boolean(getToken() && getUser());
+
+const getCartOwner = () => {
+
+    const user =
+        getUser();
+
+    return (
+        getToken()
+        &&
+        user
+        &&
+        user.id !== undefined
+        &&
+        user.id !== null
+    )
+        ? String(user.id)
+        : GUEST_CART_OWNER;
+};
+
+const dispatchCartUpdated = (
+    cart
+) => {
+
+    window.dispatchEvent(
+        new CustomEvent(
+            CART_UPDATED_EVENT,
+            {
+                detail: {
+                    cart
+                }
+            }
+        )
+    );
+};
+
+const discardCartStorage = () => {
+
+    removeStorage(
+        CONFIG.STORAGE_KEYS.CART
+    );
+
+    lastWrittenCart = null;
+
+    serverAcknowledgedItems = null;
+};
+
 const normalizeCartItem = (
     item
 ) => {
@@ -733,6 +942,13 @@ const normalizeCartItem = (
             )
         );
 
+    const variantId =
+        safeInteger(
+            item.variantId
+            ?? item.variant_id,
+            0
+        );
+
     return {
         ...item,
         id: item.id,
@@ -751,55 +967,94 @@ const normalizeCartItem = (
             item.color || null,
         size:
             item.size || null,
+        variantId:
+            variantId > 0
+                ? variantId
+                : null,
         qty
     };
 };
 
-const getCart = () => {
+// Reads the stored envelope, or a payload handed in from a `storage` event.
+// Returns null when there is nothing usable there.
+const readCartEnvelope = (
+    rawValue
+) => {
 
-    let storedCart = [];
+    const isStoredRead =
+        rawValue === undefined;
+
+    let stored = null;
 
     try {
 
         const value =
-            localStorage.getItem(
-                CONFIG.STORAGE_KEYS.CART
-            );
+            isStoredRead
+                ? localStorage.getItem(
+                    CONFIG.STORAGE_KEYS.CART
+                )
+                : rawValue;
 
-        storedCart =
+        stored =
             value
                 ? JSON.parse(value)
-                : [];
+                : null;
 
     } catch (error) {
 
         console.warn(
-            `getCart error for key "${CONFIG.STORAGE_KEYS.CART}":`,
+            `Unreadable cart payload for key "${CONFIG.STORAGE_KEYS.CART}":`,
             error
         );
 
-        removeStorage(
-            CONFIG.STORAGE_KEYS.CART
-        );
+        if (
+            isStoredRead
+        ) {
 
-        return [];
+            discardCartStorage();
+        }
+
+        return null;
     }
 
+    // A bare array is the pre-envelope payload. It carries no owner, so the
+    // only safe reading of it is "guest cart" — which keeps a returning
+    // shopper's cart instead of dropping it the day this ships.
+    const isLegacyPayload =
+        Array.isArray(
+            stored
+        );
+
     if (
-        !Array.isArray(
-            storedCart
+        !isLegacyPayload
+        &&
+        (
+            !stored
+            ||
+            !Array.isArray(
+                stored.items
+            )
         )
     ) {
 
-        removeStorage(
-            CONFIG.STORAGE_KEYS.CART
-        );
+        if (
+            isStoredRead
+            &&
+            stored
+        ) {
 
-        return [];
+            discardCartStorage();
+        }
+
+        return null;
     }
 
-    const cart =
-        storedCart
+    const items =
+        (
+            isLegacyPayload
+                ? stored
+                : stored.items
+        )
             .map(
                 normalizeCartItem
             )
@@ -807,22 +1062,163 @@ const getCart = () => {
                 Boolean
             );
 
-    if (
-        cart.length !==
-        storedCart.length
-    ) {
+    return {
+        version:
+            isLegacyPayload
+                ? CART_SCHEMA_VERSION
+                : safeInteger(
+                    stored.version,
+                    CART_SCHEMA_VERSION
+                ),
 
+        owner:
+            isLegacyPayload
+                ? GUEST_CART_OWNER
+                : String(
+                    stored.owner
+                    || GUEST_CART_OWNER
+                ),
+
+        updatedAt:
+            isLegacyPayload
+                ? 0
+                : safeNumber(
+                    stored.updatedAt,
+                    0
+                ),
+
+        guestCartMerged:
+            !isLegacyPayload
+            &&
+            Boolean(
+                stored.guestCartMerged
+            ),
+
+        items
+    };
+};
+
+const CART_BROADCAST_CHANNEL = 'ecommerce_cart_channel';
+let cartChannel = null;
+
+try {
+    if (typeof BroadcastChannel !== 'undefined') {
+        cartChannel = new BroadcastChannel(CART_BROADCAST_CHANNEL);
+        cartChannel.onmessage = (event) => {
+            if (event && event.data && event.data.type === 'CART_SYNC_BROADCAST') {
+                const currentOwner = getCartOwner();
+                if (event.data.owner === currentOwner) {
+                    const updatedCart = getCart();
+                    dispatchCartUpdated(updatedCart);
+                }
+            }
+        };
+    }
+} catch (err) {
+    console.warn('BroadcastChannel initialization error:', err);
+}
+
+// Cross-Tab Storage Event Fallback for older browsers
+window.addEventListener('storage', (event) => {
+    if (event.key === CONFIG.STORAGE_KEYS.CART) {
+        const updatedCart = getCart();
+        dispatchCartUpdated(updatedCart);
+    }
+});
+
+const writeCartEnvelope = (
+    envelope
+) => {
+
+    const saved =
         setJSON(
             CONFIG.STORAGE_KEYS.CART,
-            cart
+            envelope
         );
+
+    if (
+        saved
+    ) {
+
+        lastWrittenCart = envelope;
+
+        if (cartChannel) {
+            try {
+                cartChannel.postMessage({
+                    type: 'CART_SYNC_BROADCAST',
+                    owner: envelope.owner,
+                    timestamp: envelope.updatedAt || Date.now()
+                });
+            } catch (e) {
+                // Ignore broadcast post failures
+            }
+        }
     }
 
-    return cart;
+    return saved;
+};
+
+const getCart = () => {
+
+    const envelope =
+        readCartEnvelope();
+
+    if (
+        !envelope
+    ) {
+
+        return [];
+    }
+
+    if (
+        envelope.owner ===
+        getCartOwner()
+    ) {
+
+        return envelope.items;
+    }
+
+    // A guest cart seen by a signed-in shopper is material for the sign-in
+    // merge, not this account's cart.
+    if (
+        envelope.owner ===
+        GUEST_CART_OWNER
+    ) {
+
+        return [];
+    }
+
+    // The cart belongs to a different account, or to an account nobody is
+    // signed into any more. Discarding it is the point: merging it would hand
+    // one shopper's basket to another.
+    discardCartStorage();
+
+    return [];
+};
+
+// Items from a guest cart that a signed-in shopper brought with them, waiting
+// to be folded into the account exactly once.
+const getGuestCartCandidates = () => {
+
+    const envelope =
+        readCartEnvelope();
+
+    return (
+        envelope
+        &&
+        envelope.owner ===
+        GUEST_CART_OWNER
+    )
+        ? envelope.items
+        : [];
 };
 
 const saveCart = (
-    cart
+    cart,
+    {
+        sync = true,
+        guestCartMerged = false
+    } = {}
 ) => {
 
     const normalizedCart =
@@ -834,32 +1230,62 @@ const saveCart = (
                 Boolean
             );
 
+    const previous =
+        readCartEnvelope();
+
+    const owner =
+        getCartOwner();
+
     const saved =
-        setJSON(
-            CONFIG.STORAGE_KEYS.CART,
-            normalizedCart
-        );
+        writeCartEnvelope({
+            version:
+                CART_SCHEMA_VERSION,
+
+            owner,
+
+            updatedAt:
+                Date.now(),
+
+            // The merge flag belongs to the account, so it only carries over a
+            // write by that same account.
+            guestCartMerged:
+                guestCartMerged
+                ||
+                Boolean(
+                    previous
+                    &&
+                    previous.owner === owner
+                    &&
+                    previous.guestCartMerged
+                ),
+
+            items:
+                normalizedCart
+        });
 
     if (
         saved
     ) {
 
-        window.dispatchEvent(
-            new CustomEvent(
-                CART_UPDATED_EVENT,
-                {
-                    detail: {
-                        cart:
-                            normalizedCart
-                    }
-                }
-            )
+        dispatchCartUpdated(
+            normalizedCart
         );
+    }
+
+    // Signed-in users: mirror every mutation to the persistent backend cart.
+    // `sync: false` is used when the local mirror is being hydrated FROM the
+    // backend, or when the caller pushes the change itself, to avoid an echo
+    // write.
+    if (sync && isAuthenticated()) {
+        syncCartWithBackend(normalizedCart);
     }
 
     return normalizedCart;
 };
 
+// A line is the product plus the variant the shopper chose, matching what the
+// backend stores. Colour and size are compared case-insensitively so one choice
+// spelled two ways stays one line.
 const getCartItemKey = (
     item
 ) => {
@@ -868,12 +1294,22 @@ const getCartItemKey = (
         String(
             item?.id
         ),
-        item?.color || "",
-        item?.size || ""
+        String(
+            safeInteger(
+                item?.variantId,
+                0
+            )
+        ),
+        String(
+            item?.color || ""
+        ).toLowerCase(),
+        String(
+            item?.size || ""
+        ).toLowerCase()
     ].join("|");
 };
 
-const addCartItem = (
+const addCartItem = async (
     product
 ) => {
 
@@ -891,8 +1327,15 @@ const addCartItem = (
         return getCart();
     }
 
-    const cart =
+    const previousCart =
         getCart();
+
+    const cart =
+        previousCart.map(
+            (cartItem) => ({
+                ...cartItem
+            })
+        );
 
     const existing =
         cart.find(
@@ -919,8 +1362,79 @@ const addCartItem = (
         );
     }
 
+    // Guests have nothing to reserve against, so the local write is the whole
+    // operation.
+    if (
+        !isAuthenticated()
+    ) {
+
+        return saveCart(
+            cart
+        );
+    }
+
+    // /cart/add is the only endpoint that creates the 15-minute inventory lock
+    // the checkout flow later validates, so an add has to route through it. The
+    // local write is not pushed separately because this request carries it.
+    const saved =
+        saveCart(
+            cart,
+            { sync: false }
+        );
+
+    let response = null;
+
+    try {
+
+        response =
+            await apiRequest(
+                "/cart/add",
+                {
+                    method: "POST",
+                    body: JSON.stringify({
+                        productId: item.id,
+                        variantId: item.variantId,
+                        color: item.color,
+                        size: item.size,
+                        quantity: item.qty
+                    })
+                }
+            );
+
+    } catch (error) {
+
+        console.warn(
+            "Cart reservation failed:",
+            error
+        );
+    }
+
+    if (
+        response
+        &&
+        response.success
+    ) {
+
+        serverAcknowledgedItems = saved;
+
+        return saved;
+    }
+
+    // The account does not hold this line, so the browser must stop pretending
+    // it does.
+    notify(
+        (
+            response
+            &&
+            response.message
+        )
+        || "Could not add that to your cart. Please try again.",
+        "error"
+    );
+
     return saveCart(
-        cart
+        previousCart,
+        { sync: false }
     );
 };
 
@@ -982,6 +1496,249 @@ const clearCart = () => {
     );
 };
 
+// ---------- Backend cart integration (authenticated users) ----------
+// Guests keep using localStorage only. For signed-in users every cart mutation
+// is mirrored to the persistent backend cart (/api/cart) so carts survive
+// across devices/sessions and the inventory-reservation workflow is exercised.
+// The account is the authority: a change the server refuses does not survive
+// locally.
+
+// Real lines, one per variant choice. Flattening colour and size away here is
+// what used to make the shopper's choice vanish on the round trip and left
+// stock reserved against the product instead of the variant.
+const cartLinesForBackend = (cart) =>
+    safeArray(cart)
+        .map(normalizeCartItem)
+        .filter(Boolean)
+        .map((item) => ({
+            productId: item.id,
+            variantId: item.variantId,
+            color: item.color,
+            size: item.size,
+            qty: item.qty
+        }));
+
+const OFFLINE_CART_QUEUE_KEY = "offline_cart_queue";
+
+const getOfflineCartQueue = () => getJSON(OFFLINE_CART_QUEUE_KEY, []);
+const saveOfflineCartQueue = (queue) => setJSON(OFFLINE_CART_QUEUE_KEY, queue);
+
+const enqueueOfflineCartMutation = (cart) => {
+    const queue = getOfflineCartQueue();
+    queue.push({
+        cart: cartLinesForBackend(cart),
+        timestamp: Date.now()
+    });
+    saveOfflineCartQueue(queue);
+};
+
+const processOfflineCartQueue = async () => {
+    if (!navigator.onLine || !isAuthenticated()) return;
+    const queue = getOfflineCartQueue();
+    if (!queue.length) return;
+
+    saveOfflineCartQueue([]);
+
+    try {
+        const currentCart = getCart();
+        const synced = await pushCartToBackend(currentCart);
+        if (synced) {
+            notify("Reconnected: Cart synced to your account", "info");
+        }
+    } catch (error) {
+        console.warn("Failed to sync offline cart queue:", error);
+    }
+};
+
+window.addEventListener("online", () => {
+    processOfflineCartQueue();
+    const currentCart = getCart();
+    dispatchCartUpdated(currentCart);
+});
+
+// Push the whole cart and report whether the account accepted it. /cart/sync is
+// replace-all, so this reconciles the server with the local cart after any
+// mutation — including bulk edits made through saveCart directly.
+const pushCartToBackend = async (cart) => {
+    if (!navigator.onLine) {
+        enqueueOfflineCartMutation(cart);
+        notify("Network offline. Cart saved locally and queued for background sync.", "warning");
+        return true;
+    }
+
+    let response = null;
+
+    try {
+        response = await apiRequest("/cart/sync", {
+            method: "POST",
+            body: JSON.stringify({
+                owner: getCartOwner(),
+                items: cartLinesForBackend(cart)
+            })
+        });
+    } catch (error) {
+        console.warn("Cart backend sync failed:", error);
+        enqueueOfflineCartMutation(cart);
+    }
+
+    if (response && response.success) {
+        serverAcknowledgedItems = cart;
+        return true;
+    }
+
+    notify(
+        (response && response.message)
+        || "Your cart could not be saved to your account.",
+        "error"
+    );
+
+    if (serverAcknowledgedItems) {
+        saveCart(serverAcknowledgedItems, { sync: false });
+    }
+
+    return false;
+};
+
+// Debounced so a run of quantity edits costs one request rather than one per
+// keystroke. The returned promise settles once that request has been answered,
+// so a caller that needs to know the outcome can wait for it.
+let pendingCartSync = null;
+
+const syncCartWithBackend = (cart) => {
+    if (!isAuthenticated()) {
+        return Promise.resolve(false);
+    }
+
+    if (pendingCartSync) {
+        clearTimeout(pendingCartSync.timeoutId);
+    } else {
+        let settle;
+
+        pendingCartSync = {
+            promise: new Promise((resolve) => {
+                settle = resolve;
+            }),
+            settle
+        };
+    }
+
+    const scheduled = pendingCartSync;
+
+    scheduled.timeoutId = setTimeout(() => {
+        pendingCartSync = null;
+
+        pushCartToBackend(cart).then(scheduled.settle);
+    }, CART_SYNC_DEBOUNCE_MS);
+
+    return scheduled.promise;
+};
+
+// Combining two carts is the only place quantities are summed, and only for
+// lines that are genuinely the same line.
+const mergeCartLines = (accountCart, guestCart) => {
+    const merged = safeArray(accountCart)
+        .map(normalizeCartItem)
+        .filter(Boolean);
+
+    safeArray(guestCart)
+        .map(normalizeCartItem)
+        .filter(Boolean)
+        .forEach((item) => {
+            const existing = merged.find(
+                (candidate) =>
+                    getCartItemKey(candidate) === getCartItemKey(item)
+            );
+
+            if (existing) {
+                existing.qty += item.qty;
+            } else {
+                merged.push(item);
+            }
+        });
+
+    return merged;
+};
+
+// `retry` is disabled on the fetch so an expired session never force-redirects
+// a browsing user off a public page; a real mutation will trigger the normal
+// refresh/redirect flow instead. Returns null when the cart could not be read,
+// which is not the same answer as an empty cart.
+const fetchServerCart = async () => {
+    try {
+        const data = await apiRequest("/cart", {}, false);
+
+        if (data && data.success) {
+            return safeArray(data.cart)
+                .map(normalizeCartItem)
+                .filter(Boolean);
+        }
+    } catch (error) {
+        console.warn("Failed to load backend cart:", error);
+    }
+
+    return null;
+};
+
+// Page-load lifecycle: the account cart REPLACES the local mirror. Nothing is
+// merged here — merging what is only a mirror of the same cart is what made
+// carts inflate on their own with nobody touching them.
+const hydrateCartFromServer = async () => {
+    if (!isAuthenticated()) {
+        return getCart();
+    }
+
+    const serverCart = await fetchServerCart();
+
+    if (!serverCart) {
+        return getCart();
+    }
+
+    serverAcknowledgedItems = serverCart;
+
+    return saveCart(serverCart, { sync: false });
+};
+
+// Sign-in lifecycle: fold a guest cart into the account cart. This is the one
+// deliberate combine, and the envelope records that it happened so a reload
+// cannot repeat it.
+const mergeGuestCartIntoAccount = async () => {
+    if (!isAuthenticated()) {
+        return getCart();
+    }
+
+    const envelope = readCartEnvelope();
+    const alreadyMerged =
+        envelope
+        && envelope.owner === getCartOwner()
+        && envelope.guestCartMerged;
+
+    const guestCart = getGuestCartCandidates();
+
+    if (alreadyMerged || !guestCart.length) {
+        return hydrateCartFromServer();
+    }
+
+    const serverCart = await fetchServerCart();
+
+    // Without the account cart there is nothing sound to merge into, so the
+    // guest cart stays a guest cart and the next sign-in can try again.
+    if (!serverCart) {
+        return getCart();
+    }
+
+    serverAcknowledgedItems = serverCart;
+
+    const merged = mergeCartLines(serverCart, guestCart);
+
+    saveCart(merged, { sync: false, guestCartMerged: true });
+
+    // Pushed directly rather than through the debounce: this is a one-shot step
+    // and the shopper is waiting on its outcome.
+    const accepted = await pushCartToBackend(merged);
+
+    return accepted ? merged : getCart();
+};
+
 const getCartCount = (
     cart = getCart()
 ) => {
@@ -1005,135 +1762,177 @@ const getCartCount = (
     );
 };
 
-const validateCoupon = (
-    code
+// Coupon validation is server-authoritative: the browser no longer knows which
+// codes exist or what they're worth. It POSTs the code + current cart total to
+// /promo/validate and maps the response onto the legacy { valid, code, percent,
+// message } shape callers already understand. Any failure (network, timeout,
+// unknown code, rate limit) resolves to a safe invalid result rather than
+// throwing, so a broken promo endpoint never blocks checkout.
+const validateCoupon = async (
+    code,
+    cartTotal = 0
 ) => {
+    const normalizedCode = String(code || "").trim().toUpperCase();
 
-    const normalizedCode =
-        String(
-            code || ""
-        )
-            .trim()
-            .toUpperCase();
-
-    const coupons = {
-        SAVE10: 10,
-        SAVE20: 20
-    };
-
-    if (
-        !normalizedCode
-    ) {
-
+    if (!normalizedCode) {
         return {
             valid: false,
             code: "",
             percent: 0,
-            message:
-                "Enter a coupon code."
+            message: "Enter a coupon code."
         };
     }
 
-    if (
-        !coupons[normalizedCode]
-    ) {
+    const safeCartTotal = safeNumber(cartTotal, 0);
+
+    try {
+        const response = await apiRequest("/promo/validate", {
+            method: "POST",
+            body: JSON.stringify({
+                promoCode: normalizedCode,
+                cartTotal: safeCartTotal
+            })
+        });
+
+        const promo = response && response.success ? response.data : null;
+
+        if (!promo || !promo.valid) {
+            return {
+                valid: false,
+                code: normalizedCode,
+                percent: 0,
+                message:
+                    (response && response.message) || "Invalid coupon code."
+            };
+        }
+
+        // Express the server's discount as a percent of the submitted cart
+        // total so percentage- and fixed-amount promos both flow through the
+        // existing percent-based math. discountType/discountValue are stable
+        // promo attributes (unlike the response's cartTotal-derived `discount`,
+        // which the backend caches by code only), so this stays correct across
+        // cart edits.
+        const percent =
+            promo.discountType === "fixed"
+                ? (safeCartTotal > 0
+                    ? (safeNumber(promo.discountValue, 0) / safeCartTotal) * 100
+                    : 0)
+                : safeNumber(promo.discountValue, 0);
+
+        const resolvedCode = promo.promoCode || normalizedCode;
+
+        return {
+            valid: true,
+            code: resolvedCode,
+            percent,
+            message: `${resolvedCode} applied successfully.`
+        };
+    } catch (error) {
+        console.error("COUPON VALIDATION ERROR:", error);
 
         return {
             valid: false,
-            code:
-                normalizedCode,
+            code: normalizedCode,
             percent: 0,
-            message:
-                "Invalid coupon code."
+            message: "Could not validate coupon. Please try again."
         };
     }
-
-    return {
-        valid: true,
-        code:
-            normalizedCode,
-        percent:
-            coupons[normalizedCode],
-        message:
-            `${normalizedCode} applied successfully.`
-    };
 };
 
-const calculateCartTotals = (
+const calculateCartTotals = async (
     cart = getCart(),
     couponCode = ""
 ) => {
+    const subtotal = safeArray(cart).reduce(
+        (sum, item) =>
+            sum +
+            safeNumber(item.price, 0) *
+                Math.max(1, safeInteger(item.qty, 1)),
+        0
+    );
 
-    const subtotal =
-        safeArray(
-            cart
-        ).reduce(
-            (
-                sum,
-                item
-            ) =>
-                sum +
-                (
-                    safeNumber(
-                        item.price,
-                        0
-                    ) *
-                    Math.max(
-                        1,
-                        safeInteger(
-                            item.qty,
-                            1
-                        )
-                    )
-                ),
-            0
-        );
-
-    const coupon =
-        validateCoupon(
-            couponCode
-        );
+    // Skip the round-trip when there's nothing to validate; an empty code is
+    // never a coupon.
+    const coupon = couponCode
+        ? await validateCoupon(couponCode, subtotal)
+        : null;
 
     const discount =
-        coupon.valid
-            ? subtotal *
-                (
-                    coupon.percent / 100
-                )
-            : 0;
+        coupon && coupon.valid ? subtotal * (coupon.percent / 100) : 0;
 
-    const discountedSubtotal =
-        Math.max(
-            0,
-            subtotal - discount
-        );
+    const discountedSubtotal = Math.max(0, subtotal - discount);
 
-    const tax =
-        discountedSubtotal * 0.18;
+    const tax = discountedSubtotal * CONFIG.PRICING.TAX_RATE;
 
     const shipping =
-        discountedSubtotal > 0
-        &&
-        discountedSubtotal < 999
-            ? 49
+        discountedSubtotal > 0 &&
+        discountedSubtotal < CONFIG.PRICING.FREE_SHIPPING_THRESHOLD
+            ? CONFIG.PRICING.SHIPPING_FEE
             : 0;
 
-    const total =
-        discountedSubtotal +
-        tax +
-        shipping;
+    const total = discountedSubtotal + tax + shipping;
 
     return {
         subtotal,
-        coupon:
-            coupon.valid
-                ? coupon
-                : null,
+        coupon: coupon && coupon.valid ? coupon : null,
         discount,
         tax,
         shipping,
         total
     };
+};
+
+// Ask the server what this basket costs. The server owns the tax, shipping and
+// discount rules and prices from its own product records, so what comes back
+// here is what checkout will charge.
+//
+// calculateCartTotals stays as the fallback: if the quote cannot be fetched the
+// shopper still sees a plausible summary rather than a blank or zeroed one, and
+// `isServerQuote` tells callers which of the two they are looking at.
+const fetchCartQuote = async (
+    cart = getCart(),
+    couponCode = ""
+) => {
+    const items = safeArray(cart).map(
+        (item) => ({
+            id: item.id,
+            qty: Math.max(1, safeInteger(item.qty, 1)),
+            variantId: item.variantId || item.variant_id || null,
+            color: item.color || "",
+            size: item.size || ""
+        })
+    );
+
+    try {
+        const response = await apiRequest("/checkout/quote", {
+            method: "POST",
+            body: JSON.stringify({
+                items,
+                promoCode: couponCode || null
+            })
+        });
+
+        if (!response || !response.success || !response.breakdown) {
+            throw new Error(
+                (response && response.message) || "Quote unavailable"
+            );
+        }
+
+        return {
+            ...response.breakdown,
+            promoMessage: response.promoMessage || null,
+            isServerQuote: true
+        };
+    } catch (error) {
+        console.error("CART QUOTE ERROR:", error);
+
+        const fallback = await calculateCartTotals(cart, couponCode);
+
+        return {
+            ...fallback,
+            isServerQuote: false
+        };
+    }
 };
 
 const getWishlist = () => {
@@ -1153,6 +1952,29 @@ const saveWishlist = (
         safeArray(wishlist)
     );
 }; // Fixed: Added missing closing bracket here
+
+const getSkeletonCardHTML = (count = 4) => {
+    let html = "";
+    for (let i = 0; i < count; i++) {
+        html += `
+            <div class="pro skeleton-wrapper">
+                <div class="skeleton skeleton-img"></div>
+                <div class="des">
+                    <div class="skeleton skeleton-text short"></div>
+                    <div class="skeleton skeleton-text"></div>
+                    <div class="skeleton skeleton-text short"></div>
+                    <div class="skeleton skeleton-text price"></div>
+                </div>
+            </div>
+        `;
+    }
+    return html;
+};
+
+const renderSkeletonState = (container, count = 4) => {
+    if (!container) return;
+    container.innerHTML = getSkeletonCardHTML(count);
+};
 
 // app utils assignment
 window.AppUtils = {
@@ -1190,10 +2012,20 @@ window.AppUtils = {
     removeCartItem,
     clearCart,
     getCartCount,
+    isAuthenticated,
+    syncCartWithBackend,
+    mergeCartLines,
+    hydrateCartFromServer,
+    mergeGuestCartIntoAccount,
     validateCoupon,
     calculateCartTotals,
+    fetchCartQuote,
     getWishlist,
-    saveWishlist
+    saveWishlist,
+    getSkeletonCardHTML,
+    renderSkeletonState,
+    FALLBACK_PRODUCT_IMAGE,
+    handleImageError
 };
 
 // backward compatibility assignments
@@ -1201,11 +2033,46 @@ window.API_BASE = CONFIG.API_BASE;
 window.notify = notify;
 window.getJSON = getJSON;
 window.setJSON = setJSON;
+window.getSkeletonCardHTML = getSkeletonCardHTML;
+window.renderSkeletonState = renderSkeletonState;
 window.apiRequest = apiRequest;
 window.$ = $;
 window.$$ = $$;
 window.formatPrice = formatPrice;
 window.requireAuth = requireAuth;
 window.defaultImage = defaultImage;
+window.FALLBACK_PRODUCT_IMAGE = FALLBACK_PRODUCT_IMAGE;
+window.handleImageError = handleImageError;
 window.safeForEach = safeForEach;
 window.safeMap = safeMap;
+
+// Side-by-side tabs converge instead of competing: whichever envelope carries
+// the later timestamp is the one that stands, and everything listening on
+// CART_UPDATED_EVENT re-reads it.
+window.addEventListener("storage", (event) => {
+    if (event.key !== CONFIG.STORAGE_KEYS.CART) {
+        return;
+    }
+
+    const incoming = readCartEnvelope(event.newValue);
+
+    if (!incoming) {
+        // Another tab dropped the mirror, typically by signing out.
+        lastWrittenCart = null;
+    } else if (lastWrittenCart && lastWrittenCart.updatedAt > incoming.updatedAt) {
+        // This tab holds the newer state. It is written back with its original
+        // timestamp so the other tab adopts it and the exchange settles.
+        writeCartEnvelope(lastWrittenCart);
+    }
+
+    dispatchCartUpdated(getCart());
+});
+
+// Hydrate the persistent backend cart for already–signed-in users on load, so
+// a cart created on another device/session follows them here. Combining a guest
+// cart into the account is a separate, deliberate step that belongs to sign-in.
+if (getToken() && getUser()) {
+    hydrateCartFromServer().catch((error) => {
+        console.warn("Initial cart hydration failed:", error);
+    });
+}

@@ -1,6 +1,5 @@
 // backend/middleware/correlationIdMiddleware.js
 const crypto = require('crypto');
-const { v4: uuidv4 } = require('uuid');
 
 // ============================================
 // CONFIGURATION
@@ -25,7 +24,7 @@ const CORRELATION_CONFIG = {
 function generateCorrelationId() {
     const timestamp = Date.now().toString(36);
     const random = crypto.randomBytes(8).toString('hex');
-    const uuid = uuidv4().split('-')[0];
+    const uuid = crypto.randomUUID().split('-')[0];
     return `corr_${timestamp}_${random}_${uuid}`;
 }
 
@@ -137,46 +136,11 @@ function createChildLogger(req, correlationId) {
  * Patch console methods to include correlation ID
  */
 function patchConsoleMethods(correlationId) {
-    const originalConsole = {
-        log: console.log,
-        error: console.error,
-        warn: console.warn,
-        info: console.info,
-        debug: console.debug
-    };
-
-    const createPatchedMethod = (method) => {
-        return function(...args) {
-            const timestamp = new Date().toISOString();
-            const prefix = `[${timestamp}] [CORR:${correlationId}]`;
-            
-            // Check if first argument is already a string
-            if (typeof args[0] === 'string') {
-                args[0] = `${prefix} ${args[0]}`;
-            } else {
-                args.unshift(prefix);
-            }
-            
-            method.apply(console, args);
-        };
-    };
-
-    // Apply patches
-    console.log = createPatchedMethod(originalConsole.log);
-    console.error = createPatchedMethod(originalConsole.error);
-    console.warn = createPatchedMethod(originalConsole.warn);
-    console.info = createPatchedMethod(originalConsole.info);
-    console.debug = createPatchedMethod(originalConsole.debug);
+    // Disabled console override to prevent recursive stack accumulation and request cross-contamination.
 }
 
-/**
- * Middleware to log request completion
- */
 function logCompletionMiddleware(req, res, next) {
-    const originalJson = res.json;
-    const originalSend = res.send;
-
-    const logRequestCompletion = (data) => {
+    res.on('finish', () => {
         const duration = Date.now() - (req._startTime || Date.now());
         const statusCode = res.statusCode;
 
@@ -205,17 +169,7 @@ function logCompletionMiddleware(req, res, next) {
                 timestamp: new Date().toISOString()
             }));
         }
-    };
-
-    res.json = function(data) {
-        logRequestCompletion(data);
-        return originalJson.call(this, data);
-    };
-
-    res.send = function(data) {
-        logRequestCompletion(data);
-        return originalSend.call(this, data);
-    };
+    });
 
     next();
 }

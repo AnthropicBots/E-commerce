@@ -282,6 +282,18 @@ function validateUUID(uuid) {
 }
 
 /**
+ * Safely parse a UUID with fallback
+ * @param {any} value - Value to parse
+ * @param {string} fallback - Default value if parsing fails
+ * @returns {string} - Safe UUID string
+ */
+function safeUUID(value, fallback = null) {
+    if (value === null || value === undefined) return fallback;
+    const strValue = String(value).trim();
+    return validateUUID(strValue) ? strValue : fallback;
+}
+
+/**
  * Validate MongoDB ObjectId
  * @param {string} id - ID to validate
  * @returns {boolean} - True if valid
@@ -748,6 +760,7 @@ module.exports = {
     // Number Safety
     safeNumber,
     safeInteger,
+    safeUUID,
     
     // String Sanitization
     sanitizeString,

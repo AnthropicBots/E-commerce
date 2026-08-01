@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const authMiddleware = require("../middleware/authMiddleware");
 
 const {
     getProducts,
@@ -7,15 +8,16 @@ const {
     createProduct,
     updateProduct,
     deleteProduct,
-    getProductSuggestions
+    getProductSuggestions,
+    getCategoryTree,
+    invalidateCategoryTreeCache
 } = require("../controllers/productController");
-// Add at top
+
 const { validateProductReview } = require('../middleware/promptInjectionMiddleware');
 
 // Update POST /api/products/review
 router.post('/products/review', authMiddleware, validateProductReview, async (req, res) => {
-    // Your existing review handler
-    // req.body.review is now sanitized
+  
 });
 const {
     getProductReviews,
@@ -23,7 +25,6 @@ const {
     deleteProductReview
 } = require("../controllers/reviewController");
 
-const authMiddleware = require("../middleware/authMiddleware");
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
 const { validateCreateProduct, validateUpdateProduct } = require("../middleware/validators/productValidator");
 
@@ -47,6 +48,14 @@ router.get("/status/check", (req, res) => {
 });
 
 router.get("/search-suggestions", getProductSuggestions);
+// Category tree must be registered before /:id (#1264)
+router.get("/categories/tree", getCategoryTree);
+router.post(
+    "/categories/tree/invalidate",
+    authMiddleware,
+    authorizeRoles("admin"),
+    invalidateCategoryTreeCache
+);
 router.get("/", getProducts);
 router.get("/:id/reviews", getProductReviews);
 router.post("/:id/review", authMiddleware, createProductReview);

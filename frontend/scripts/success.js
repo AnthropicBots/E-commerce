@@ -99,26 +99,39 @@ async function fetchOrder() {
             response.order;
 
         // render order id
-        if (
-            elements.orderId
-        ) {
+if (elements.orderId) {
+    elements.orderId.innerText = order.id || "N/A";
+}
 
-            elements.orderId.innerText =
-                order.id || "N/A";
-        }
+// render order date
+if (elements.orderDate) {
+    elements.orderDate.innerText =
+        order.created_at
+            ? new Date(order.created_at).toLocaleDateString()
+            : "N/A";
+}
 
-        // render order date
-        if (
-            elements.orderDate
-        ) {
+// render order total
+const orderTotal = document.getElementById("order-total");
+if (orderTotal) {
+    orderTotal.innerText = order.total_price
+        ? AppUtils.formatPrice(order.total_price)
+        : "N/A";
+}
 
-            elements.orderDate.innerText =
-                order.created_at
-                    ? new Date(
-                        order.created_at
-                    ).toLocaleDateString()
-                    : "N/A";
-        }
+// render order items
+const orderItemsList = document.getElementById("order-items-list");
+if (orderItemsList && Array.isArray(order.items) && order.items.length) {
+    orderItemsList.innerHTML = order.items.map(item => `
+        <li style="margin-bottom:6px;">
+            ${AppUtils.escapeHTML(item.name || "Product")} 
+            x${item.qty || 1} — 
+            ${AppUtils.formatPrice(item.price || 0)}
+        </li>
+    `).join("");
+} else if (orderItemsList) {
+    orderItemsList.innerHTML = "<li>No item details available.</li>";
+}
 
     } catch (error) {
 

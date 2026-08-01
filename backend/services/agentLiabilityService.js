@@ -2,9 +2,17 @@
 
 const crypto = require('crypto');
 const db = require('../config/db').promise;
+
+// ============================================
+// LIABILITY CONFIGURATION
+// ============================================
+
+// ============================================
+// AGENT LIABILITY SERVICE
+// ============================================
+
 const Joi = require('joi');
 const winston = require('winston');
-const Redis = require('ioredis');
 const CircuitBreaker = require('opossum');
 const prometheus = require('prom-client');
 const cron = require('node-cron');
@@ -32,12 +40,10 @@ const logger = winston.createLogger({
 // REDIS CACHE
 // ============================================
 
-const redis = new Redis({
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT) || 6379,
-    password: process.env.REDIS_PASSWORD,
-    retryStrategy: (times) => Math.min(times * 50, 2000)
-});
+// Shared client -- see config/redis.js. This module used to construct its own
+// `new Redis({ ... })`, which meant an extra connection per module and made
+// the module impossible to load without a live Redis (#1341).
+const redis = require("../config/redis");
 
 const CACHE_TTL = {
     AGENT: 3600,
@@ -219,6 +225,7 @@ const invalidateCache = async (agentId) => {
 
 // ============================================
 // LIABILITY FRAMEWORK CLASS
+
 // ============================================
 
 class AgentLiabilityService {
@@ -227,7 +234,119 @@ class AgentLiabilityService {
         this.liabilityRecords = new Map();
         this.insuranceClaims = new Map();
         this.authorizationSessions = new Map();
-        this.setupCleanupJobs();
+
+    }
+
+    /**
+     * Register an AI agent
+     */
+    async registerAgent(agentData) {
+        const registration = {
+            agentId: this.generateAgentId(),
+            name: agentData.name,
+            ownerId: agentData.ownerId,
+            ownerType: agentData.ownerType || 'merchant',
+            registeredAt: new Date().toISOString(),
+            liabilityTier: agentData.liabilityTier || 'PARTIAL',
+            insuranceActive: agentData.insuranceActive || false,
+            maxTransactionLimit: agentData.maxTransactionLimit || LIABILITY_CONFIG.maxTransactionAmount,
+            permissions: agentData.permissions || ['view', 'search'],
+            status: 'active',
+            publicKey: agentData.publicKey || null
+        };
+
+        await this.storeRegistration(registration);
+
+        if (registration.insuranceActive) {
+            await this.createInsurancePolicy(registration.agentId);
+        }
+
+        this.agentRegistrations.set(registration.agentId, registration);
+        console.log(`✅ Agent registered: ${registration.agentId}`);
+        return registration;
+    }
+
+    /**
+     * Authorize an agent action
+     */
+    async authorizeAction(agentId, action, data) {
+        const agent = await this.getAgent(agentId);
+        if (!agent || agent.status !== 'active') {
+            return { authorized: false, reason: 'Agent not found or inactive' };
+        }
+
+        // Check permissions
+        if (!this.hasPermission(agent, action)) {
+            return { authorized: false, reason: `Agent lacks permission for action: ${action}` };
+        }
+
+        // Check transaction limits
+        if (action === 'purchase' && data.amount > agent.maxTransactionLimit) {
+            return { authorized: false, reason: `Amount exceeds agent limit` };
+        }
+
+        // Create authorization signature
+        const signature = await this.createAuthorizationSignature(agentId, action, data);
+
+        // Assign liability
+        const liability = await this.assignLiability(agentId, action, data);
+
+        const authorization = {
+            id: this.generateAuthorizationId(),
+            agentId,
+            action,
+            data,
+            signature,
+            liability,
+            timestamp: new Date().toISOString(),
+            status: 'authorized'
+        };
+
+        await this.storeAuthorization(authorization);
+        await this.logLiabilityAssignment(agentId, liability, authorization);
+
+        return {
+            authorized: true,
+            signature,
+            liability,
+            authorizationId: authorization.id
+        };
+    }
+
+    /**
+     * Assign liability for an action
+     */
+    async assignLiability(agentId, action, data) {
+        const agent = await this.getAgent(agentId);
+        const tier = LIABILITY_CONFIG.liabilityTiers[agent.liabilityTier] || LIABILITY_CONFIG.liabilityTiers.PARTIAL;
+
+        let liability = {
+            agentId,
+            action,
+            tier: agent.liabilityTier,
+            coverage: tier.coverage,
+            amount: 0,
+            liabilityAmount: 0,
+            assignedTo: agent.ownerId,
+            timestamp: new Date().toISOString()
+        };
+
+        // Calculate liability amount
+        if (action === 'purchase' && data.amount) {
+            liability.amount = data.amount;
+            liability.liabilityAmount = (data.amount * tier.coverage) / 100;
+        }
+
+        // Apply insurance if active
+        if (agent.insuranceActive) {
+            const insurance = await this.getInsurancePolicy(agentId);
+            if (insurance && insurance.active && insurance.remainingBalance >= liability.liabilityAmount) {
+                liability.insuranceCoverage = liability.liabilityAmount * LIABILITY_CONFIG.fraudCoverage;
+                liability.liabilityAmount -= liability.insuranceCoverage;
+            }
+        }
+
+        return liability;
     }
 
     /**
@@ -421,6 +540,7 @@ class AgentLiabilityService {
                 liability: null
             };
         }
+
     }
 
     /**
@@ -565,6 +685,7 @@ class AgentLiabilityService {
         } catch (error) {
             logger.error('Webhook error', { event, error: error.message });
         }
+
     }
 
     /**
@@ -587,6 +708,10 @@ class AgentLiabilityService {
         return policy;
     }
 
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
+
     /**
      * Get insurance policy with caching
      */
@@ -604,9 +729,49 @@ class AgentLiabilityService {
         if (rows.length > 0) {
             await redis.setex(key, CACHE_TTL.INSURANCE, JSON.stringify(rows[0]));
             return rows[0];
+
         }
         return null;
     }
+
+    hasPermission(agent, action) {
+        const requiredPermissions = {
+            'view': ['view'],
+            'search': ['view', 'search'],
+            'purchase': ['purchase', 'view', 'search'],
+            'refund': ['refund', 'purchase', 'view', 'search'],
+            'discount': ['discount', 'purchase', 'view', 'search']
+        };
+        const required = requiredPermissions[action] || ['view'];
+        return required.some(perm => agent.permissions.includes(perm));
+    }
+
+    async createAuthorizationSignature(agentId, action, data) {
+        const secret = process.env.AGENT_AUTH_SECRET || 'default_secret';
+        const payload = `${agentId}:${action}:${JSON.stringify(data)}:${Date.now()}`;
+        return crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    }
+
+    generateAgentId() {
+        return `AGT_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    }
+
+    generateAuthorizationId() {
+        return `AUTH_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    }
+
+    generateClaimId() {
+        return `CLM_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    }
+
+    generatePolicyId() {
+        return `POL_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    }
+
+    // ============================================
+    // DATABASE OPERATIONS
+    // ============================================
+
 
     /**
      * Deduct from insurance
@@ -662,6 +827,7 @@ class AgentLiabilityService {
         );
     }
 
+
     /**
      * Store authorization
      */
@@ -683,6 +849,93 @@ class AgentLiabilityService {
             ]
         );
     }
+
+    async getAuthorization(authId) {
+        try {
+            const [rows] = await db.query(
+                'SELECT * FROM agent_authorizations WHERE id = ?',
+                [authId]
+            );
+            if (rows.length > 0) {
+                return {
+                    ...rows[0],
+                    data: JSON.parse(rows[0].data),
+                    liability: JSON.parse(rows[0].liability)
+                };
+            }
+        } catch (error) {
+            console.error('Get authorization error:', error);
+        }
+        return null;
+    }
+
+    async logLiabilityAssignment(agentId, liability, authorization) {
+        await db.query(
+            `INSERT INTO liability_assignments 
+             (agent_id, authorization_id, action, amount, liability_amount, 
+              tier, coverage, assigned_to, timestamp)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+            [
+                agentId,
+                authorization.id,
+                authorization.action,
+                liability.amount || 0,
+                liability.liabilityAmount || 0,
+                liability.tier,
+                liability.coverage,
+                liability.assignedTo
+            ]
+        );
+    }
+
+    async getInsurancePolicy(agentId) {
+        try {
+            const [rows] = await db.query(
+                'SELECT * FROM agent_insurance_policies WHERE agent_id = ? AND active = 1',
+                [agentId]
+            );
+            return rows.length > 0 ? rows[0] : null;
+        } catch (error) {
+            console.error('Get insurance error:', error);
+            return null;
+        }
+    }
+
+    async storeInsurancePolicy(policy) {
+        await db.query(
+            `INSERT INTO agent_insurance_policies 
+             (id, agent_id, created_at, active, balance, remaining_balance, 
+              premium, claims, total_paid)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                policy.id,
+                policy.agentId,
+                policy.createdAt,
+                policy.active ? 1 : 0,
+                policy.balance,
+                policy.remainingBalance,
+                policy.premium,
+                policy.claims,
+                policy.totalPaid
+            ]
+        );
+    }
+
+    async deductInsurance(agentId, amount) {
+        const policy = await this.getInsurancePolicy(agentId);
+        if (policy) {
+            policy.remainingBalance -= amount;
+            policy.claims += 1;
+            policy.totalPaid += amount;
+            await db.query(
+                `UPDATE agent_insurance_policies 
+                 SET remaining_balance = ?, claims = ?, total_paid = ? 
+                 WHERE id = ?`,
+                [policy.remainingBalance, policy.claims, policy.totalPaid, policy.id]
+            );
+        }
+    }
+
 
     /**
      * Get authorization
@@ -709,6 +962,7 @@ class AgentLiabilityService {
     async storeClaim(claim, transaction = null) {
         const query = transaction || db;
         await query.query(
+
             `INSERT INTO liability_claims 
              (id, agent_id, authorization_id, amount, reason, evidence, 
               status, created_at, resolved_at, resolution, insurance_used, 
@@ -723,6 +977,9 @@ class AgentLiabilityService {
                 JSON.stringify(claim.evidence),
                 claim.status,
                 claim.createdAt,
+                claim.resolvedAt || null,
+                claim.resolution || null,
+
                 claim.resolvedAt,
                 claim.resolution,
                 claim.insuranceUsed || 0,
@@ -731,6 +988,11 @@ class AgentLiabilityService {
             ]
         );
     }
+
+    // ============================================
+    // STATISTICS
+    // ============================================
+
 
     /**
      * Assign liability
@@ -879,6 +1141,7 @@ class AgentLiabilityService {
     /**
      * Get statistics
      */
+
     async getStatistics() {
         try {
             const [stats] = await db.query(
@@ -886,7 +1149,9 @@ class AgentLiabilityService {
                     COUNT(*) as total_agents,
                     SUM(CASE WHEN insurance_active = 1 THEN 1 ELSE 0 END) as insured_agents,
                     COUNT(DISTINCT owner_id) as unique_owners,
+
                     SUM(max_transaction_limit) as total_credit,
+
                     AVG(max_transaction_limit) as avg_credit
                  FROM agent_liability_registrations
                  WHERE status = 'active'`

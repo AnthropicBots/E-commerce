@@ -1,4 +1,16 @@
 {
+  "name": "e-commerce",
+  "private": true,
+  "description": "Full-stack e-commerce platform (Node.js, Express, MySQL, vanilla JS frontend)",
+  "license": "MIT",
+  "scripts": {
+    "check:syntax": "node scripts/check-syntax.js",
+    "check:boot": "cd backend && node ../scripts/check-boot.js",
+    "test": "npm run check:syntax && npm run check:boot && npm run test:backend",
+    "test:backend": "npm --prefix backend test",
+    "start": "npm --prefix backend start",
+    "dev": "npm --prefix backend run dev"
+  },
   "dependencies": {
     "express-rate-limit": "^8.5.2"
   }

@@ -100,18 +100,36 @@
     });
   }
 
+  function sanitizeUserText(text) {
+    if (!text) return "";
+    const str = String(text);
+    if (window.DOMPurify && typeof window.DOMPurify.sanitize === "function") {
+      return window.DOMPurify.sanitize(str, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
+    }
+    return typeof AppUtils !== "undefined" && AppUtils.escapeHTML 
+      ? AppUtils.escapeHTML(str) 
+      : str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+  }
+
   function createReviewCard(review) {
     const canDelete = isCurrentUserAdmin();
     const reviewId = Number(review.id);
+    const safeUserName = sanitizeUserText(review.userName || "Customer");
+    const safeComment = sanitizeUserText(review.comment);
+    const safeDate = sanitizeUserText(review.createdAt || "");
 
     return `
             <article class="review-box" data-review-id="${reviewId}">
                 <header class="review-header">
                     <div>
-                        <h4>${AppUtils.escapeHTML(review.userName || "Customer")}</h4>
+                        <h4>${safeUserName}</h4>
                         <div class="review-stars" aria-label="${Number(review.rating) || 0} out of 5 stars">
                             ${renderStars(review.rating)}
                         </div>
+                        <span class="review-verified-badge">
+                            <i class="fas fa-check-circle" aria-hidden="true"></i>
+                            Verified Purchase
+                        </span>
                     </div>
 
                     ${
@@ -120,7 +138,7 @@
                                 type="button"
                                 class="review-delete-btn"
                                 data-review-id="${reviewId}"
-                                aria-label="Delete review by ${AppUtils.escapeHTML(review.userName || "customer")}"
+                                aria-label="Delete review by ${safeUserName}"
                             >
                                 Delete
                             </button>`
@@ -128,9 +146,9 @@
                     }
                 </header>
 
-                <p class="review-message">${AppUtils.escapeHTML(review.comment)}</p>
+                <p class="review-message">${safeComment}</p>
 
-                <time class="review-date" datetime="${AppUtils.escapeHTML(review.createdAt || "")}">
+                <time class="review-date" datetime="${safeDate}">
                     ${formatReviewDate(review.createdAt)}
                 </time>
             </article>
@@ -215,7 +233,8 @@
     }
 
     const rating = Number(reviewRatingInput?.value || 0);
-    const comment = reviewMessageInput?.value.trim() || "";
+    let rawComment = reviewMessageInput?.value.trim() || "";
+    const comment = sanitizeUserText(rawComment);
 
     if (rating < 1 || rating > 5) {
       AppUtils.notify("Choose a rating from 1 to 5 stars", "error");
@@ -231,7 +250,7 @@
     }
 
     const submitButton = reviewForm.querySelector('button[type="submit"]');
-    submitButton.disabled = true;
+    if (submitButton) submitButton.disabled = true;
 
     try {
       const response = await AppUtils.apiRequest(

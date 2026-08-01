@@ -1,6 +1,14 @@
 const mongoose = require('mongoose');
 const crypto = require('crypto');
 
+// --- CUSTOM HELPER FUNCTION FOR CONSISTENT ENUM VALIDATION MESSAGES ---
+const createEnumValidator = (allowedValues, fieldName) => {
+    return {
+        values: allowedValues,
+        message: `\`{VALUE}\` is not a valid ${fieldName}. Allowed ${fieldName}s are: ${allowedValues.join(', ')}.`
+    };
+};
+
 const agentIdentitySchema = new mongoose.Schema({
     agentId: {
         type: String,
@@ -15,7 +23,11 @@ const agentIdentitySchema = new mongoose.Schema({
     },
     agentType: {
         type: String,
-        enum: ['shopping', 'research', 'payment', 'customer_service', 'fraud_detection', 'shipping', 'inventory', 'marketing'],
+        // UPDATED
+        enum: createEnumValidator(
+            ['shopping', 'research', 'payment', 'customer_service', 'fraud_detection', 'shipping', 'inventory', 'marketing'],
+            'agentType'
+        ),
         required: true,
         index: true
     },
@@ -27,7 +39,8 @@ const agentIdentitySchema = new mongoose.Schema({
     },
     ownerType: {
         type: String,
-        enum: ['individual', 'business', 'organization'],
+        // UPDATED
+        enum: createEnumValidator(['individual', 'business', 'organization'], 'ownerType'),
         default: 'individual'
     },
     ownerEmail: {
@@ -45,7 +58,8 @@ const agentIdentitySchema = new mongoose.Schema({
     },
     keyAlgorithm: {
         type: String,
-        enum: ['RSA-2048', 'RSA-4096', 'EC-256', 'EC-512'],
+        // UPDATED
+        enum: createEnumValidator(['RSA-2048', 'RSA-4096', 'EC-256', 'EC-512'], 'keyAlgorithm'),
         default: 'RSA-2048'
     },
     keyFingerprint: {
@@ -60,7 +74,8 @@ const agentIdentitySchema = new mongoose.Schema({
     },
     verificationMethod: {
         type: String,
-        enum: ['manual', 'automated', 'third_party', 'document_verification'],
+        // UPDATED
+        enum: createEnumValidator(['manual', 'automated', 'third_party', 'document_verification'], 'verificationMethod'),
         default: 'manual'
     },
     verifiedAt: Date,
@@ -71,11 +86,13 @@ const agentIdentitySchema = new mongoose.Schema({
     verificationHistory: [{
         status: {
             type: String,
-            enum: ['pending', 'verified', 'rejected', 'expired']
+            // UPDATED
+            enum: createEnumValidator(['pending', 'verified', 'rejected', 'expired'], 'verificationHistory status')
         },
         method: {
             type: String,
-            enum: ['manual', 'automated', 'third_party', 'document_verification']
+            // UPDATED
+            enum: createEnumValidator(['manual', 'automated', 'third_party', 'document_verification'], 'verificationHistory method')
         },
         notes: String,
         performedBy: {
@@ -90,7 +107,8 @@ const agentIdentitySchema = new mongoose.Schema({
     documents: [{
         type: {
             type: String,
-            enum: ['government_id', 'passport', 'driving_license', 'business_license']
+            // UPDATED
+            enum: createEnumValidator(['government_id', 'passport', 'driving_license', 'business_license'], 'document type')
         },
         number: {
             type: String,
@@ -114,7 +132,11 @@ const agentIdentitySchema = new mongoose.Schema({
     }],
     status: {
         type: String,
-        enum: ['active', 'suspended', 'revoked', 'pending_verification', 'pending_approval', 'under_review'],
+        // UPDATED
+        enum: createEnumValidator(
+            ['active', 'suspended', 'revoked', 'pending_verification', 'pending_approval', 'under_review'],
+            'status'
+        ),
         default: 'pending_verification',
         index: true
     },
@@ -237,29 +259,29 @@ const agentIdentitySchema = new mongoose.Schema({
 });
 
 // Virtuals
-agentIdentitySchema.virtual('isActive').get(function() {
+agentIdentitySchema.virtual('isActive').get(function () {
     return this.status === 'active';
 });
 
-agentIdentitySchema.virtual('isVerified').get(function() {
+agentIdentitySchema.virtual('isVerified').get(function () {
     return this.verified === true;
 });
 
-agentIdentitySchema.virtual('documentCount').get(function() {
+agentIdentitySchema.virtual('documentCount').get(function () {
     return this.documents.length;
 });
 
-agentIdentitySchema.virtual('activeSessionsCount').get(function() {
+agentIdentitySchema.virtual('activeSessionsCount').get(function () {
     return this.sessions.filter(s => s.isActive).length;
 });
 
 // Pre-save middleware
-agentIdentitySchema.pre('save', function(next) {
+agentIdentitySchema.pre('save', function (next) {
     if (this.isNew && !this.agentId) {
         const prefix = this.agentType.substring(0, 3).toUpperCase();
         const random = crypto.randomBytes(6).toString('hex').toUpperCase();
         this.agentId = `${prefix}-${random}`;
-        
+
         if (this.publicKey) {
             this.keyFingerprint = this.generateKeyFingerprint();
         }
@@ -284,9 +306,9 @@ agentIdentitySchema.pre('save', function(next) {
 });
 
 // Generate Key Pair
-agentIdentitySchema.methods.generateKeyPair = function() {
+agentIdentitySchema.methods.generateKeyPair = function () {
     const { generateKeyPairSync } = crypto;
-    
+
     let modulusLength = 2048;
     if (this.keyAlgorithm === 'RSA-4096') {
         modulusLength = 4096;
@@ -304,7 +326,7 @@ agentIdentitySchema.methods.generateKeyPair = function() {
                 format: 'pem'
             }
         });
-        
+
         this.publicKey = publicKey;
         this.privateKey = privateKey;
         this.keyFingerprint = this.generateKeyFingerprint();
@@ -330,7 +352,7 @@ agentIdentitySchema.methods.generateKeyPair = function() {
 };
 
 // Generate Key Fingerprint
-agentIdentitySchema.methods.generateKeyFingerprint = function() {
+agentIdentitySchema.methods.generateKeyFingerprint = function () {
     if (!this.publicKey) return null;
     return crypto
         .createHash('sha256')
@@ -341,7 +363,7 @@ agentIdentitySchema.methods.generateKeyFingerprint = function() {
 };
 
 // Sign Data
-agentIdentitySchema.methods.sign = function(data) {
+agentIdentitySchema.methods.sign = function (data) {
     if (!this.privateKey) {
         throw new Error('Private key not available');
     }
@@ -353,7 +375,7 @@ agentIdentitySchema.methods.sign = function(data) {
 };
 
 // Verify Signature
-agentIdentitySchema.methods.verify = function(data, signature) {
+agentIdentitySchema.methods.verify = function (data, signature) {
     if (!this.publicKey) {
         throw new Error('Public key not available');
     }
@@ -365,7 +387,7 @@ agentIdentitySchema.methods.verify = function(data, signature) {
 };
 
 // Add Verification History
-agentIdentitySchema.methods.addVerificationHistory = function({ status, method, notes = '', performedBy = null }) {
+agentIdentitySchema.methods.addVerificationHistory = function ({ status, method, notes = '', performedBy = null }) {
     this.verificationHistory.push({
         status,
         method,
@@ -382,7 +404,7 @@ agentIdentitySchema.methods.addVerificationHistory = function({ status, method, 
 };
 
 // Add Document
-agentIdentitySchema.methods.addDocument = function({ type, number, issuer, expiryDate, fileUrl }) {
+agentIdentitySchema.methods.addDocument = function ({ type, number, issuer, expiryDate, fileUrl }) {
     this.documents.push({
         type,
         number,
@@ -396,7 +418,7 @@ agentIdentitySchema.methods.addDocument = function({ type, number, issuer, expir
 };
 
 // Verify Document
-agentIdentitySchema.methods.verifyDocument = function(documentIndex) {
+agentIdentitySchema.methods.verifyDocument = function (documentIndex) {
     if (documentIndex < 0 || documentIndex >= this.documents.length) {
         throw new Error('Invalid document index');
     }
@@ -405,7 +427,7 @@ agentIdentitySchema.methods.verifyDocument = function(documentIndex) {
     this.documents[documentIndex].verifiedAt = new Date();
 
     const allVerified = this.documents.every(doc => doc.verified);
-    
+
     if (allVerified && this.documents.length > 0) {
         this.verified = true;
         this.verifiedAt = new Date();
@@ -416,7 +438,7 @@ agentIdentitySchema.methods.verifyDocument = function(documentIndex) {
 };
 
 // Create Session
-agentIdentitySchema.methods.createSession = function({ sessionId, token, ipAddress, userAgent, expiresIn = 3600 }) {
+agentIdentitySchema.methods.createSession = function ({ sessionId, token, ipAddress, userAgent, expiresIn = 3600 }) {
     const session = {
         sessionId: sessionId || crypto.randomBytes(16).toString('hex'),
         token,
@@ -444,9 +466,9 @@ agentIdentitySchema.methods.createSession = function({ sessionId, token, ipAddre
 };
 
 // Validate Session
-agentIdentitySchema.methods.validateSession = function(sessionId) {
+agentIdentitySchema.methods.validateSession = function (sessionId) {
     const session = this.sessions.find(s => s.sessionId === sessionId && s.isActive);
-    
+
     if (!session) {
         return { valid: false, reason: 'Session not found or inactive' };
     }
@@ -461,7 +483,7 @@ agentIdentitySchema.methods.validateSession = function(sessionId) {
 };
 
 // Terminate Session
-agentIdentitySchema.methods.terminateSession = function(sessionId) {
+agentIdentitySchema.methods.terminateSession = function (sessionId) {
     const session = this.sessions.find(s => s.sessionId === sessionId);
     if (session) {
         session.isActive = false;
@@ -471,7 +493,7 @@ agentIdentitySchema.methods.terminateSession = function(sessionId) {
 };
 
 // Terminate All Sessions
-agentIdentitySchema.methods.terminateAllSessions = function() {
+agentIdentitySchema.methods.terminateAllSessions = function () {
     this.sessions.forEach(session => {
         session.isActive = false;
         session.lastActiveAt = new Date();
@@ -480,7 +502,7 @@ agentIdentitySchema.methods.terminateAllSessions = function() {
 };
 
 // Update Status
-agentIdentitySchema.methods.updateStatus = function(newStatus, reason, updatedBy) {
+agentIdentitySchema.methods.updateStatus = function (newStatus, reason, updatedBy) {
     const oldStatus = this.status;
     this.status = newStatus;
     this.statusReason = reason || null;
@@ -500,7 +522,7 @@ agentIdentitySchema.methods.updateStatus = function(newStatus, reason, updatedBy
 };
 
 // Get Public Profile
-agentIdentitySchema.methods.getPublicProfile = function() {
+agentIdentitySchema.methods.getPublicProfile = function () {
     return {
         agentId: this.agentId,
         agentName: this.agentName,
@@ -515,7 +537,7 @@ agentIdentitySchema.methods.getPublicProfile = function() {
 };
 
 // Soft Delete
-agentIdentitySchema.methods.softDelete = function(deletedBy) {
+agentIdentitySchema.methods.softDelete = function (deletedBy) {
     this.status = 'revoked';
     this.auditTrail.deletedAt = new Date();
     this.auditTrail.deletedBy = deletedBy;
@@ -525,7 +547,7 @@ agentIdentitySchema.methods.softDelete = function(deletedBy) {
 };
 
 // Restore
-agentIdentitySchema.methods.restore = function(restoreToken) {
+agentIdentitySchema.methods.restore = function (restoreToken) {
     if (this.auditTrail.restoreToken !== restoreToken) {
         throw new Error('Invalid restore token');
     }
@@ -538,23 +560,23 @@ agentIdentitySchema.methods.restore = function(restoreToken) {
 };
 
 // Static Methods
-agentIdentitySchema.statics.findByPublicKey = function(publicKey) {
+agentIdentitySchema.statics.findByPublicKey = function (publicKey) {
     return this.findOne({ publicKey, status: 'active' });
 };
 
-agentIdentitySchema.statics.findByOwner = function(ownerId) {
+agentIdentitySchema.statics.findByOwner = function (ownerId) {
     return this.find({ ownerId, status: { $ne: 'revoked' } }).sort({ createdAt: -1 });
 };
 
-agentIdentitySchema.statics.findByType = function(agentType, limit = 10) {
+agentIdentitySchema.statics.findByType = function (agentType, limit = 10) {
     return this.find({ agentType, status: 'active', verified: true }).limit(limit);
 };
 
-agentIdentitySchema.statics.getVerifiedCount = function() {
+agentIdentitySchema.statics.getVerifiedCount = function () {
     return this.countDocuments({ verified: true, status: 'active' });
 };
 
-agentIdentitySchema.statics.getNeedingVerification = function(limit = 20) {
+agentIdentitySchema.statics.getNeedingVerification = function (limit = 20) {
     return this.find({
         status: 'pending_verification',
         verified: false
@@ -562,7 +584,7 @@ agentIdentitySchema.statics.getNeedingVerification = function(limit = 20) {
 };
 
 // Post-save middleware
-agentIdentitySchema.post('save', function(doc) {
+agentIdentitySchema.post('save', function (doc) {
     console.log(`✅ Agent saved: ${doc.agentId} - ${doc.agentName}`);
 });
 

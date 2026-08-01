@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorize } = require('../middleware/auth');
+const { authMiddleware } = require('../middleware/authMiddleware');
+const { authorizeRoles } = require('../middleware/rbacMiddleware');
 const {
     requestApproval,
     approveTransaction,
@@ -12,12 +13,12 @@ const {
 } = require('../controllers/approvalController');
 
 // Protected routes
-router.post('/request', protect, requestApproval);
-router.post('/:approvalId/approve', protect, approveTransaction);
-router.post('/:approvalId/reject', protect, rejectTransaction);
-router.get('/pending', protect, getPendingApprovals);
-router.post('/:approvalId/checkpoint', protect, addCheckpoint);
-router.post('/:approvalId/verify', protect, verifyCheckpoint);
-router.post('/:approvalId/escalate', protect, authorize('admin'), escalateApproval);
+router.post('/request', authMiddleware, requestApproval);
+router.post('/:approvalId/approve', authMiddleware, approveTransaction);
+router.post('/:approvalId/reject', authMiddleware, rejectTransaction);
+router.get('/pending', authMiddleware, getPendingApprovals);
+router.post('/:approvalId/checkpoint', authMiddleware, addCheckpoint);
+router.post('/:approvalId/verify', authMiddleware, verifyCheckpoint);
+router.post('/:approvalId/escalate', authMiddleware, authorizeRoles('admin'), escalateApproval);
 
 module.exports = router;

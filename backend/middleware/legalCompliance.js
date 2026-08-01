@@ -1,5 +1,5 @@
 const ComplianceService = require('../services/complianceService');
-const AuditTrailService = require('../services/auditTrailService');
+const AuditTrailService = require('../services/auditTrailService')
 const CertificateService = require('../services/certificateService');
 
 /**

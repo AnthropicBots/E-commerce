@@ -21,8 +21,9 @@ exports.registerAgent = async (req, res) => {
             message: 'Agent registered successfully'
         });
     } catch (error) {
+        console.error("Register agent error:", error);
         res.status(500).json({
-            error: error.message
+            error: "Failed to register agent"
         });
     }
 };
@@ -47,8 +48,9 @@ exports.verifyAgent = async (req, res) => {
             message: 'Agent verified successfully'
         });
     } catch (error) {
+        console.error("Verify agent error:", error);
         res.status(500).json({
-            error: error.message
+            error: "Failed to verify agent"
         });
     }
 };
@@ -67,8 +69,9 @@ exports.getAgent = async (req, res) => {
             data: agent
         });
     } catch (error) {
+        console.error("Get agent error:", error);
         res.status(500).json({
-            error: error.message
+            error: "Failed to get agent"
         });
     }
 };
@@ -87,8 +90,9 @@ exports.getTrustScore = async (req, res) => {
             data: score
         });
     } catch (error) {
+        console.error("Get trust score agent error:", error);
         res.status(500).json({
-            error: error.message
+            error: "Failed to fetch trust score"
         });
     }
 };
@@ -107,8 +111,9 @@ exports.getReputation = async (req, res) => {
             data: reputation
         });
     } catch (error) {
+        console.error("Reputation agent error:", error);
         res.status(500).json({
-            error: error.message
+            error: "Failed to fetch reputation"
         });
     }
 };
@@ -131,8 +136,9 @@ exports.getTransactions = async (req, res) => {
             count: transactions.length
         });
     } catch (error) {
+        console.error("Transaction agent error:", error);
         res.status(500).json({
-            error: error.message
+            error: "Failed to fetch transaction"
         });
     }
 };
@@ -153,8 +159,9 @@ exports.suspendAgent = async (req, res) => {
             message: 'Agent suspended successfully'
         });
     } catch (error) {
+        console.error("Suspend agent error:", error);
         res.status(500).json({
-            error: error.message
+            error: "Failed to suspend"
         });
     }
 };
@@ -175,8 +182,9 @@ exports.revokeAgent = async (req, res) => {
             message: 'Agent revoked successfully'
         });
     } catch (error) {
+        console.error("Revoked agent error:", error);
         res.status(500).json({
-            error: error.message
+            error: "Failed to revoked"
         });
     }
 };
@@ -194,8 +202,10 @@ exports.listAgents = async (req, res) => {
             count: agents.length
         });
     } catch (error) {
+        console.error("List agent error:", error);
         res.status(500).json({
-            error: error.message
+            success: false,
+            error: "Failed to fetch lists"
         });
     }
 };
@@ -214,8 +224,9 @@ exports.getCrossMerchantReputation = async (req, res) => {
             data: reputation
         });
     } catch (error) {
+        console.error("Get cross merchant reputation agent error:", error);
         res.status(500).json({
-            error: error.message
+            error: "Failed to fetch cross merchant reputation"
         });
     }
 };
@@ -240,8 +251,9 @@ exports.flagAgent = async (req, res) => {
             message: 'Agent flagged successfully'
         });
     } catch (error) {
+        console.error("Flag agent error:", error);
         res.status(500).json({
-            error: error.message
+            error: "Failed to fetch flag agent"
         });
     }
 };

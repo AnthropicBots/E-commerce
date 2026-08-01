@@ -4,14 +4,20 @@
  */
 
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const db = require("../config/db");
 const { sanitizeString, safeArray } = require("../utils/helpers");
-const cookieOptions = require("../config/cookieOptions");
+const { getClearCookieOptions } = require("../config/cookieConfig");
+const refreshTokenService = require("../services/refreshTokenService");
+const agentIdentityService = require("../services/agentIdentityService");
 
 // Appwrite SDK
 const { Client, Account, ID, Databases } = require('node-appwrite');
+
+// 2FA dependencies
+const { authenticator } = require('otplib');
+const qrcode = require('qrcode');
+const { encrypt, decrypt } = require('../utils/encryption');
 
 // ==================== CONSTANTS ====================
 const OTP_EXPIRY_MINUTES = parseInt(process.env.OTP_EXPIRY_MINUTES) || 10;
@@ -20,6 +26,9 @@ const OTP_RATE_LIMIT_MAX = 3; // Max 3 OTP requests per window
 const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
+// Window in which the failed attempts must accumulate to trip the lockout.
+// Failures older than this roll off so isolated mistakes never reach the threshold.
+const LOGIN_ATTEMPT_WINDOW = 15 * 60 * 1000; // 15 minutes
 
 // ==================== VALIDATION PATTERNS ====================
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -49,11 +58,6 @@ setInterval(() => {
     }
 }, CLEANUP_INTERVAL);
 
-// ==================== JWT SECRET VALIDATION ====================
-if (!process.env.JWT_SECRET) {
-    throw new Error("JWT_SECRET environment variable is not set");
-}
-
 // ==================== APPWRITE CLIENT ====================
 const appwriteClient = new Client()
     .setEndpoint(process.env.VITE_APPWRITE_ENDPOINT || 'https://fra.cloud.appwrite.io/v1')
@@ -63,24 +67,49 @@ const appwriteAccount = new Account(appwriteClient);
 
 // ==================== HELPER FUNCTIONS ====================
 
-function generateAccessToken(user) {
-    return jwt.sign(
-        { id: user.id, email: user.email, role: user.role },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN || "15m" }
-    );
+function clientMeta(req) {
+    const ip = req.ip
+        || req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim()
+        || req.connection?.remoteAddress
+        || null;
+    const userAgent = req.headers['user-agent'] || '';
+    return { ip, userAgent };
+}
+
+function generateAccessToken(user, familyId = null) {
+    const jti = crypto.randomUUID();
+    const payload = {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        jti
+    };
+    if (familyId) {
+        payload.fid = familyId;
+    }
+    return {
+        token: jwt.sign(
+            payload,
+            process.env.JWT_SECRET,
+            { expiresIn: process.env.JWT_EXPIRES_IN || "15m" }
+        ),
+        jti,
+        familyId
+    };
 }
 
 function generateRefreshToken() {
-    return crypto.randomBytes(40).toString("hex");
+    return refreshTokenService.generateRawRefreshToken();
 }
 
-function sendAuthResponse(res, { message, accessToken, refreshToken, user }) {
+function sendAuthResponse(res, { message, accessToken, refreshToken, user, familyId, security }) {
     return res.status(200).json({
         success: true,
         message,
         accessToken,
         refreshToken,
+        familyId: familyId || undefined,
+        security: security || undefined,
         user: {
             id: user.id,
             name: user.name,
@@ -116,25 +145,41 @@ function isOTPRateLimited(email) {
 function isLoginLocked(email) {
     const now = Date.now();
     const record = loginAttempts.get(email);
-    
+
     if (!record) return false;
-    if (now > record.lockoutUntil) {
-        loginAttempts.delete(email);
-        return false;
+
+    // Only an active lockout blocks login. Counting failures within the
+    // window is not itself a lock — that is what let a single mistyped
+    // password lock the account before.
+    if (record.lockoutUntil && now < record.lockoutUntil) {
+        return true;
     }
-    return true;
+
+    // No active lockout: drop the record once the lockout has expired or the
+    // rolling attempt window has elapsed, so the counter restarts cleanly.
+    if ((record.lockoutUntil && now >= record.lockoutUntil) || now > record.windowExpires) {
+        loginAttempts.delete(email);
+    }
+    return false;
 }
 
 function recordLoginFailure(email) {
     const now = Date.now();
     const record = loginAttempts.get(email);
-    
-    if (!record) {
-        loginAttempts.set(email, { attempts: 1, lockoutUntil: now + LOGIN_LOCKOUT_DURATION });
+
+    // Start a fresh window on the first failure or after the previous window
+    // rolled off without reaching the threshold.
+    if (!record || now > record.windowExpires) {
+        loginAttempts.set(email, {
+            attempts: 1,
+            windowExpires: now + LOGIN_ATTEMPT_WINDOW,
+            lockoutUntil: null
+        });
         return;
     }
-    
+
     record.attempts++;
+    // The lockout only starts once the threshold is reached within the window.
     if (record.attempts >= MAX_LOGIN_ATTEMPTS) {
         record.lockoutUntil = now + LOGIN_LOCKOUT_DURATION;
     }
@@ -142,6 +187,11 @@ function recordLoginFailure(email) {
 
 function resetLoginAttempts(email) {
     loginAttempts.delete(email);
+}
+
+// Test-only: drop all tracked attempts so cases start from a clean slate.
+function clearLoginAttempts() {
+    loginAttempts.clear();
 }
 
 // ==================== 1. SIGNUP (Send OTP) ====================
@@ -261,9 +311,10 @@ const verifySignup = async (req, res) => {
         }
 
         // Save to MySQL with email_verified flag
+        const userId = crypto.randomUUID();
         await db.query(
-            `INSERT INTO users (name, email, password, role, email_verified) VALUES (?, ?, ?, ?, ?)`,
-            [pendingUser.name, cleanEmail, pendingUser.hashedPassword, "user", 1]
+            `INSERT INTO users (id, name, email, password, role, is_verified) VALUES (?, ?, ?, ?, ?, ?)`,
+            [userId, pendingUser.name, cleanEmail, pendingUser.hashedPassword, "user", 1]
         );
 
         // Cleanup Appwrite session
@@ -320,20 +371,31 @@ const login = async (req, res) => {
         // Reset login attempts on success
         resetLoginAttempts(cleanEmail);
 
-        const accessToken = generateAccessToken(user);
-        const refreshToken = generateRefreshToken();
+        // Check if 2FA is enabled
+        if (user.is_2fa_enabled === 1) {
+            const tempToken = issueTwoFactorToken(user);
+            return res.status(200).json({
+                success: true,
+                requires2FA: true,
+                tempToken,
+                message: "2FA verification required"
+            });
+        }
 
-        // Update refresh token and last login time
-        await db.query(
-            `UPDATE users SET refresh_token = ?, last_login = NOW() WHERE id = ?`, 
-            [refreshToken, user.id]
-        );
+        const { ip, userAgent } = clientMeta(req);
+        const session = await refreshTokenService.issueRefreshFamily(user.id, { ip, userAgent });
+        const access = generateAccessToken(user, session.familyId);
 
-        return sendAuthResponse(res, { 
-            message: "Login successful", 
-            accessToken, 
-            refreshToken, 
-            user 
+        return sendAuthResponse(res, {
+            message: "Login successful",
+            accessToken: access.token,
+            refreshToken: session.refreshToken,
+            familyId: session.familyId,
+            user,
+            security: {
+                tokenRotation: true,
+                deviceFingerprint: session.deviceFingerprint.slice(0, 12) + '…'
+            }
         });
     } catch (error) {
         console.error("LOGIN ERROR:", error);
@@ -345,23 +407,52 @@ const login = async (req, res) => {
 const logout = async (req, res) => {
     try {
         const userId = req.user?.id;
+        const presented =
+            sanitizeString(req.body?.refreshToken)
+            || req.cookies?.refreshToken
+            || null;
+        const logoutAll = req.body?.allDevices === true || req.query?.allDevices === 'true';
+
         if (userId) {
-            // Clear refresh token AND update last logout time
-            await db.query(
-                `UPDATE users SET refresh_token = NULL, last_logout = NOW() WHERE id = ?`,
-                [userId]
-            );
+            if (logoutAll) {
+                await refreshTokenService.revokeAllUserFamilies(userId, 'user_logout_all');
+                // Cascade: suspend user-bound agent sessions (#1261 multi-device)
+                await agentIdentityService.onUserSessionFamilyRevoked(
+                    userId,
+                    null,
+                    'user_logout_all'
+                ).catch(() => {});
+            } else {
+                await refreshTokenService.revokePresentedSession(
+                    presented,
+                    userId,
+                    'user_logout'
+                );
+                if (req.user?.fid) {
+                    await agentIdentityService.onUserSessionFamilyRevoked(
+                        userId,
+                        req.user.fid,
+                        'user_logout'
+                    ).catch(() => {});
+                }
+            }
+
+            if (req.user?.jti) {
+                await refreshTokenService.blacklistAccessJti(req.user.jti);
+            }
         }
 
-        // Clear cookies using shared cookieOptions
-        res.clearCookie('accessToken', cookieOptions);
-        res.clearCookie('refreshToken', cookieOptions);
+        // Clear cookies using shared cookie options
+        res.clearCookie(COOKIE_NAMES.accessToken, getClearCookieOptions());
+        res.clearCookie(COOKIE_NAMES.refreshToken, getClearCookieOptions(REFRESH_COOKIE_PATH));
 
         console.log(`🔓 User ${userId} logged out successfully`);
 
         return res.status(200).json({
             success: true,
-            message: "Logged out successfully",
+            message: logoutAll
+                ? "Logged out from all devices successfully"
+                : "Logged out successfully",
             timestamp: new Date().toISOString()
         });
     } catch (error) {
@@ -387,7 +478,7 @@ const forgotPassword = async (req, res) => {
             });
         }
 
-        const [users] = await db.query(`SELECT id, email_verified FROM users WHERE email = ? LIMIT 1`, [cleanEmail]);
+        const [users] = await db.query(`SELECT id, is_verified AS email_verified FROM users WHERE email = ? LIMIT 1`, [cleanEmail]);
         if (!safeArray(users).length) {
             // Security: Don't reveal if email exists
             return res.status(200).json({ 
@@ -467,6 +558,20 @@ const resetPassword = async (req, res) => {
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await db.query(`UPDATE users SET password = ? WHERE email = ?`, [hashedPassword, appwriteUser.email]);
 
+        // A reset is the path someone takes when they may have lost control of
+        // the account, so every existing session goes -- there is no session to
+        // keep here, because the reset is not made from a signed-in device.
+        const [resetUsers] = await db.query(
+            `SELECT id FROM users WHERE email = ? LIMIT 1`,
+            [appwriteUser.email]
+        );
+        if (safeArray(resetUsers).length) {
+            await revokeUserSessions({
+                userId: resetUsers[0].id,
+                reason: REVOKE_REASON.PASSWORD_CHANGED
+            });
+        }
+
         // Cleanup Appwrite session
         try {
             await userAccount.deleteSession('current');
@@ -522,9 +627,17 @@ const changePassword = async (req, res) => {
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await db.query(`UPDATE users SET password = ? WHERE id = ?`, [hashedPassword, userId]);
 
+        // Password change → revoke all refresh families (force re-auth on every device)
+        await refreshTokenService.revokeAllUserFamilies(userId, 'password_changed');
+        await agentIdentityService.onUserSessionFamilyRevoked(
+            userId,
+            null,
+            'password_changed'
+        ).catch(() => {});
+
         return res.status(200).json({ 
             success: true, 
-            message: "Password changed successfully" 
+            message: "Password changed successfully. Please login again on all devices." 
         });
     } catch (error) {
         console.error("CHANGE PASSWORD ERROR:", error);
@@ -535,37 +648,69 @@ const changePassword = async (req, res) => {
 // ==================== 8. REFRESH ACCESS TOKEN ====================
 const refreshAccessToken = async (req, res) => {
     try {
-        const { refreshToken } = req.body;
-        const cleanRefreshToken = sanitizeString(refreshToken);
+        const presented =
+            sanitizeString(req.body?.refreshToken)
+            || req.cookies?.refreshToken
+            || null;
 
-        if (!cleanRefreshToken) {
+        if (!presented) {
             return res.status(401).json({ success: false, message: "Refresh token required" });
         }
 
+        const { ip, userAgent } = clientMeta(req);
+        const rotation = await refreshTokenService.rotateRefreshToken(presented, { ip, userAgent });
+
+        if (!rotation.ok) {
+            if (rotation.familyRevoked) {
+                await agentIdentityService.onUserSessionFamilyRevoked(
+                    rotation.userId || null,
+                    rotation.familyId,
+                    'token_reuse_detected'
+                ).catch(() => {});
+            }
+            return res.status(rotation.status || 401).json({
+                success: false,
+                message: rotation.message,
+                errorCode: rotation.code,
+                securityAlarm: rotation.familyRevoked === true
+            });
+        }
+
         const [users] = await db.query(
-            `SELECT id, name, email, role, is_active FROM users WHERE refresh_token = ? LIMIT 1`,
-            [cleanRefreshToken]
+            `SELECT id, name, email, role, is_active FROM users WHERE id = ? LIMIT 1`,
+            [rotation.userId]
         );
 
         if (!safeArray(users).length) {
+            await revokeUserSessions({
+                userId: rotation.userId,
+                reason: REVOKE_REASON.ACCOUNT_DISABLED
+            });
             return res.status(401).json({ success: false, message: "Invalid refresh token" });
         }
 
-        const user = users[0];
+        const user = rotation.user || users[0];
         if (user.is_active === 0) {
+            await revokeUserSessions({
+                userId: user.id,
+                reason: REVOKE_REASON.ACCOUNT_DISABLED
+            });
             return res.status(403).json({ success: false, message: "Account has been deactivated" });
         }
 
-        const newAccessToken = generateAccessToken(user);
-        const newRefreshToken = generateRefreshToken();
+        const access = generateAccessToken(user, rotation.familyId);
 
-        await db.query(`UPDATE users SET refresh_token = ? WHERE id = ?`, [newRefreshToken, user.id]);
-
-        return sendAuthResponse(res, { 
-            message: "Token refreshed", 
-            accessToken: newAccessToken, 
-            refreshToken: newRefreshToken, 
-            user 
+        return sendAuthResponse(res, {
+            message: "Token refreshed",
+            accessToken: access.token,
+            refreshToken: rotation.refreshToken,
+            familyId: rotation.familyId,
+            user,
+            security: {
+                tokenRotation: true,
+                fingerprintMatch: rotation.fingerprintMatch !== false,
+                legacyMigrated: rotation.legacyMigrated || false
+            }
         });
     } catch (error) {
         console.error("REFRESH TOKEN ERROR:", error);
@@ -672,6 +817,47 @@ const getFraudStatus = async (req, res) => {
     }
 };
 
+const getMe = async (req, res) => {
+    try {
+        const [users] = await db.query(
+            "SELECT id, name, email, role, is_active FROM users WHERE id = ? LIMIT 1",
+            [req.user.id]
+        );
+
+        if (!users || !users.length) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        const user = users[0];
+
+        if (user.is_active === 0) {
+            return res.status(403).json({
+                success: false,
+                message: "Account has been deactivated"
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role
+            }
+        });
+    } catch (error) {
+        console.error("GET ME ERROR:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Server error"
+        });
+    }
+};
+
 
 // ==================== EXPORTS ====================
 module.exports = {
@@ -686,5 +872,18 @@ module.exports = {
     getStatus,      
     validateToken,  
     getSecurityAudit, 
-    getFraudStatus
+    getFraudStatus,
+    getMe
+};
+
+// Internal login-guard helpers exposed for unit testing only. Not part of the
+// HTTP surface; runtime behavior is unchanged.
+module.exports._loginGuard = {
+    isLoginLocked,
+    recordLoginFailure,
+    resetLoginAttempts,
+    clearLoginAttempts,
+    MAX_LOGIN_ATTEMPTS,
+    LOGIN_LOCKOUT_DURATION,
+    LOGIN_ATTEMPT_WINDOW
 };

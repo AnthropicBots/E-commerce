@@ -1,6 +1,5 @@
 const express = require("express");
 const router = express.Router();
-const cookieOptions = require("../config/cookieOptions");
 // ======================== CONTROLLERS ========================
 const {
     signup,
@@ -15,8 +14,17 @@ const {
     validateToken,
     changePassword,
     getSecurityAudit,
-    getFraudStatus
+    getFraudStatus,
+    //verify2FA,
+    //generate2FA,
+    //enable2FA,
+    //disable2FA
 } = require("../controllers/authController");
+const {
+    getSessions,
+    deleteSession,
+    deleteOtherSessions
+} = require("../controllers/sessionController");
 // ======================== MIDDLEWARE ========================
 const authMiddleware = require("../middleware/authMiddleware");
 const {
@@ -43,38 +51,16 @@ const {
 const db = require("../config/db").promise;
 
 // ======================== ENVIRONMENT VALIDATION ========================
-if (!process.env.JWT_SECRET) {
-    throw new Error("JWT_SECRET environment variable is not set");
-}
+// The token contract checks its own configuration when imported, so a missing
+// or shared secret refuses to start rather than breaking sign-in at runtime.
+require("../utils/tokens");
 
 // ======================== HELPER FUNCTIONS ========================
 
 // ❌ `validateRequiredFields` helper removed completely
 // ❌ `sanitizeString` import removed because it's now handled in the middleware
 
-/**
- * Apply behavioral CAPTCHA check (Kept exactly as it was, untouched)
- */
-function applyCaptchaCheck(req, res, next) {
-    if (process.env.ENABLE_BEHAVIORAL_CAPTCHA === 'true') {
-        const captchaResult = verifyHumanChallenge(req);
 
-        if (!captchaResult.passed) {
-            console.warn(`🛡️ CAPTCHA failed for ${req.ip} on ${req.path}: ${captchaResult.reason}`);
-
-            const statusCode = captchaResult.reason === 'rate_limit_exceeded' ? 429 : 403;
-            return res.status(statusCode).json({
-                success: false,
-                message: captchaResult.reason === 'rate_limit_exceeded'
-                    ? 'Too many requests. Please slow down.'
-                    : 'Automated access detected. Please verify you are human.',
-                retryAfter: captchaResult.retryAfter || 60,
-                score: captchaResult.score
-            });
-        }
-    }
-    next();
-}
 
 // ======================== ROUTES ========================
 
@@ -196,65 +182,39 @@ router.post(
     authMiddleware,
     applyCaptchaCheck,
     validateChangePassword,
-    async (req, res) => {
-        try {
-            const { currentPassword, newPassword } = req.body;
+    changePassword
+);
 
-            // ❌ Inline validations removed (handled in middleware)
+// ======================== SESSION ROUTES ========================
 
-            // Get user with password
-            const [users] = await db.query(
-                `SELECT id, password 
-                 FROM users 
-                 WHERE id = ?`,
-                [req.user.id]
-            );
+/**
+ * GET /api/auth/sessions
+ * List the account's active sessions
+ */
+router.get(
+    "/sessions",
+    authMiddleware,
+    getSessions
+);
 
-            if (users.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: "User not found"
-                });
-            }
+/**
+ * DELETE /api/auth/sessions
+ * End every session on the account except the one making the request
+ */
+router.delete(
+    "/sessions",
+    authMiddleware,
+    deleteOtherSessions
+);
 
-            // Verify current password
-            const bcrypt = require('bcryptjs');
-            const isValidPassword = await bcrypt.compare(currentPassword, users[0].password);
-
-            if (!isValidPassword) {
-                return res.status(401).json({
-                    success: false,
-                    message: "Current password is incorrect"
-                });
-            }
-
-            // Hash new password
-            const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-            // Update password
-            await db.query(
-                `UPDATE users 
-                 SET password = ?, 
-                     updated_at = NOW() 
-                 WHERE id = ?`,
-                [hashedPassword, req.user.id]
-            );
-
-            console.log(`🔐 User ${req.user.id} changed password successfully`);
-
-            return res.status(200).json({
-                success: true,
-                message: "Password changed successfully"
-            });
-
-        } catch (error) {
-            console.error("❌ CHANGE PASSWORD ERROR:", error);
-            return res.status(500).json({
-                success: false,
-                message: "Failed to change password"
-            });
-        }
-    }
+/**
+ * DELETE /api/auth/sessions/:sessionId
+ * End one session on the account
+ */
+router.delete(
+    "/sessions/:sessionId",
+    authMiddleware,
+    deleteSession
 );
 
 /**
@@ -313,6 +273,52 @@ router.get(
         }
     }
 );
+
+// ======================== 2FA ROUTES ========================
+
+/**
+ * POST /api/auth/verify-2fa
+ * Complete login using 2FA TOTP code
+ */
+/**router.post(
+    "/verify-2fa",
+    loginLimiter,
+    applyCaptchaCheck,
+    verify2FA
+);**/
+
+/**
+ * POST /api/auth/2fa/generate
+ * Generate 2FA secret (admins only)
+ */
+/**router.post(
+    "/2fa/generate",
+    authMiddleware,
+    generate2FA
+);
+**/
+
+/**
+ * POST /api/auth/2fa/enable
+ * Enable 2FA after scanning QR code
+ */
+/**router.post(
+    "/2fa/enable",
+    authMiddleware,
+    enable2FA
+);
+**/
+
+/**
+ * POST /api/auth/2fa/disable
+ * Disable 2FA
+ */
+/**router.post(
+    "/2fa/disable",
+    authMiddleware,
+    disable2FA
+);
+*/
 
 // ======================== ROUTE FALLBACK ========================
 

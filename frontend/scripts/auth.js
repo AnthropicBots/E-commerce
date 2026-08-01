@@ -480,8 +480,9 @@ if (elements.signinForm) {
                     clearRememberMe();
                 }
 
-                // Load user collections
-                await AppUtils.loadUserCollections();
+                // Combining a guest cart with the account cart happens here and
+                // only here, so a later visit hydrates instead of re-merging.
+                await AppUtils.mergeGuestCartIntoAccount();
 
                 AppUtils.notify("Login successful!", "success");
 
