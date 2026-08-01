@@ -1,6 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
+// Public reads that still want to know who is asking, when somebody is signed
+// in -- used to render a vote button as already-pressed (#1353).
+const { optionalAuth } = require("../middleware/authMiddleware");
 
 const {
     getProducts,
@@ -33,6 +36,9 @@ const {
 } = require("../controllers/reviewController");
 
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
+
+// Product Q&A (#1353).
+const productQA = require("../controllers/productQAController");
 const { validateCreateProduct, validateUpdateProduct } = require("../middleware/validators/productValidator");
 
 // --------------------------------------------------------------
@@ -72,49 +78,63 @@ router.delete(
     authorizeRoles("admin"),
     deleteProductReview
 );
-
 // ---------------------------------------------------------------------------
-// Review engagement and moderation (#1349)
+// Product Q&A (#1353)
 // ---------------------------------------------------------------------------
 //
-// The static "reviews/..." paths are declared BEFORE "/:id" below. Express
-// matches in declaration order, so a parameterised product route placed first
-// would capture "reviews" as a product id and 404 a perfectly valid request --
-// the same trap that catches `/default` in every collection router.
+// The static "questions/", "answers/" and "qa/" paths are declared BEFORE
+// "/:id" -- Express matches in declaration order, so the parameterised product
+// route would otherwise capture "questions" as a product id.
+//
+// Note the asymmetry with reviews, and that it is deliberate: POST /questions
+// carries no purchase check. `createProductReview` refuses anyone without a
+// `delivered` order, which is right for reviews and is exactly why
+// pre-purchase questions had nowhere to go.
 
-/** Report reasons, so the client does not carry its own copy of the list. */
-router.get("/reviews/moderation/reasons", getReportReasons);
+/** Public: questions and their answers for a product. */
+router.get("/:id/questions", optionalAuth, productQA.listQuestions);
 
-/** Admin moderation queue: pending first, most-reported first. */
-router.get(
-    "/reviews/moderation/queue",
+/** Anyone signed in may ask. */
+router.post("/:id/questions", authMiddleware, productQA.askQuestion);
+
+/** Anyone signed in may answer; standing is resolved server-side. */
+router.post(
+    "/questions/:questionId/answers",
     authMiddleware,
-    authorizeRoles("admin"),
-    getModerationQueue
+    productQA.answerQuestion
 );
 
-/** The reports filed against one review, so a moderator sees the case. */
+/** Helpful votes and reports, on questions and on answers. */
+router.post("/questions/:questionId/helpful", authMiddleware, productQA.voteQuestion);
+router.delete("/questions/:questionId/helpful", authMiddleware, productQA.unvoteQuestion);
+router.post("/questions/:questionId/report", authMiddleware, productQA.reportQuestion);
+
+router.post("/answers/:answerId/helpful", authMiddleware, productQA.voteAnswer);
+router.delete("/answers/:answerId/helpful", authMiddleware, productQA.unvoteAnswer);
+router.post("/answers/:answerId/report", authMiddleware, productQA.reportAnswer);
+
+/** Admin moderation: questions and answers in one queue. */
 router.get(
-    "/reviews/:reviewId/reports",
+    "/qa/moderation/queue",
     authMiddleware,
     authorizeRoles("admin"),
-    getReviewReports
+    productQA.getModerationQueue
 );
 
-/** Approve or reject, recording who decided and why. */
 router.patch(
-    "/reviews/:reviewId/moderate",
+    "/qa/:targetType/:targetId/moderate",
     authMiddleware,
     authorizeRoles("admin"),
-    moderateReview
+    productQA.moderate
 );
 
-/** Helpful votes. Authenticated: an anonymous vote is not a signal. */
-router.post("/:id/reviews/:reviewId/helpful", authMiddleware, markReviewHelpful);
-router.delete("/:id/reviews/:reviewId/helpful", authMiddleware, unmarkReviewHelpful);
+router.delete(
+    "/qa/:targetType/:targetId",
+    authMiddleware,
+    authorizeRoles("admin"),
+    productQA.removeItem
+);
 
-/** Report a review for moderation. */
-router.post("/:id/reviews/:reviewId/report", authMiddleware, reportReview);
 router.get("/:id", getSingleProduct);
 
 router.post("/", authMiddleware, authorizeRoles("admin"), validateCreateProduct, createProduct);
