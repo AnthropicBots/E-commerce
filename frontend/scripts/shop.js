@@ -752,18 +752,40 @@ function updateResultsSummary() {
         return;
     }
 
-    const productWord =
-        filteredProducts.length === 1
-            ? "product"
-            : "products";
+    let activeCategory = "All Products";
+    if (filters.categories && filters.categories.length === 1) {
+        activeCategory = filters.categories[0];
+    } else if (filters.categories && filters.categories.length > 1) {
+        activeCategory = "Multiple";
+    } else if (filters.megaCategory) {
+        activeCategory = filters.megaCategory;
+    }
 
-    const queryText =
-        filters.search
-            ? ` for "${filters.search}"`
-            : "";
+    const productCountText = `Showing ${filteredProducts.length} Products`;
 
-    elements.resultsSummary.textContent =
-        `${filteredProducts.length} ${productWord}${queryText}`;
+    elements.resultsSummary.innerHTML = `
+        <span class="active-category-display">Category: ${AppUtils.escapeHTML(activeCategory)}</span> |
+        <span class="product-count-display">${productCountText}</span>
+    `;
+
+    const clearFiltersBtn = document.getElementById("active-clear-filters");
+    if (clearFiltersBtn) {
+        const hasFilters = filters.categories.length > 0 || filters.search || filters.megaCategory || filters.megaSubcategory;
+        clearFiltersBtn.style.display = hasFilters ? "inline-block" : "none";
+    }
+
+    // Update active state on fashion cards
+    document.querySelectorAll(".fashion-card").forEach((card) => {
+        const cat = card.dataset.category;
+        const isActive = filters.categories.includes(cat) || filters.megaCategory === cat;
+        if (isActive) {
+            card.classList.add("active");
+            card.setAttribute("aria-pressed", "true");
+        } else {
+            card.classList.remove("active");
+            card.setAttribute("aria-pressed", "false");
+        }
+    });
 }
 
 function closeSuggestions() {
@@ -1199,12 +1221,90 @@ function updateClearFiltersButton() {
     }
 }
 
-// Clear all filters
-function clearAllFilters() {
-    // Clear search
-    if (searchInput) {
-        searchInput.value = '';
-        currentSearch = '';
+// INITIALIZATION
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+        elements.searchForm = document.getElementById("shop-search-form");
+        elements.searchInput = document.getElementById("search-input");
+        elements.suggestions = document.getElementById("search-suggestions");
+        elements.categoryList = document.getElementById("category-filter-list");
+        elements.minPriceRange = document.getElementById("min-price-range");
+        elements.maxPriceRange = document.getElementById("max-price-range");
+        elements.priceOutput = document.getElementById("price-range-output");
+        elements.sortSelect = document.getElementById("product-sort");
+        elements.productContainer = document.getElementById("product-container");
+        elements.resultsSummary = document.getElementById("results-summary");
+        elements.filterSidebar = document.getElementById("filter-sidebar");
+        elements.filterBackdrop = document.getElementById("filter-backdrop");
+        elements.mobileFilterToggle = document.getElementById("mobile-filter-toggle");
+        elements.closeFilterSidebar = document.getElementById("close-filter-sidebar");
+        elements.clearFilters = document.getElementById("clear-filters");
+
+        setupSearch();
+        setupFilterControls();
+        setupFilterDrawer();
+        fetchProducts();
+
+        const activeClearFiltersBtn = document.getElementById("active-clear-filters");
+        if (activeClearFiltersBtn) {
+            activeClearFiltersBtn.addEventListener("click", () => {
+                resetCategoryCheckboxes();
+                if (elements.searchInput) elements.searchInput.value = "";
+                
+                const filterUrlParams = new URLSearchParams(window.location.search);
+                filterUrlParams.delete('category');
+                filterUrlParams.delete('subcategory');
+                const newUrl = window.location.pathname + (filterUrlParams.toString() ? '?' + filterUrlParams.toString() : '');
+                window.history.replaceState({}, '', newUrl);
+                
+                filters.megaCategory = "";
+                filters.megaSubcategory = "";
+                applyFilters({ resetPage: true });
+            });
+        }
+
+         // Category card click filter
+        document.querySelectorAll(".fashion-card").forEach((card) => {
+            const handleCategorySelect = () => {
+                const category = card.dataset.category;
+                let checkbox = document.querySelector(
+                    `input[name="category-filter"][value="${category}"]`
+                );
+
+                resetCategoryCheckboxes();
+
+                if (!checkbox && elements.categoryList) {
+                    // Create checkbox dynamically if it doesn't exist
+                    const label = document.createElement("label");
+                    label.innerHTML = `
+                        <input
+                            type="checkbox"
+                            name="category-filter"
+                            value="${AppUtils.escapeHTML(category)}"
+                        >
+                        ${AppUtils.escapeHTML(category)}
+                    `;
+                    elements.categoryList.appendChild(label);
+                    checkbox = label.querySelector("input");
+                }
+
+                if (checkbox) {
+                    checkbox.checked = true;
+                    applyFilters({ resetPage: true });
+                    document.getElementById("product-container")
+                        ?.scrollIntoView({ behavior: "smooth" });
+                }
+            };
+
+            card.addEventListener("click", handleCategorySelect);
+            card.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleCategorySelect();
+                }
+            });
+        });
     }
     
     // Reset category
