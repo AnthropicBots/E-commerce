@@ -16,6 +16,7 @@ const {
     notificationBroker,
     NOTIFICATION_TYPES
 } = require("./notificationBrokerService");
+const { sendNotificationEmail } = require("./notificationEmailService");
 
 const UNSUBSCRIBE_SECRET =
     process.env.PRICE_DROP_UNSUB_SECRET ||
@@ -105,6 +106,10 @@ async function getPreferences(userId) {
         userId,
         priceDropEmail: Boolean(prefs.price_drop_email),
         priceDropInApp: Boolean(prefs.price_drop_in_app),
+        // Abandoned-cart recovery (#1429) shares this preference centre rather
+        // than growing a second one, so a shopper has one place to say no.
+        cartRecoveryEmail: Boolean(prefs.cart_recovery_email),
+        cartRecoveryInApp: Boolean(prefs.cart_recovery_in_app),
         unsubscribedAll: Boolean(prefs.unsubscribed_all),
         // Fresh token when prefs were just created; otherwise a stable signed link.
         unsubscribeToken:
@@ -135,15 +140,25 @@ async function updatePreferences(userId, patch = {}) {
         patch.unsubscribedAll === undefined
             ? null
             : patch.unsubscribedAll ? 1 : 0;
+    const recoveryEmail =
+        patch.cartRecoveryEmail === undefined
+            ? null
+            : patch.cartRecoveryEmail ? 1 : 0;
+    const recoveryInApp =
+        patch.cartRecoveryInApp === undefined
+            ? null
+            : patch.cartRecoveryInApp ? 1 : 0;
 
     await db.query(
         `UPDATE notification_preferences SET
             price_drop_email = COALESCE(?, price_drop_email),
             price_drop_in_app = COALESCE(?, price_drop_in_app),
+            cart_recovery_email = COALESCE(?, cart_recovery_email),
+            cart_recovery_in_app = COALESCE(?, cart_recovery_in_app),
             unsubscribed_all = COALESCE(?, unsubscribed_all),
             updated_at = NOW()
          WHERE user_id = ?`,
-        [email, inApp, unsubAll, userId]
+        [email, inApp, recoveryEmail, recoveryInApp, unsubAll, userId]
     );
 
     return getPreferences(userId);
@@ -220,11 +235,16 @@ async function unsubscribeWithToken(token) {
     }
 
     await ensurePreferences(userId);
+    // Every channel, not just the one the link came from. A shopper who clicks
+    // "unsubscribe" and then hears from a different programme has not been
+    // unsubscribed from anything they would recognise.
     await db.query(
         `UPDATE notification_preferences
          SET unsubscribed_all = 1,
              price_drop_email = 0,
              price_drop_in_app = 0,
+             cart_recovery_email = 0,
+             cart_recovery_in_app = 0,
              updated_at = NOW()
          WHERE user_id = ?`,
         [userId]
@@ -332,9 +352,6 @@ async function recordNotificationLog({
 }
 
 async function sendPriceDropEmail({ to, productName, oldPrice, newPrice, unsubscribeUrl }) {
-    const host = process.env.SMTP_HOST;
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
     const subject = `Price drop: ${productName}`;
     const text =
         `${productName} dropped from ${oldPrice} to ${newPrice}.\n\n` +
@@ -342,34 +359,7 @@ async function sendPriceDropEmail({ to, productName, oldPrice, newPrice, unsubsc
             ? `Manage preferences / unsubscribe: ${unsubscribeUrl}\n`
             : "");
 
-    if (host && user && pass) {
-        try {
-            const nodemailer = require("nodemailer");
-            const transporter = nodemailer.createTransport({
-                host,
-                port: Number(process.env.SMTP_PORT) || 587,
-                secure: false,
-                auth: { user, pass }
-            });
-            await transporter.sendMail({
-                from: process.env.SMTP_FROM || user,
-                to,
-                subject,
-                text
-            });
-            return { delivered: true, channel: "smtp" };
-        } catch (err) {
-            console.error("Price-drop email failed:", err.message);
-        }
-    }
-
-    console.info("[price-drop] email (SMTP not configured):", {
-        to,
-        subject,
-        oldPrice,
-        newPrice
-    });
-    return { delivered: false, channel: "log" };
+    return sendNotificationEmail({ to, subject, text });
 }
 
 /**
