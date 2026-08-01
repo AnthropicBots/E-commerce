@@ -163,7 +163,14 @@ exports.getAuditLogs = async (req, res) => {
  * Get financial limits configuration
  */
 exports.getLimits = (req, res) => {
-  res.json({
+  if (req.user.role !== "admin") {
+    return res.status(403).json({
+      success: false,
+      error: "Admin access required"
+    });
+  }
+
+  return res.json({
     success: true,
     limits: FINANCIAL_LIMITS
   });

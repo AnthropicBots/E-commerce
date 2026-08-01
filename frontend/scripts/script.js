@@ -51,17 +51,11 @@ const featuredContainer = document.getElementById("featured-products");
 const arrivalsContainer = document.getElementById("new-arrivals-container");
 
 function renderLoadingState() {
-  const loadingHTML = `
-        <div class="loading-products">
-            Loading products...
-        </div>
-    `;
-
   if (featuredContainer) {
-    featuredContainer.innerHTML = loadingHTML;
+    AppUtils.renderSkeletonState(featuredContainer, 4);
   }
   if (arrivalsContainer) {
-    arrivalsContainer.innerHTML = loadingHTML;
+    AppUtils.renderSkeletonState(arrivalsContainer, 4);
   }
 }
 
@@ -260,9 +254,32 @@ document.addEventListener("DOMContentLoaded", () => {
   if (featuredContainer || arrivalsContainer) {
     fetchAllProducts();
   }
+
+  // Homepage search bar
+  const productSearch = document.getElementById("product-search");
+  if (productSearch) {
+    productSearch.addEventListener("input", () => {
+      const query = productSearch.value.trim().toLowerCase();
+
+      if (!query) {
+        renderHomepageProducts();
+        return;
+      }
+
+      const filtered = allProducts.filter((p) =>
+        p.name?.toLowerCase().includes(query) ||
+        p.category?.toLowerCase().includes(query)
+      );
+
+      if (featuredContainer) {
+        renderProducts(
+          featuredContainer,
+          filtered.slice(0, 8)
+        );
+      }
+    });
+  }
 });
-
-
 // Newsletter validation - runs on all pages
 // Newsletter validation - runs on all pages
 const newsletterForm = document.querySelector("#newsletter .form");

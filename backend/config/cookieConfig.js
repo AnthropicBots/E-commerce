@@ -1,5 +1,7 @@
 // backend/config/cookieConfig.js
 
+const { COOKIE_NAMES, REFRESH_COOKIE_PATH } = require('../utils/tokens');
+
 /**
  * ============================================
  * COOKIE CONFIGURATION
@@ -8,19 +10,132 @@
  * creation, security, and environment-specific settings.
  */
 
-// Get environment
-const NODE_ENV = process.env.NODE_ENV || 'development';
-const isProduction = NODE_ENV === 'production';
-const isStaging = NODE_ENV === 'staging';
-const isDevelopment = NODE_ENV === 'development';
+// ============================================
+// CONSTANTS
+// ============================================
 
-// Environment-specific configurations
+const TIME = {
+    ONE_MINUTE: 60 * 1000,
+    ONE_HOUR: 60 * 60 * 1000,
+    ONE_DAY: 24 * 60 * 60 * 1000,
+    ONE_WEEK: 7 * 24 * 60 * 60 * 1000,
+    ONE_MONTH: 30 * 24 * 60 * 60 * 1000,
+    ONE_YEAR: 365 * 24 * 60 * 60 * 1000,
+};
+
+const ALLOWED_ENVS = ['development', 'staging', 'production', 'test'];
+const ALLOWED_SAME_SITE = ['strict', 'lax', 'none'];
+const ALLOWED_PRIORITY = ['low', 'medium', 'high'];
+const ALLOWED_COOKIE_PREFIXES = ['__Host-', '__Secure-', ''];
+
+// ============================================
+// ENVIRONMENT VALIDATION
+// ============================================
+
+/**
+ * Validate environment value
+ */
+function validateEnvironment(env) {
+    if (!ALLOWED_ENVS.includes(env)) {
+        throw new Error(
+            `Invalid NODE_ENV: ${env}. Allowed: ${ALLOWED_ENVS.join(', ')}`
+        );
+    }
+    return env;
+}
+
+/**
+ * Validate SameSite value
+ */
+function validateSameSite(value) {
+    if (value && !ALLOWED_SAME_SITE.includes(value)) {
+        throw new Error(
+            `Invalid SameSite: ${value}. Allowed: ${ALLOWED_SAME_SITE.join(', ')}`
+        );
+    }
+    return value;
+}
+
+/**
+ * Validate priority value
+ */
+function validatePriority(value) {
+    if (value && !ALLOWED_PRIORITY.includes(value)) {
+        throw new Error(
+            `Invalid priority: ${value}. Allowed: ${ALLOWED_PRIORITY.join(', ')}`
+        );
+    }
+    return value;
+}
+
+/**
+ * Validate domain format
+ */
+function validateDomain(domain) {
+    if (domain && !/^(\.[a-zA-Z0-9-]+)+$/.test(domain)) {
+        throw new Error(`Invalid domain format: ${domain}`);
+    }
+    return domain;
+}
+
+/**
+ * Validate maxAge
+ */
+function validateMaxAge(maxAge) {
+    if (maxAge !== undefined && (typeof maxAge !== 'number' || maxAge < 0)) {
+        throw new Error('maxAge must be a positive number');
+    }
+    return maxAge;
+}
+
+/**
+ * Validate secure configuration
+ */
+function validateSecureConfig(secure, sameSite) {
+    if (sameSite === 'none' && !secure) {
+        throw new Error('SameSite=none requires secure=true');
+    }
+    return true;
+}
+
+// ============================================
+// ENVIRONMENT DETECTION
+// ============================================
+
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const validatedEnv = validateEnvironment(NODE_ENV);
+
+const isProduction = validatedEnv === 'production';
+const isStaging = validatedEnv === 'staging';
+const isDevelopment = validatedEnv === 'development';
+
+// ============================================
+// COOKIE PREFIX SUPPORT
+// ============================================
+
+/**
+ * Get cookie prefix based on security settings
+ */
+function getCookiePrefix(secure, httpOnly, path) {
+    if (secure && httpOnly && path === '/') {
+        return '__Host-';
+    }
+    if (secure) {
+        return '__Secure-';
+    }
+    return '';
+}
+
+// ============================================
+// ENVIRONMENT-SPECIFIC CONFIGURATIONS
+// ============================================
+
 const ENV_CONFIGS = {
     development: {
         secure: false,
         sameSite: 'lax',
         domain: undefined,
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        maxAge: TIME.ONE_WEEK,
         httpOnly: true,
         path: '/',
         partitioned: false,
@@ -28,8 +143,8 @@ const ENV_CONFIGS = {
     staging: {
         secure: true,
         sameSite: 'lax',
-        domain: '.staging.example.com',
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        domain: process.env.COOKIE_DOMAIN || '.staging.example.com',
+        maxAge: TIME.ONE_WEEK,
         httpOnly: true,
         path: '/',
         partitioned: false,
@@ -37,18 +152,18 @@ const ENV_CONFIGS = {
     production: {
         secure: true,
         sameSite: 'strict',
-        domain: '.example.com',
-        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+        domain: process.env.COOKIE_DOMAIN || '.example.com',
+        maxAge: TIME.ONE_MONTH,
         httpOnly: true,
         path: '/',
         partitioned: false,
     }
 };
 
-/**
- * Cookie configuration object
- * Supports environment-specific settings with fallbacks
- */
+// ============================================
+// MAIN CONFIGURATION
+// ============================================
+
 const cookieConfig = {
     // HTTP-Only flag (prevents XSS attacks)
     httpOnly: process.env.COOKIE_HTTP_ONLY !== 'false',
@@ -59,22 +174,27 @@ const cookieConfig = {
         : (isProduction || isStaging),
     
     // SameSite policy (CSRF protection)
-    sameSite: process.env.COOKIE_SAME_SITE || 
-        (isProduction ? 'strict' : 'lax'),
+    sameSite: validateSameSite(
+        process.env.COOKIE_SAME_SITE || 
+        (isProduction ? 'strict' : 'lax')
+    ),
     
     // Domain configuration
-    domain: process.env.COOKIE_DOMAIN || 
+    domain: validateDomain(
+        process.env.COOKIE_DOMAIN || 
         (isProduction ? '.example.com' : 
          isStaging ? '.staging.example.com' : 
-         undefined),
+         undefined)
+    ),
     
     // Cookie path
     path: process.env.COOKIE_PATH || '/',
     
     // Max age in milliseconds
-    maxAge: parseInt(process.env.COOKIE_MAX_AGE) || 
-        (isProduction ? 30 * 24 * 60 * 60 * 1000 : // 30 days
-         7 * 24 * 60 * 60 * 1000), // 7 days default
+    maxAge: validateMaxAge(
+        parseInt(process.env.COOKIE_MAX_AGE) || 
+        (isProduction ? TIME.ONE_MONTH : TIME.ONE_WEEK)
+    ),
     
     // Expires (alternative to maxAge)
     expires: process.env.COOKIE_EXPIRES ? new Date(process.env.COOKIE_EXPIRES) : undefined,
@@ -83,20 +203,26 @@ const cookieConfig = {
     partitioned: process.env.COOKIE_PARTITIONED === 'true',
     
     // Priority (low, medium, high)
-    priority: process.env.COOKIE_PRIORITY || 'medium',
+    priority: validatePriority(
+        process.env.COOKIE_PRIORITY || 'medium'
+    ),
 };
 
-/**
- * Cookie names configuration
- * Centralized cookie names for consistency
- */
+// Validate secure configuration
+validateSecureConfig(cookieConfig.secure, cookieConfig.sameSite);
+
+// ============================================
+// COOKIE NAMES
+// ============================================
+
 const cookieNames = {
     // Session cookies
     session: process.env.COOKIE_SESSION_NAME || 'session',
-    refreshToken: process.env.COOKIE_REFRESH_NAME || 'refresh_token',
-    
-    // Auth cookies
-    accessToken: process.env.COOKIE_ACCESS_NAME || 'access_token',
+
+    // Auth cookie names come from the token contract so that the side writing
+    // them and the side reading them cannot disagree.
+    refreshToken: COOKIE_NAMES.refreshToken,
+    accessToken: COOKIE_NAMES.accessToken,
     auth: process.env.COOKIE_AUTH_NAME || 'auth_token',
     
     // User preferences
@@ -113,27 +239,24 @@ const cookieNames = {
     tracking: process.env.COOKIE_TRACKING_NAME || 'tracking_id',
 };
 
+// ============================================
+// COOKIE OPTIONS FUNCTIONS
+// ============================================
+
 /**
- * Environment-specific cookie options
+ * Get environment-specific cookie options
  */
-const getEnvCookieOptions = () => {
+function getEnvCookieOptions() {
     const env = process.env.COOKIE_ENV || NODE_ENV;
     return ENV_CONFIGS[env] || ENV_CONFIGS.development;
-};
+}
 
 /**
  * Merge custom options with environment defaults
- * @param {Object} customOptions - Custom cookie options
- * @returns {Object} - Merged cookie options
  */
-const getCookieOptions = (customOptions = {}) => {
+function getCookieOptions(customOptions = {}) {
     const envOptions = getEnvCookieOptions();
-    
-    // Start with environment options
-    let options = { ...envOptions };
-    
-    // Override with custom options
-    options = { ...options, ...customOptions };
+    let options = { ...envOptions, ...customOptions };
     
     // Remove undefined values
     Object.keys(options).forEach(key => {
@@ -143,119 +266,105 @@ const getCookieOptions = (customOptions = {}) => {
     });
     
     return options;
-};
+}
 
 /**
  * Get cookie options for session
- * @param {Object} customOptions - Custom session options
- * @returns {Object} - Session cookie options
  */
-const getSessionCookieOptions = (customOptions = {}) => {
+function getSessionCookieOptions(customOptions = {}) {
     const envOptions = getEnvCookieOptions();
-    
     return {
         ...envOptions,
         httpOnly: true,
         secure: isProduction,
         sameSite: 'lax',
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        maxAge: TIME.ONE_WEEK,
         ...customOptions,
     };
-};
+}
 
 /**
  * Get cookie options for refresh token
- * @param {Object} customOptions - Custom refresh token options
- * @returns {Object} - Refresh token cookie options
  */
-const getRefreshTokenOptions = (customOptions = {}) => {
+function getRefreshTokenOptions(customOptions = {}) {
     const envOptions = getEnvCookieOptions();
-    
     return {
         ...envOptions,
         httpOnly: true,
         secure: isProduction,
         sameSite: 'strict',
-        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-        path: '/api/auth/refresh',
+        maxAge: TIME.ONE_MONTH,
+        path: REFRESH_COOKIE_PATH,
         ...customOptions,
     };
-};
+}
 
 /**
  * Get cookie options for access token
- * @param {Object} customOptions - Custom access token options
- * @returns {Object} - Access token cookie options
  */
-const getAccessTokenOptions = (customOptions = {}) => {
+function getAccessTokenOptions(customOptions = {}) {
     const envOptions = getEnvCookieOptions();
-    
     return {
         ...envOptions,
         httpOnly: true,
         secure: isProduction,
         sameSite: 'lax',
-        maxAge: 15 * 60 * 1000, // 15 minutes
+        maxAge: 15 * TIME.ONE_MINUTE,
         ...customOptions,
     };
-};
+}
 
 /**
  * Get cookie options for preferences (non-sensitive)
- * @param {Object} customOptions - Custom preferences options
- * @returns {Object} - Preferences cookie options
  */
-const getPreferencesOptions = (customOptions = {}) => {
+function getPreferencesOptions(customOptions = {}) {
     const envOptions = getEnvCookieOptions();
-    
     return {
         ...envOptions,
-        httpOnly: false, // Client-side accessible
+        httpOnly: false,
         secure: isProduction,
         sameSite: 'lax',
-        maxAge: 365 * 24 * 60 * 60 * 1000, // 1 year
+        maxAge: TIME.ONE_YEAR,
         ...customOptions,
     };
-};
+}
 
 /**
  * Get cookie options for CSRF token
- * @param {Object} customOptions - Custom CSRF options
- * @returns {Object} - CSRF cookie options
  */
-const getCsrfTokenOptions = (customOptions = {}) => {
+function getCsrfTokenOptions(customOptions = {}) {
     const envOptions = getEnvCookieOptions();
-    
     return {
         ...envOptions,
-        httpOnly: false, // Client needs to read this
+        httpOnly: false,
         secure: isProduction,
         sameSite: 'strict',
-        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+        maxAge: TIME.ONE_DAY,
         ...customOptions,
     };
-};
+}
 
 /**
  * Clear cookie options (for logout)
- * @param {string} path - Cookie path
- * @returns {Object} - Clear cookie options
  */
-const getClearCookieOptions = (path = '/') => {
+function getClearCookieOptions(path = '/') {
     return {
         httpOnly: true,
         secure: isProduction,
         sameSite: 'strict',
         path: path,
-        maxAge: 0, // Expire immediately
+        maxAge: 0,
     };
-};
+}
+
+// ============================================
+// VALIDATION FUNCTION
+// ============================================
 
 /**
  * Validate cookie configuration
- * @returns {Object} - Validation result
  */
-const validateCookieConfig = () => {
+function validateCookieConfig() {
     const errors = [];
     const warnings = [];
     
@@ -270,7 +379,7 @@ const validateCookieConfig = () => {
     }
     
     // Check SameSite policy
-    if (!['strict', 'lax', 'none'].includes(cookieConfig.sameSite)) {
+    if (!ALLOWED_SAME_SITE.includes(cookieConfig.sameSite)) {
         errors.push(`Invalid SameSite value: ${cookieConfig.sameSite}`);
     }
     
@@ -280,7 +389,7 @@ const validateCookieConfig = () => {
     }
     
     // Check priority
-    if (cookieConfig.priority && !['low', 'medium', 'high'].includes(cookieConfig.priority)) {
+    if (cookieConfig.priority && !ALLOWED_PRIORITY.includes(cookieConfig.priority)) {
         warnings.push(`Invalid priority value: ${cookieConfig.priority}`);
     }
     
@@ -291,12 +400,16 @@ const validateCookieConfig = () => {
         environment: NODE_ENV,
         isProduction,
     };
-};
+}
+
+// ============================================
+// LOGGING
+// ============================================
 
 /**
  * Log cookie configuration (for debugging)
  */
-const logCookieConfig = () => {
+function logCookieConfig() {
     const validation = validateCookieConfig();
     
     console.log('========== COOKIE CONFIGURATION ==========');
@@ -318,14 +431,17 @@ const logCookieConfig = () => {
         validation.errors.forEach(e => console.log(`  - ${e}`));
     }
     console.log('==========================================');
-};
+}
 
 // Run validation in development
 if (isDevelopment) {
     logCookieConfig();
 }
 
-// Export configurations
+// ============================================
+// EXPORTS
+// ============================================
+
 module.exports = {
     // Main configuration
     cookieConfig,
@@ -354,4 +470,11 @@ module.exports = {
     isStaging,
     isDevelopment,
     NODE_ENV,
+    
+    // Constants
+    TIME,
+    getCookiePrefix,
+    ALLOWED_ENVS,
+    ALLOWED_SAME_SITE,
+    ALLOWED_PRIORITY,
 };

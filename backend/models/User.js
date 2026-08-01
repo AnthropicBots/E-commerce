@@ -57,6 +57,10 @@ class User {
         this.deletedAt = user.deletedAt || null;
         this.deleteReason = user.deleteReason || null;
         
+        // 2FA fields
+        this.totpSecret = user.totpSecret || null;
+        this.is2faEnabled = user.is2faEnabled !== undefined ? user.is2faEnabled : false;
+        
         this.createdAt = user.createdAt || new Date();
         this.updatedAt = user.updatedAt || new Date();
     }
@@ -214,26 +218,6 @@ class User {
         return this;
     }
 
-    // ==================== TOKEN METHODS ====================
-
-    /**
-     * Generate refresh token for user
-     * @param {string} refreshToken - Refresh token
-     * @param {string} ip - IP address
-     * @param {string} userAgent - User agent
-     * @returns {Object} Token data
-     */
-    generateRefreshToken(refreshToken, ip, userAgent) {
-        return {
-            userId: this.id,
-            token: refreshToken,
-            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-            ipAddress: ip,
-            userAgent: userAgent,
-            isRevoked: false
-        };
-    }
-
     // ==================== PASSWORD HISTORY ====================
 
     /**
@@ -265,6 +249,7 @@ class User {
             isActive: this.isActive,
             isVerified: this.isVerified,
             isEmailVerified: this.isEmailVerified,
+            is2faEnabled: this.is2faEnabled,
             lastLogin: this.lastLogin,
             createdAt: this.createdAt,
             updatedAt: this.updatedAt

@@ -1,6 +1,7 @@
 const mysql = require("mysql2/promise");
 require("dotenv").config();
 const fs = require("fs");
+const crypto = require("crypto");
 
 const config = {
   allowProduction: process.env.ALLOW_PRODUCTION_SEED === "true" || false,
@@ -158,6 +159,60 @@ const products = [
     stock: 6,
     featured: 0,
   },
+  {
+    name: "Classic Ruled Notebook",
+    description: "Durable ruled notebook for everyday class notes.",
+    price: 4.99,
+    image: "",
+    category: "Notebooks",
+    stock: 60,
+    featured: 1,
+  },
+  {
+    name: "Smooth Gel Pen Set",
+    description: "Quick-dry gel pens for clean writing.",
+    price: 6.99,
+    image: "",
+    category: "Pens",
+    stock: 45,
+    featured: 0,
+  },
+  {
+    name: "Graphite Pencil Pack",
+    description: "HB pencils for writing, sketching, and exams.",
+    price: 3.49,
+    image: "",
+    category: "Pencils",
+    stock: 80,
+    featured: 0,
+  },
+  {
+    name: "Ergonomic School Backpack",
+    description: "Lightweight school bag with padded straps.",
+    price: 24.99,
+    image: "",
+    category: "School Bags",
+    stock: 25,
+    featured: 0,
+  },
+  {
+    name: "Desk Office Supplies Kit",
+    description: "Stapler, clips, sticky notes, and organizer essentials.",
+    price: 12.99,
+    image: "",
+    category: "Office Supplies",
+    stock: 35,
+    featured: 0,
+  },
+  {
+    name: "Watercolor Art Supplies Set",
+    description: "Paints, brushes, and sketch sheets for art projects.",
+    price: 18.99,
+    image: "",
+    category: "Art Supplies",
+    stock: 28,
+    featured: 0,
+  },
 ];
 
 function validateProduct(product, index) {
@@ -241,7 +296,11 @@ async function seed() {
     if (config.clearExisting) {
       console.log("Clearing existing products...");
       await connection.execute("DELETE FROM products");
-      await connection.execute("ALTER TABLE products AUTO_INCREMENT = 1");
+      try {
+        await connection.execute("ALTER TABLE products AUTO_INCREMENT = 1");
+      } catch (err) {
+        // Ignore if id is not auto-increment
+      }
       console.log("Existing products cleared");
     }
 
@@ -271,6 +330,32 @@ async function seed() {
 
     await connection.beginTransaction();
 
+    // Resolve all categories to IDs
+    const categoryNameToId = new Map();
+    const uniqueCategoryNames = [...new Set(productData.map(p => p.category).filter(Boolean))];
+    
+    for (const catName of uniqueCategoryNames) {
+        const trimmed = catName.trim();
+        const [rows] = await connection.execute(
+            "SELECT id FROM categories WHERE LOWER(TRIM(name)) = LOWER(?) LIMIT 1",
+            [trimmed]
+        );
+        if (rows.length > 0) {
+            categoryNameToId.set(trimmed, rows[0].id);
+        } else {
+            const slug = trimmed
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, "-")
+                .replace(/^-+|-+$/g, "");
+            
+            const [result] = await connection.execute(
+                "INSERT INTO categories (name, slug, level, is_active) VALUES (?, ?, 0, 1)",
+                [trimmed, slug]
+            );
+            categoryNameToId.set(trimmed, result.insertId);
+        }
+    }
+
     let inserted = 0;
     let skipped = 0;
     const errors = [];
@@ -299,12 +384,16 @@ async function seed() {
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-+|-+$/g, "");
 
+      const categoryId = categoryNameToId.get(product.category) || null;
+      const productId = crypto.randomUUID();
+
       batch.push([
+        productId,
         product.name,
         product.description || "",
         product.price,
         product.image || "",
-        product.category,
+        categoryId,
         product.stock || 0,
         product.featured || 0,
         slug,
@@ -314,7 +403,7 @@ async function seed() {
 
       if (batch.length >= config.batchSize) {
         const placeholders = batch
-          .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())")
+          .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())")
           .join(", ");
 
         const values = batch.flat();
@@ -322,7 +411,7 @@ async function seed() {
         try {
           const query = `
                         INSERT INTO products 
-                        (name, description, price, image, category, stock, featured, slug, created_at, updated_at)
+                        (id, name, description, price, image, category_id, stock, featured, slug, created_at, updated_at)
                         VALUES ${placeholders}
                     `;
           await connection.execute(query, values);
@@ -338,7 +427,7 @@ async function seed() {
 
     if (batch.length > 0) {
       const placeholders = batch
-        .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())")
+        .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())")
         .join(", ");
 
       const values = batch.flat();
@@ -346,7 +435,7 @@ async function seed() {
       try {
         const query = `
                     INSERT INTO products 
-                    (name, description, price, image, category, stock, featured, slug, created_at, updated_at)
+                    (id, name, description, price, image, category_id, stock, featured, slug, created_at, updated_at)
                     VALUES ${placeholders}
                 `;
         await connection.execute(query, values);

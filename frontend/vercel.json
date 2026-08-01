@@ -6,7 +6,9 @@
     { "src": "/womens.html", "dest": "/womens.html" },
     { "src": "/seasonal.html", "dest": "/seasonal.html" },
     { "src": "/early_summer.html", "dest": "/early_summer.html" },
-    { "src": "/tshirt.html", "dest": "/tshirt.html" }
+    { "src": "/tshirt.html", "dest": "/tshirt.html" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/404.html" }
   ],
   
   "headers": [

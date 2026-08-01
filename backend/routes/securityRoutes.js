@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorize } = require('../middleware/auth');
+const { authMiddleware } = require('../middleware/authMiddleware');
+const { authorizeRoles } = require('../middleware/rbacMiddleware');
 const {
     getAlerts,
     getAgentScore,
@@ -11,11 +12,11 @@ const {
 } = require('../controllers/securityController');
 
 // Admin only routes
-router.get('/alerts', protect, authorize('admin'), getAlerts);
-router.get('/agent/:userId', protect, authorize('admin'), getAgentScore);
-router.get('/activity/:userId', protect, authorize('admin'), getCardActivity);
-router.get('/velocity/:userId', protect, authorize('admin'), getVelocitySummary);
-router.get('/fraud-patterns', protect, authorize('admin'), getFraudPatterns);
-router.post('/block/:userId', protect, authorize('admin'), blockUser);
+router.get('/alerts', authMiddleware, authorizeRoles('admin'), getAlerts);
+router.get('/agent/:userId', authMiddleware, authorizeRoles('admin'), getAgentScore);
+router.get('/activity/:userId', authMiddleware, authorizeRoles('admin'), getCardActivity);
+router.get('/velocity/:userId', authMiddleware, authorizeRoles('admin'), getVelocitySummary);
+router.get('/fraud-patterns', authMiddleware, authorizeRoles('admin'), getFraudPatterns);
+router.post('/block/:userId', authMiddleware, authorizeRoles('admin'), blockUser);
 
 module.exports = router;

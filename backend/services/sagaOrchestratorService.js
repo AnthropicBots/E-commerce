@@ -150,10 +150,17 @@ class SagaOrchestrator extends EventEmitter {
             return { skipped: true };
         }
 
-        // Execute step with timeout
+        // Execute step with timeout and AbortController
         const timeout = step.timeout || 30000;
+        const controller = new AbortController();
+        const signal = controller.signal;
+        
+        let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error(`Step timeout: ${step.name}`)), timeout);
+            timeoutId = setTimeout(() => {
+                controller.abort();
+                reject(new Error(`Step timeout: ${step.name}`));
+            }, timeout);
         });
 
         // Get step handler
@@ -163,10 +170,15 @@ class SagaOrchestrator extends EventEmitter {
         }
 
         // Execute step
-        const result = await Promise.race([
-            handler(saga.context, saga.results),
-            timeoutPromise
-        ]);
+        let result;
+        try {
+            result = await Promise.race([
+                handler(saga.context, saga.results, signal),
+                timeoutPromise
+            ]);
+        } finally {
+            clearTimeout(timeoutId);
+        }
 
         // Store compensation if available
         if (step.compensation) {

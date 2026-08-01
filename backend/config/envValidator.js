@@ -8,6 +8,7 @@ const ENV_CONFIG = {
         { name: 'DB_PASSWORD', type: 'string', message: 'Database password is required' },
         { name: 'DB_NAME', type: 'string', message: 'Database name is required' },
         { name: 'JWT_SECRET', type: 'string', minLength: 32, message: 'JWT secret must be at least 32 characters' },
+        { name: 'JWT_REFRESH_SECRET', type: 'string', minLength: 32, message: 'JWT refresh secret must be at least 32 characters and must differ from JWT_SECRET' },
         { name: 'PORT', type: 'number', message: 'Server port is required' },
         { name: 'FRONTEND_URL', type: 'url', message: 'Frontend URL is required' },
         { name: 'NODE_ENV', type: 'string', message: 'Node environment is required' }
@@ -49,7 +50,14 @@ function validateType(value, type) {
         case 'boolean':
             return value === 'true' || value === 'false' || value === true || value === false;
         case 'url':
-            return validator.isURL(value);
+            // `require_tld: false` so localhost is accepted. With validator's
+            // defaults a hostname must have a TLD, so `http://localhost:3000`
+            // -- the FRONTEND_URL that .env.example, CONTRIBUTING.md and the
+            // README all tell contributors to use -- was rejected and
+            // validateEnv() called process.exit(1). Following the documented
+            // setup made the server refuse to start, and
+            // tests/serverBootstrap.test.js could never pass.
+            return validator.isURL(value, { require_tld: false });
         case 'email':
             return validator.isEmail(value);
         case 'jwt':

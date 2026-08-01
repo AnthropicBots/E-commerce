@@ -297,7 +297,7 @@ function renderMessage(msg) {
                 <i class="fas fa-user"></i>
             </div>
             <div class="message-info">
-                <span class="message-sender">${msg.sender_name || 'User'}</span>
+                <span class="message-sender">${AppUtils.escapeHTML(msg.sender_name || 'User')}</span>
                 ${content}
             </div>
         `;
@@ -312,14 +312,14 @@ function renderFileContent(file) {
     if (!file) return '';
     
     if (file.type && file.type.startsWith('image/')) {
-        return `<img src="${file.url || file.data}" alt="${file.name}" class="message-image" />`;
+        return `<img src="${AppUtils.escapeHTML(file.url || file.data)}" alt="${AppUtils.escapeHTML(file.name)}" class="message-image" />`;
     } else {
         return `
             <div class="file-attachment">
                 <i class="fas fa-file"></i>
-                <span class="file-name">${file.name}</span>
+                <span class="file-name">${AppUtils.escapeHTML(file.name)}</span>
                 <span class="file-size">${formatFileSize(file.size)}</span>
-                <a href="${file.url || file.data}" download="${file.name}" class="download-link">
+                <a href="${AppUtils.escapeHTML(file.url || file.data)}" download="${AppUtils.escapeHTML(file.name)}" class="download-link">
                     <i class="fas fa-download"></i>
                 </a>
             </div>
@@ -451,7 +451,7 @@ function markMessagesAsRead() {
 }
 
 function updateMessageReadStatus(data) {
-    const messageEl = document.querySelector(`[data-message-id="${data.messageId}"]`);
+    const messageEl = document.querySelector(`[data-message-id="${CSS.escape(String(data.messageId))}"]`);
     if (messageEl) {
         const status = messageEl.querySelector('.message-status');
         if (status) {

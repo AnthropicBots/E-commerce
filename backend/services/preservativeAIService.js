@@ -1,6 +1,9 @@
-// services/preservationAIService.js
+// services/preservativeAIService.js
 const { v4: uuidv4 } = require('uuid');
-const store = require('../data/store');
+// `require('../data/store')` was removed: backend/data/ does not exist, so the
+// import threw MODULE_NOT_FOUND. `store` was never referenced anywhere in this
+// file -- state is held in the instance fields below -- so it was dead weight
+// that only served to break the module.
 
 class PreservationAIService {
   constructor() {

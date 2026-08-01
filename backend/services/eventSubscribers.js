@@ -1,6 +1,7 @@
 // backend/services/eventSubscribers.js
 const { domainEventService, DOMAIN_EVENTS } = require('./domainEventService');
 const db = require('../config/db').promise;
+const { loyaltyService } = require('./loyaltyService');
 
 /**
  * Notification subscriber - sends notifications for events
@@ -70,7 +71,22 @@ function setupPromotionsSubscriber() {
         DOMAIN_EVENTS.ORDER_CREATED,
         async (data) => {
             console.log(`🎉 Promotions: Check loyalty points for order ${data.orderId}`);
-            // Update loyalty points
+            // Auto-earn loyalty points. Kept non-blocking: a loyalty failure must
+            // never break order creation, so we swallow errors like the sibling
+            // handlers. Order amount is published as `total` (see modules/orders).
+            try {
+                const userId = data.userId;
+                const amount = data.total ?? data.amount ?? data.orderTotal ?? 0;
+                if (userId == null) return;
+
+                await loyaltyService.award(userId, {
+                    orderId: data.orderId,
+                    amount,
+                    reason: 'order'
+                });
+            } catch (error) {
+                console.error(`Loyalty auto-earn failed for order ${data.orderId}:`, error.message);
+            }
         },
         { async: true, name: 'promotions' }
     );

@@ -9,12 +9,25 @@ exports.getProducts = async (req, res) => {
   try {
     const { limit = 100, offset = 0 } = req.query;
 
+    const parsedLimit = Number.parseInt(limit, 10);
+    const parsedOffset = Number.parseInt(offset, 10);
+
+    const safeLimit =
+      Number.isInteger(parsedLimit) && parsedLimit > 0
+        ? Math.min(parsedLimit, 100)
+        : 100;
+
+    const safeOffset =
+      Number.isInteger(parsedOffset) && parsedOffset >= 0
+        ? parsedOffset
+        : 0;
+
     const [products] = await db.query(
-      `SELECT * FROM products 
-             WHERE stock > 0 
-             ORDER BY created_at DESC 
-             LIMIT ? OFFSET ?`,
-      [parseInt(limit), parseInt(offset)]
+      `SELECT * FROM products
+     WHERE stock > 0
+     ORDER BY created_at DESC
+     LIMIT ? OFFSET ?`,
+      [safeLimit, safeOffset]
     );
 
     const feed = structuredData.generateAIFeed(products);
@@ -23,8 +36,8 @@ exports.getProducts = async (req, res) => {
       success: true,
       data: feed,
       pagination: {
-        limit: parseInt(limit),
-        offset: parseInt(offset),
+        limit: safeLimit,
+        offset: safeOffset,
         total: products.length
       },
       timestamp: new Date().toISOString(),

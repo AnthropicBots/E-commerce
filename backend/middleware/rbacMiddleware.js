@@ -4,8 +4,9 @@
  * Includes security checks: user existence, account status, email verification, and logging.
  */
 
-const { User } = require("../models");
+const User = require("../models/User");
 const logger = require("../utils/logger");
+const db = require("../config/db");
 
 // =====================
 // ERROR CODES
@@ -43,9 +44,12 @@ const authorizeRoles = (...roles) => {
             }
 
             // STEP 2: Verify user exists in database
-            const user = await User.findByPk(req.user.id);
+            const [rows] = await db.query(
+                "SELECT * FROM users WHERE id = ? LIMIT 1",
+                [req.user.id]
+            );
 
-            if (!user) {
+            if (!rows || rows.length === 0) {
                 logger.warn("Access denied - User not found in database", {
                     userId: req.user.id,
                     ip: req.ip,
@@ -59,29 +63,18 @@ const authorizeRoles = (...roles) => {
                 });
             }
 
-            // STEP 3: Check if account is blocked
-            if (user.status === "blocked") {
-                logger.warn("Access denied - Account blocked", {
+            const dbUser = rows[0];
+            const user = new User({
+                ...dbUser,
+                isActive: dbUser.is_active === 1,
+                isEmailVerified: dbUser.is_verified === 1
+            });
+
+            // STEP 3 & 4: Check if account is inactive or blocked
+            if (!user.isActive) {
+                logger.warn("Access denied - Account inactive or blocked", {
                     userId: user.id,
                     email: user.email,
-                    status: user.status,
-                    ip: req.ip,
-                    path: req.path
-                });
-
-                return res.status(403).json({
-                    success: false,
-                    errorCode: ERROR_CODES.ACCOUNT_BLOCKED,
-                    message: "Your account has been blocked. Please contact support."
-                });
-            }
-
-            // STEP 4: Check if account is inactive
-            if (user.status === "inactive") {
-                logger.warn("Access denied - Account inactive", {
-                    userId: user.id,
-                    email: user.email,
-                    status: user.status,
                     ip: req.ip,
                     path: req.path
                 });
@@ -89,9 +82,10 @@ const authorizeRoles = (...roles) => {
                 return res.status(403).json({
                     success: false,
                     errorCode: ERROR_CODES.ACCOUNT_INACTIVE,
-                    message: "Your account is inactive. Please contact support."
+                    message: "Your account is inactive or blocked. Please contact support."
                 });
             }
+
 
             // STEP 5: Check if email is verified
             if (user.isEmailVerified === false) {

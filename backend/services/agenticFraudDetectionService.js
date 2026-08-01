@@ -1,6 +1,11 @@
 // backend/services/agenticFraudDetectionService.js
 const db = require('../config/db').promise;
 const crypto = require('crypto');
+const {
+    detectContextPoisoning,
+    isQuarantined,
+    quarantineAgent
+} = require('./promptInjectionDetector');
 
 // ============================================
 // CONFIGURATION
@@ -29,7 +34,9 @@ const AGENTIC_FRAUD_CONFIG = {
         tooFastInteraction: 20,
         tooSlowInteraction: 10,
         unusualPattern: 25,
-        mandateViolation: 50
+        mandateViolation: 50,
+        promptInjection: 45,
+        contextPoisoning: 40
     },
     
     // Agent types
@@ -102,10 +109,30 @@ class AgenticFraudDetectionService {
         evaluation.flags.push(...providerResult.flags);
         evaluation.trustScore += providerResult.score;
 
+        // 6. Prompt injection & context poisoning (reviews, chat, address, etc.)
+        const injectionResult = await this.scanPromptInjection(agentData, context);
+        evaluation.flags.push(...injectionResult.flags);
+        evaluation.trustScore += injectionResult.score;
+        evaluation.promptInjection = injectionResult.scan || null;
+        if (injectionResult.quarantined) {
+            evaluation.quarantined = true;
+        }
+
+        // Active quarantine short-circuits trust
+        if (isQuarantined(agentData.agentId) || (context.userId && isQuarantined(context.userId))) {
+            evaluation.flags.push({
+                type: 'agent_quarantined',
+                severity: 'critical',
+                details: 'Agent or user is under prompt-injection quarantine'
+            });
+            evaluation.trustScore -= 50;
+            evaluation.quarantined = true;
+        }
+
         // Calculate final trust score (0-100)
         evaluation.trustScore = Math.max(0, Math.min(100, 100 + evaluation.trustScore));
         evaluation.riskLevel = this.calculateRiskLevel(evaluation.trustScore);
-        evaluation.isFraudulent = evaluation.riskLevel === 'critical';
+        evaluation.isFraudulent = evaluation.riskLevel === 'critical' || evaluation.quarantined === true;
 
         // Generate recommendations
         evaluation.recommendations = this.generateRecommendations(evaluation);
@@ -114,6 +141,74 @@ class AgenticFraudDetectionService {
         await this.logEvaluation(agentData, evaluation, context);
 
         return evaluation;
+    }
+
+    /**
+     * Scan user-supplied context for adversarial instructions that could
+     * poison downstream LLM / agent decisions (indirect prompt injection).
+     */
+    async scanPromptInjection(agentData, context = {}) {
+        const flags = [];
+        let score = 0;
+        let quarantined = false;
+        let scan = null;
+
+        try {
+            const payload = {
+                ...(context.data && typeof context.data === 'object' ? context.data : {}),
+                review: context.review,
+                message: context.message,
+                address: context.address,
+                notes: context.notes,
+                prompt: context.prompt,
+                chatMessage: context.chatMessage
+            };
+
+            scan = await detectContextPoisoning(payload, context.userId || 'anonymous', {
+                agentId: agentData.agentId,
+                action: context.action,
+                source: 'agentic_fraud_guard'
+            });
+
+            if (!scan.safe) {
+                const severity = scan.riskLevel === 'critical' ? 'critical'
+                    : scan.riskLevel === 'high' ? 'high' : 'medium';
+
+                flags.push({
+                    type: 'prompt_injection',
+                    severity,
+                    details: `Injection risk=${scan.riskLevel} score=${scan.riskScore}`,
+                    fields: (scan.fieldResults || [])
+                        .filter(f => !f.safe)
+                        .map(f => f.field)
+                });
+
+                score -= scan.riskLevel === 'critical'
+                    ? AGENTIC_FRAUD_CONFIG.riskSignals.promptInjection
+                    : AGENTIC_FRAUD_CONFIG.riskSignals.contextPoisoning;
+
+                if (scan.riskLevel === 'high' || scan.riskLevel === 'critical') {
+                    quarantineAgent(agentData.agentId, 'context_poisoning_in_agent_pipeline', {
+                        riskLevel: scan.riskLevel,
+                        fields: flags[0].fields
+                    });
+                    quarantined = true;
+                }
+            }
+
+            if (scan.quarantined) {
+                quarantined = true;
+            }
+        } catch (error) {
+            console.error('Prompt injection scan error:', error);
+            flags.push({
+                type: 'prompt_injection_scan_error',
+                severity: 'low',
+                details: error.message
+            });
+        }
+
+        return { flags, score, quarantined, scan };
     }
 
     /**
@@ -474,6 +569,10 @@ class AgenticFraudDetectionService {
             }
             if (flag.type === 'unknown_provider') {
                 recommendations.push('Verify provider identity');
+            }
+            if (flag.type === 'prompt_injection' || flag.type === 'agent_quarantined') {
+                recommendations.push('Quarantine agent and discard poisoned user context');
+                recommendations.push('Re-run decisions only on boundary-wrapped sanitized fields');
             }
         }
 

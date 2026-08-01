@@ -80,8 +80,8 @@ CREATE INDEX idx_promo_code_expiry ON promo_codes (expiry_date, is_active);
 CREATE TABLE IF NOT EXISTS promo_usage (
     id INT AUTO_INCREMENT PRIMARY KEY,
     promo_id INT NOT NULL,
-    user_id INT NOT NULL,
-    order_id INT NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    order_id CHAR(36) NOT NULL,
     discount_amount DECIMAL(10,2) NOT NULL CHECK (discount_amount >= 0),
     
     -- Status
@@ -174,13 +174,13 @@ DELIMITER //
 -- 1. Procedure to Validate Promo Code
 CREATE PROCEDURE ValidatePromoCode(
     IN p_code VARCHAR(50),
-    IN p_user_id INT,
+    IN p_user_id CHAR(36),
     IN p_order_amount DECIMAL(10,2),
     OUT p_is_valid BOOLEAN,
     OUT p_discount_amount DECIMAL(10,2),
     OUT p_message VARCHAR(255)
 )
-BEGIN
+proc_label: BEGIN
     DECLARE v_discount_type ENUM('percentage', 'fixed', 'free_shipping');
     DECLARE v_discount_value DECIMAL(10,2);
     DECLARE v_minimum_order DECIMAL(10,2);
@@ -213,41 +213,41 @@ BEGIN
     IF v_discount_type IS NULL THEN
         SET p_message = 'Invalid promo code';
         SET p_is_valid = FALSE;
-        RETURN;
+        LEAVE proc_label;
     END IF;
     
     -- Check if promo is active
     IF v_is_active = 0 THEN
         SET p_message = 'Promo code is inactive';
         SET p_is_valid = FALSE;
-        RETURN;
+        LEAVE proc_label;
     END IF;
     
     -- Check date range
     IF NOW() < v_start_date THEN
         SET p_message = 'Promo code is not yet active';
         SET p_is_valid = FALSE;
-        RETURN;
+        LEAVE proc_label;
     END IF;
     
     IF NOW() > v_expiry_date THEN
         SET p_message = 'Promo code has expired';
         SET p_is_valid = FALSE;
-        RETURN;
+        LEAVE proc_label;
     END IF;
     
     -- Check minimum order amount
     IF p_order_amount < v_minimum_order THEN
         SET p_message = CONCAT('Minimum order amount is ', v_minimum_order);
         SET p_is_valid = FALSE;
-        RETURN;
+        LEAVE proc_label;
     END IF;
     
     -- Check usage limit
     IF v_usage_limit IS NOT NULL AND v_usage_count >= v_usage_limit THEN
         SET p_message = 'Promo code usage limit exceeded';
         SET p_is_valid = FALSE;
-        RETURN;
+        LEAVE proc_label;
     END IF;
     
     -- Check per user limit
@@ -261,7 +261,7 @@ BEGIN
         IF v_user_usage >= v_per_user_limit THEN
             SET p_message = 'You have reached the usage limit for this promo';
             SET p_is_valid = FALSE;
-            RETURN;
+            LEAVE proc_label;
         END IF;
     END IF;
     
@@ -287,12 +287,12 @@ END //
 -- 2. Procedure to Apply Promo Code
 CREATE PROCEDURE ApplyPromoCode(
     IN p_code VARCHAR(50),
-    IN p_user_id INT,
-    IN p_order_id INT,
+    IN p_user_id CHAR(36),
+    IN p_order_id CHAR(36),
     OUT p_success BOOLEAN,
     OUT p_message VARCHAR(255)
 )
-BEGIN
+proc_label: BEGIN
     DECLARE v_promo_id INT;
     DECLARE v_discount_amount DECIMAL(10,2);
     DECLARE v_order_amount DECIMAL(10,2);
@@ -310,7 +310,7 @@ BEGIN
     IF NOT v_is_valid THEN
         SET p_success = FALSE;
         SET p_message = v_valid_message;
-        RETURN;
+        LEAVE proc_label;
     END IF;
     
     -- Get promo ID
@@ -344,7 +344,7 @@ END //
 
 -- 3. Procedure to Get Active Promos
 CREATE PROCEDURE GetActivePromos(
-    IN p_user_id INT,
+    IN p_user_id CHAR(36),
     IN p_order_amount DECIMAL(10,2)
 )
 BEGIN
@@ -571,8 +571,8 @@ DELIMITER ;
 CREATE TABLE IF NOT EXISTS promo_usage_archive (
     id INT,
     promo_id INT NOT NULL,
-    user_id INT NOT NULL,
-    order_id INT NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    order_id CHAR(36) NOT NULL,
     discount_amount DECIMAL(10,2) NOT NULL,
     status VARCHAR(20),
     created_at TIMESTAMP,

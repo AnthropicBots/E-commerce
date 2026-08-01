@@ -223,9 +223,26 @@ function openArticleModal(id) {
 
     const textDiv = document.createElement("div");
     textDiv.className = "modal-text";
-    textDiv.innerHTML = window.DOMPurify 
-        ? DOMPurify.sanitize(post.content) 
-        : window.AppUtils ? AppUtils.escapeHTML(post.content) : post.content.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+    if (window.DOMPurify && typeof window.DOMPurify.sanitize === "function") {
+        textDiv.innerHTML = DOMPurify.sanitize(post.content, {
+            ALLOWED_TAGS: ['p', 'b', 'i', 'em', 'strong', 'a', 'ul', 'ol', 'li', 'br', 'h2', 'h3', 'h4', 'blockquote'],
+            ALLOWED_ATTR: ['href', 'target', 'rel', 'title'],
+            ALLOW_DATA_ATTR: false
+        });
+    } else {
+        // Safe DOM construction fallback without raw innerHTML assignment to prevent XSS
+        textDiv.textContent = "";
+        const rawText = String(post.content || "");
+        const paragraphs = rawText.split(/\n\n+/);
+        paragraphs.forEach((para) => {
+            if (para.trim()) {
+                const p = document.createElement("p");
+                p.textContent = para.trim();
+                textDiv.appendChild(p);
+            }
+        });
+    }
     blogModalBody.appendChild(textDiv);
 
     const shareDiv = document.createElement("div");

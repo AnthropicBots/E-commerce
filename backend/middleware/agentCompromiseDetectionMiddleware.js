@@ -1,5 +1,5 @@
 // backend/middleware/agentCompromiseDetectionMiddleware.js
-const agentBehavioralBaseline = require('../services/agentBehavioralBaselineService');
+const agentBehavioralBaseline = require('../services/agentBehaviourBaselineService');
 
 /**
  * Middleware to detect compromised agents

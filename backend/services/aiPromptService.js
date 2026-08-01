@@ -1,5 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('../config/db').promise;
+const { sanitizeAIResponse } = require('../utils/aiResponseValidator');
 
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY,
@@ -104,9 +105,17 @@ async function withRetry(fn, retries = config.maxRetries) {
 
 const STATIC_SYSTEM_PROMPT = {
     type: "text",
-    text: `You are an e-commerce shopping assistant for AnthropicBots E-commerce.
+    text: `You are an AI assistant for AnthropicBots E-commerce.
 
-Rules:
+Identity and verification rules:
+- Always identify yourself as an AI assistant.
+- Never claim to be a human, never describe yourself as a person, and never invent a human identity.
+- Never invent employees, coworkers, meetings, travel, contracts, clothing, personal experiences, addresses, or organizations.
+- Never infer or fabricate personal details, relationships, events, or visited locations.
+- Only answer using available context or retrieved information.
+- If a fact cannot be verified from the provided context, respond with exactly: I don't have verified information about that.
+
+Catalog rules:
 - Always recommend products from our catalog
 - Never suggest external products
 - Stay within the price range of ₹500-₹50,000
@@ -198,6 +207,7 @@ ${Object.entries(context).map(([key, value]) => `${key}: ${value}`).join('\n')}`
         });
 
         const savings = calculateCostSavings(result);
+        const responseText = sanitizeAIResponse(result.content[0].text);
 
         await logAICostSavings({
             userId,
@@ -208,7 +218,7 @@ ${Object.entries(context).map(([key, value]) => `${key}: ${value}`).join('\n')}`
 
         return {
             success: true,
-            data: result.content[0].text,
+            data: responseText,
             usage: result.usage,
             savings,
             requestId,
@@ -271,7 +281,14 @@ async function getAIProductRecommendation(userId, productId, userQuery) {
 
         const systemPrompt = {
             type: "text",
-            text: `You are a product recommendation expert for AnthropicBots.
+            text: `You are an AI assistant for AnthropicBots.
+
+Identity and verification rules:
+- Always identify yourself as an AI assistant.
+- Never claim to be a human or invent any human identity.
+- Never invent coworkers, employees, meetings, travel, contracts, clothing, personal experiences, addresses, or organizations.
+- Only answer using the available user context and product catalog data.
+- If you cannot verify a fact from the provided information, respond with exactly: I don't have verified information about that.
 
 User Context:
 - User ID: ${userId}
@@ -318,6 +335,7 @@ ${JSON.stringify(contextData, null, 2)}`
         });
 
         const savings = calculateCostSavings(result);
+        const responseText = sanitizeAIResponse(result.content[0].text);
 
         await logAICostSavings({
             userId,
@@ -328,7 +346,7 @@ ${JSON.stringify(contextData, null, 2)}`
 
         return {
             success: true,
-            data: result.content[0].text,
+            data: responseText,
             usage: result.usage,
             savings,
             requestId,
@@ -370,7 +388,14 @@ async function getAIProductDescription(productData, keywords) {
 
         const systemPrompt = {
             type: "text",
-            text: `You are a professional e-commerce copywriter.
+            text: `You are an AI assistant for AnthropicBots.
+
+Identity and verification rules:
+- Always identify yourself as an AI assistant.
+- Never claim to be a human or invent a human identity.
+- Never invent employees, coworkers, meetings, travel, clothing, personal experiences, addresses, or organizations.
+- Only answer using the product data and keywords supplied in the request.
+- If you cannot verify a fact from the provided context, respond with exactly: I don't have verified information about that.
 
 Writing Guidelines:
 1. Create compelling product descriptions
@@ -422,10 +447,11 @@ Keywords: ${keywords.join(', ')}`
         });
 
         const savings = calculateCostSavings(result);
+        const responseText = sanitizeAIResponse(result.content[0].text);
 
         return {
             success: true,
-            data: result.content[0].text,
+            data: responseText,
             usage: result.usage,
             savings,
             requestId,

@@ -1146,4 +1146,55 @@ class AgentBehavioralBaselineService {
             return {
                 anomalies: stats[0],
                 alerts: alertStats[0],
-                timestamp
+                timestamp: new Date().toISOString()
+            };
+        } catch (error) {
+            console.error('AGENT BASELINE STATISTICS ERROR:', error);
+
+            // Statistics are advisory: a failure here must not take down the
+            // caller, so an empty-but-shaped result is returned instead.
+            return {
+                anomalies: {
+                    total_baselines: 0,
+                    avg_confidence: 0,
+                    compromised_agents: 0,
+                    unique_agents: 0
+                },
+                alerts: {
+                    total_alerts: 0,
+                    pending_alerts: 0
+                },
+                timestamp: new Date().toISOString()
+            };
+        }
+    }
+
+    getStatus() {
+        return {
+            agentBaselines: this.agentBaselines.size,
+            merchantProfiles: this.merchantProfiles.size,
+            basketProfiles: this.basketProfiles.size,
+            conversationFingerprints: this.conversationFingerprints.size,
+            mandateProfiles: this.mandateProfiles.size,
+            anomalyLogs: this.anomalyLogs.length,
+            detectionAlerts: this.detectionAlerts.length,
+            config: BASELINE_CONFIG
+        };
+    }
+}
+
+// ============================================
+// EXPORT
+// ============================================
+
+// The file previously ended mid-object-literal inside getStatistics(), with no
+// catch block, no closing brace for the class and no export at all (#1297).
+// The repair for that was then merged in alongside the unrepaired version, so
+// ~25 lines of the old getStatistics() tail — including a bare `return` —
+// survived at top level *after* this export, which is an illegal return
+// statement and made the file unparsable all over again (#1341). The graceful
+// catch body from that tail has been folded back into getStatistics() where it
+// belongs; only the export remains here.
+module.exports = new AgentBehavioralBaselineService();
+module.exports.AgentBehavioralBaselineService = AgentBehavioralBaselineService;
+
