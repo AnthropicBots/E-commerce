@@ -65,6 +65,31 @@ const PUBLIC_ROUTES = Object.freeze([
     { method: 'POST', path: '/api/courier-webhooks/:provider', reason: PUBLIC_REASON.WEBHOOK }
 ]);
 
+const GUEST_REASON = Object.freeze({
+    CART_TOKEN: 'the shopper holds an unguessable cart token instead of a session'
+});
+
+/**
+ * Routes a caller with no account may reach, and on what evidence.
+ *
+ * Distinct from `PUBLIC_ROUTES`, which is the list of routes that make no
+ * access decision at all. These do: they identify a resource and refuse
+ * anything that is not it. What they do not require is an account.
+ *
+ * Serving a guest is a product decision with a security consequence, so it is
+ * written down in the same reviewed file for the same reason the public list
+ * is -- and the audit checks the list against the routers, so a guard that
+ * quietly starts admitting anonymous callers shows up here or fails.
+ */
+const GUEST_ROUTES = Object.freeze([
+    { method: 'GET', path: '/api/cart', reason: GUEST_REASON.CART_TOKEN },
+    { method: 'POST', path: '/api/cart/sync', reason: GUEST_REASON.CART_TOKEN },
+    { method: 'POST', path: '/api/cart/add', reason: GUEST_REASON.CART_TOKEN },
+    { method: 'PUT', path: '/api/cart/update', reason: GUEST_REASON.CART_TOKEN },
+    { method: 'DELETE', path: '/api/cart/remove/:productId', reason: GUEST_REASON.CART_TOKEN },
+    { method: 'DELETE', path: '/api/cart/clear', reason: GUEST_REASON.CART_TOKEN }
+]);
+
 /**
  * The routers the audit covers, with the prefix each is mounted under.
  *
@@ -105,9 +130,25 @@ function isPublicRoute(method, path) {
     ));
 }
 
+/**
+ * @param {string} method
+ * @param {string} path
+ * @returns {boolean} true when the route is declared reachable without an account
+ */
+function isGuestRoute(method, path) {
+    const wanted = String(method || '').toUpperCase();
+
+    return GUEST_ROUTES.some((entry) => (
+        entry.path === path && (entry.method === '*' || entry.method === wanted)
+    ));
+}
+
 module.exports = {
     PUBLIC_REASON,
     PUBLIC_ROUTES,
+    GUEST_REASON,
+    GUEST_ROUTES,
     AUDITED_MOUNTS,
-    isPublicRoute
+    isPublicRoute,
+    isGuestRoute
 };

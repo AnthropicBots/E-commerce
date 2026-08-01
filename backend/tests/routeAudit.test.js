@@ -15,7 +15,9 @@ const {
     collectRoutes,
     collectMountedRoutes,
     findUnprotectedRoutes,
+    findUndeclaredGuestRoutes,
     assertRoutesProtected,
+    assertGuestRoutesDeclared,
     runStartupAudit
 } = require('../middleware/routeAudit');
 const { AUDITED_MOUNTS } = require('../config/routePolicy');
@@ -23,6 +25,10 @@ const { PERMISSIONS, authorize, markPolicyMiddleware } = require('../config/poli
 
 const ok = (req, res) => res.json({ success: true });
 const guard = markPolicyMiddleware((req, res, next) => next(), { authentication: true });
+const guestGuard = markPolicyMiddleware(
+    (req, res, next) => next(),
+    { authentication: 'optional', guest: true }
+);
 
 describe('collectRoutes', () => {
     test('reports every method registered on a path', () => {
@@ -142,6 +148,56 @@ describe('findUnprotectedRoutes', () => {
     });
 });
 
+describe('findUndeclaredGuestRoutes', () => {
+    // A guard that admits anonymous callers still satisfies the unprotected
+    // check, so widening one is invisible there. This is the check that sees
+    // it.
+    test('flags a route that admits guests without that being declared', () => {
+        const router = express.Router();
+        router.use(guestGuard);
+        router.get('/wishlists', ok);
+
+        expect(findUndeclaredGuestRoutes([{ basePath: '/api', router }])).toEqual([
+            { method: 'GET', path: '/api/wishlists' }
+        ]);
+    });
+
+    test('stays quiet about the guest routes on record', () => {
+        const router = express.Router();
+        router.use(guestGuard);
+        router.get('/', ok);
+        router.post('/add', ok);
+
+        expect(findUndeclaredGuestRoutes([{ basePath: '/api/cart', router }])).toEqual([]);
+    });
+
+    test('says nothing about a route that requires an account', () => {
+        const router = express.Router();
+        router.use(guard);
+        router.get('/:id', ok);
+
+        expect(findUndeclaredGuestRoutes([{ basePath: '/api/orders', router }])).toEqual([]);
+    });
+
+    test('names every offender at once', () => {
+        const router = express.Router();
+        router.use(guestGuard);
+        router.get('/:id', ok);
+        router.delete('/:id', ok);
+
+        let message = '';
+        try {
+            assertGuestRoutesDeclared([{ basePath: '/api/orders', router }]);
+        } catch (error) {
+            message = error.message;
+        }
+
+        expect(message).toContain('GET /api/orders/:id');
+        expect(message).toContain('DELETE /api/orders/:id');
+        expect(message).toContain('routePolicy');
+    });
+});
+
 describe('assertRoutesProtected', () => {
     test('passes when every route declares a policy', () => {
         const router = express.Router();
@@ -196,6 +252,33 @@ describe('runStartupAudit', () => {
 
     test('refuses to start in enforce mode', () => {
         expect(() => runStartupAudit({ mode: 'enforce', mounts: buildLeakyMount() })).toThrow();
+    });
+
+    test('refuses to start on an undeclared guest route too', () => {
+        const router = express.Router();
+        router.use(guestGuard);
+        router.get('/:id', ok);
+
+        expect(() => runStartupAudit({
+            mode: 'enforce',
+            mounts: [{ basePath: '/api/orders', router }]
+        })).toThrow(/without an account/i);
+    });
+
+    test('reports an undeclared guest route in warn mode', () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const router = express.Router();
+        router.use(guestGuard);
+        router.get('/:id', ok);
+
+        runStartupAudit({ mode: 'warn', mounts: [{ basePath: '/api/orders', router }] });
+
+        expect(console.warn).toHaveBeenCalledWith(
+            expect.stringContaining('without an account')
+        );
+
+        console.warn.mockRestore();
     });
 });
 

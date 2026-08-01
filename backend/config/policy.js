@@ -157,6 +157,23 @@ function isPolicyMiddleware(middleware) {
 }
 
 /**
+ * Whether the middleware's decision admits a caller with no account.
+ *
+ * A guard that lets anonymous traffic through is still a guard -- it decides
+ * which resource the caller may reach on some other evidence -- but it is a
+ * materially different decision from "must be signed in", and the audit has
+ * to be able to tell the two apart. Declaring it in the marker means the
+ * difference is stated by the middleware itself rather than inferred from
+ * where it happens to be mounted.
+ *
+ * @param {*} middleware
+ * @returns {boolean}
+ */
+function isGuestCapableMiddleware(middleware) {
+    return isPolicyMiddleware(middleware) && middleware[POLICY_MARKER].guest === true;
+}
+
+/**
  * Reduce anything role-shaped to a comparable string.
  * Roles arrive from JWT claims and from MySQL, so casing and padding vary.
  *
@@ -315,6 +332,7 @@ module.exports = {
     POLICY_MARKER,
     markPolicyMiddleware,
     isPolicyMiddleware,
+    isGuestCapableMiddleware,
     normalizeRole,
     isValidRole,
     isAdminRole,

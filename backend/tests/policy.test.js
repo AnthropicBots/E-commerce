@@ -4,7 +4,12 @@
 // exercise it directly rather than through a mounted app.
 
 const policy = require('../config/policy');
-const { PUBLIC_ROUTES, isPublicRoute } = require('../config/routePolicy');
+const {
+    GUEST_ROUTES,
+    PUBLIC_ROUTES,
+    isGuestRoute,
+    isPublicRoute
+} = require('../config/routePolicy');
 const snapshot = require('./fixtures/policySnapshot.json');
 
 const {
@@ -14,8 +19,10 @@ const {
     expandRoles,
     hasPermission,
     isAdminRole,
+    isGuestCapableMiddleware,
     isPolicyMiddleware,
     isValidRole,
+    markPolicyMiddleware,
     normalizeRole,
     permissionsForRole,
     roleOf,
@@ -177,6 +184,30 @@ describe('authorize middleware', () => {
     });
 });
 
+describe('guest-capable guards', () => {
+    // "Guarded" and "requires an account" are different claims, and a guard
+    // that stops being the second while staying the first is exactly the
+    // change the unprotected-route check cannot see.
+    test('a guard says for itself whether it admits a caller with no account', () => {
+        const admitsGuests = markPolicyMiddleware(
+            (req, res, next) => next(),
+            { authentication: 'optional', guest: true }
+        );
+        const requiresAccount = markPolicyMiddleware(
+            (req, res, next) => next(),
+            { authentication: true }
+        );
+
+        expect(isGuestCapableMiddleware(admitsGuests)).toBe(true);
+        expect(isGuestCapableMiddleware(requiresAccount)).toBe(false);
+    });
+
+    test('an unmarked handler claims nothing, whatever it is called', () => {
+        expect(isGuestCapableMiddleware(function allowGuests(req, res, next) { next(); })).toBe(false);
+        expect(isGuestCapableMiddleware(null)).toBe(false);
+    });
+});
+
 describe('pinned policy', () => {
     // A permission grant that widens by accident is invisible in a diff of the
     // map alone; requiring the snapshot to be edited too makes it deliberate.
@@ -211,5 +242,26 @@ describe('pinned policy', () => {
         expect(isPublicRoute('get', '/api/products')).toBe(true);
         expect(isPublicRoute('DELETE', '/api/products')).toBe(false);
         expect(isPublicRoute('GET', '/api/orders')).toBe(false);
+    });
+
+    test('the routes reachable without an account are the ones on record', () => {
+        const declared = GUEST_ROUTES.map(({ method, path }) => `${method} ${path}`);
+        expect(sorted(declared)).toEqual(sorted(snapshot.guestRoutes));
+    });
+
+    test('every guest route carries a reason', () => {
+        for (const route of GUEST_ROUTES) {
+            expect(typeof route.reason).toBe('string');
+            expect(route.reason.length).toBeGreaterThan(0);
+        }
+    });
+
+    // Serving a guest is not the same as serving everybody: the cart routes
+    // still decide which cart the caller reaches.
+    test('a guest route is not thereby a public one', () => {
+        expect(isGuestRoute('GET', '/api/cart')).toBe(true);
+        expect(isPublicRoute('GET', '/api/cart')).toBe(false);
+        expect(isGuestRoute('POST', '/api/cart')).toBe(false);
+        expect(isGuestRoute('GET', '/api/orders')).toBe(false);
     });
 });

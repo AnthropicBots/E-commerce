@@ -26,7 +26,15 @@ const CART_CONFIG = Object.freeze({
     // Ceiling on batches in a single run, so a large backlog is drained over
     // several scheduled runs instead of one that never ends. At the defaults a
     // run transitions at most 10,000 carts.
-    SWEEP_MAX_BATCHES: Number(process.env.CART_SWEEP_MAX_BATCHES) || 20
+    SWEEP_MAX_BATCHES: Number(process.env.CART_SWEEP_MAX_BATCHES) || 20,
+
+    // How long the token that reaches a guest basket keeps working. It is a
+    // bearer credential sitting in browser storage, so it has to expire even
+    // though the basket behind it is worth very little: a fortnight is longer
+    // than anyone deliberates over a purchase and short enough that a token
+    // copied off a shared machine goes stale on its own.
+    GUEST_TOKEN_TTL_MINUTES:
+        Number(process.env.CART_GUEST_TOKEN_TTL_MINUTES) || 14 * MINUTES_PER_DAY
 });
 
 module.exports = CART_CONFIG;

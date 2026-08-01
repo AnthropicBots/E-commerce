@@ -67,7 +67,7 @@ now resolved to one shape, produced by one owning migration.
 
 | Table | Was declared in | Resolution |
 | --- | --- | --- |
-| `cart_items` | baseline and a standalone cart change file | Baseline shape wins: the primary key is the full cart line (user, product, variant, colour, size), which is what the cart code's upsert relies on. The standalone file's surrogate key was retired. |
+| `cart_items` | baseline and a standalone cart change file | Baseline shape wins; the standalone file's surrogate key was retired. The key is the full cart line — product, variant, colour, size — scoped to the cart the line is in. It was scoped to the account until guest baskets arrived, which need a line the account cannot identify. |
 | `chat_conversations`, `chat_messages` | baseline and a chat feature file | Baseline shape wins. The chat file's copies referenced users by integer id and dropped the priority, moderation and soft-delete columns the baseline carries. |
 | `blocked_ips` | crawler protection and crawler verification | Union of both. Crawler protection owns the table and keeps `expires_at`; the verification audit columns are added by an explicit `ALTER TABLE`. |
 | `device_fingerprints` | bot protection and synthetic identity fraud | Union of both. Bot protection owns the table and keeps `is_suspicious`; the client-environment columns are added by an explicit `ALTER TABLE`. |

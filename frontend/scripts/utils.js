@@ -389,6 +389,52 @@ const refreshAccessToken = () => {
     return pendingRefresh;
 };
 
+// The basket of a shopper with no account lives on the server like anyone
+// else's; this is the only thing that reaches it. It is sent on every request
+// rather than only on cart calls, because the endpoints that will later accept
+// a guest basket are not all under /cart.
+const CART_TOKEN_HEADER = "X-Cart-Token";
+
+const getCartToken = () => {
+
+    return localStorage.getItem(
+        CONFIG.STORAGE_KEYS.CART_TOKEN
+    );
+};
+
+// The server returns a token only when it has just minted one, which it does
+// when the request presented no usable token. So whatever comes back is the
+// token that reaches the basket the request actually wrote to, and it replaces
+// whatever was held before.
+const rememberCartToken = (
+    data
+) => {
+
+    if (
+        !data
+        ||
+        typeof data.cartToken !== "string"
+    ) {
+
+        return;
+    }
+
+    try {
+
+        localStorage.setItem(
+            CONFIG.STORAGE_KEYS.CART_TOKEN,
+            data.cartToken
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Cart token storage error:",
+            error
+        );
+    }
+};
+
 // api request
 const apiRequest =
     async (
@@ -424,6 +470,9 @@ const apiRequest =
             const token =
                 getToken();
 
+            const cartToken =
+                getCartToken();
+
             const headers = {
 
                 "Content-Type":
@@ -433,6 +482,13 @@ const apiRequest =
                     ? {
                         Authorization:
                             `Bearer ${token}`
+                    }
+                    : {}),
+
+                ...(cartToken
+                    ? {
+                        [CART_TOKEN_HEADER]:
+                            cartToken
                     }
                     : {}),
 
@@ -533,6 +589,10 @@ const apiRequest =
 
                 throw failure;
             }
+
+            rememberCartToken(
+                data
+            );
 
             return data;
 
@@ -1362,20 +1422,13 @@ const addCartItem = async (
         );
     }
 
-    // Guests have nothing to reserve against, so the local write is the whole
-    // operation.
-    if (
-        !isAuthenticated()
-    ) {
-
-        return saveCart(
-            cart
-        );
-    }
-
     // /cart/add is the only endpoint that creates the 15-minute inventory lock
     // the checkout flow later validates, so an add has to route through it. The
     // local write is not pushed separately because this request carries it.
+    //
+    // A guest goes the same way. There is no reservation to take against an
+    // account that does not exist, but the line still has to reach the stored
+    // basket, and this is the request that puts it there.
     const saved =
         saveCart(
             cart,
@@ -1420,8 +1473,8 @@ const addCartItem = async (
         return saved;
     }
 
-    // The account does not hold this line, so the browser must stop pretending
-    // it does.
+    // The stored cart does not hold this line, so the browser must stop
+    // pretending it does.
     notify(
         (
             response
@@ -1496,12 +1549,14 @@ const clearCart = () => {
     );
 };
 
-// ---------- Backend cart integration (authenticated users) ----------
-// Guests keep using localStorage only. For signed-in users every cart mutation
-// is mirrored to the persistent backend cart (/api/cart) so carts survive
-// across devices/sessions and the inventory-reservation workflow is exercised.
-// The account is the authority: a change the server refuses does not survive
-// locally.
+// ---------- Backend cart integration ----------
+// Every cart mutation is mirrored to the persistent backend cart (/api/cart),
+// whether or not the shopper has an account. For a signed-in shopper that is
+// what makes a cart survive across devices and sessions and what exercises the
+// inventory-reservation workflow; for a guest it is what makes the basket a
+// thing the shop can see at all, rather than something that exists only in one
+// browser until it is cleared. The server is the authority either way: a
+// change it refuses does not survive locally.
 
 // Real lines, one per variant choice. Flattening colour and size away here is
 // what used to make the shopper's choice vanish on the round trip and left
@@ -1533,7 +1588,7 @@ const enqueueOfflineCartMutation = (cart) => {
 };
 
 const processOfflineCartQueue = async () => {
-    if (!navigator.onLine || !isAuthenticated()) return;
+    if (!navigator.onLine) return;
     const queue = getOfflineCartQueue();
     if (!queue.length) return;
 
@@ -1588,7 +1643,7 @@ const pushCartToBackend = async (cart) => {
 
     notify(
         (response && response.message)
-        || "Your cart could not be saved to your account.",
+        || "Your cart could not be saved.",
         "error"
     );
 
@@ -1605,10 +1660,6 @@ const pushCartToBackend = async (cart) => {
 let pendingCartSync = null;
 
 const syncCartWithBackend = (cart) => {
-    if (!isAuthenticated()) {
-        return Promise.resolve(false);
-    }
-
     if (pendingCartSync) {
         clearTimeout(pendingCartSync.timeoutId);
     } else {
@@ -1679,11 +1730,15 @@ const fetchServerCart = async () => {
     return null;
 };
 
-// Page-load lifecycle: the account cart REPLACES the local mirror. Nothing is
+// Page-load lifecycle: the stored cart REPLACES the local mirror. Nothing is
 // merged here — merging what is only a mirror of the same cart is what made
 // carts inflate on their own with nobody touching them.
+//
+// A guest hydrates too, but only once there is a token to hydrate against. A
+// visitor who has never added anything has no stored cart to read, and asking
+// for one would open a basket nobody started.
 const hydrateCartFromServer = async () => {
-    if (!isAuthenticated()) {
+    if (!isAuthenticated() && !getCartToken()) {
         return getCart();
     }
 
@@ -2148,10 +2203,11 @@ window.addEventListener("storage", (event) => {
     dispatchCartUpdated(getCart());
 });
 
-// Hydrate the persistent backend cart for already–signed-in users on load, so
-// a cart created on another device/session follows them here. Combining a guest
-// cart into the account is a separate, deliberate step that belongs to sign-in.
-if (getToken() && getUser()) {
+// Hydrate the persistent backend cart on load, so a cart created on another
+// device or session follows a signed-in shopper here and a guest's basket
+// survives a reload. Combining a guest cart into an account is a separate,
+// deliberate step that belongs to sign-in.
+if ((getToken() && getUser()) || getCartToken()) {
     hydrateCartFromServer().catch((error) => {
         console.warn("Initial cart hydration failed:", error);
     });
