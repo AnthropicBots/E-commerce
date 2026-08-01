@@ -8,9 +8,14 @@
 // unanswerable, and admin status changes -- one of the highest-privilege
 // mutations in the system -- were the least logged.
 //
-// `order_status_logs` existed in a migration that could not run (INT foreign
-// keys against CHAR(36) primary keys) and that nothing referenced. This is the
-// service that makes it real.
+// `order_status_logs` is created by migration 0022 and amended by 0027. It had
+// no writer other than two bare INSERTs in `order.service.js` and no reader at
+// all. This is the service that makes it real.
+//
+// The stored column names are 0022's -- `old_status`, `new_status`,
+// `updated_by`, `updated_by_name` -- because 0022's trigger, views and stored
+// procedures read them. This service uses the from/to/changedBy spelling
+// internally and maps at the query boundary.
 //
 // The single most important property: `recordTransition` takes the caller's
 // connection and writes inside the caller's transaction. A history that can be
@@ -155,12 +160,20 @@ class OrderStatusHistoryService {
 
         const safeSource = SOURCES.includes(source) ? source : 'system';
 
+        // Column names are migration 0022's -- `old_status`/`new_status`/
+        // `updated_by` rather than the from/to/changed_by spelling this service
+        // uses internally. 0022 owns the table, and its trigger, views and
+        // stored procedures all read those names. See 0027 for the reconciliation.
+        //
+        // `is_auto` is 0022's boolean for "nobody did this". `source` supersedes
+        // it, but it is still written so 0022's `get_order_timeline` procedure
+        // does not silently report every row as manual.
         await connection.query(
             `INSERT INTO order_status_logs (
-                order_id, from_status, to_status,
-                changed_by, changed_by_name, source,
+                order_id, old_status, new_status,
+                updated_by, updated_by_name, source, is_auto,
                 reason, metadata, ip_address, user_agent
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 orderId,
                 fromStatus,
@@ -168,6 +181,7 @@ class OrderStatusHistoryService {
                 changedBy,
                 changedByName ? sanitizeString(changedByName).slice(0, 255) : null,
                 safeSource,
+                changedBy ? 0 : 1,
                 reason ? sanitizeString(reason).slice(0, 500) : null,
                 metadata ? JSON.stringify(metadata) : null,
                 this.extractIp(request),
@@ -210,14 +224,18 @@ class OrderStatusHistoryService {
     async getHistory(orderId, options = {}) {
         const { includeInternal = false } = options;
 
+        // Aliased to this service's spelling so the row shape below is stable;
+        // the stored names are 0022's. See the note in recordTransition.
         const [rows] = await db.query(
             `SELECT
-                l.id, l.order_id, l.from_status, l.to_status,
-                l.changed_by, l.changed_by_name, l.source,
+                l.id, l.order_id,
+                l.old_status AS from_status, l.new_status AS to_status,
+                l.updated_by AS changed_by, l.updated_by_name AS changed_by_name,
+                l.source,
                 l.reason, l.metadata, l.ip_address, l.user_agent, l.created_at,
                 u.name AS actor_name
              FROM order_status_logs l
-             LEFT JOIN users u ON u.id = l.changed_by
+             LEFT JOIN users u ON u.id = l.updated_by
              WHERE l.order_id = ?
              ORDER BY l.created_at ASC, l.id ASC`,
             [orderId]
@@ -322,7 +340,7 @@ class OrderStatusHistoryService {
         const [rows] = await db.query(
             `SELECT created_at
                FROM order_status_logs
-              WHERE order_id = ? AND to_status = ?
+              WHERE order_id = ? AND new_status = ?
               ORDER BY created_at DESC
               LIMIT 1`,
             [orderId, status]

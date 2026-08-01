@@ -110,6 +110,55 @@ describe('recordTransition', () => {
         );
     });
 
+    // Migration 0022 owns `order_status_logs` and spells the columns
+    // old_status/new_status/updated_by; its trigger, views and stored
+    // procedures all read those names. This service uses from/to/changedBy
+    // internally, so a merge that "tidies" the SQL back to the internal
+    // spelling would compile, pass every other test here, and then fail at
+    // runtime with ER_BAD_FIELD_ERROR. Pin the stored names.
+    it('writes the column names migration 0022 actually declares', async () => {
+        const connection = fakeConnection();
+
+        await service.recordTransition(connection, {
+            orderId: ORDER,
+            fromStatus: 'pending',
+            toStatus: 'shipped',
+            changedBy: 'admin-1'
+        });
+
+        const [insert] = ran(connection, /INSERT INTO order_status_logs/);
+
+        expect(insert.sql).toMatch(/\bold_status\b/);
+        expect(insert.sql).toMatch(/\bnew_status\b/);
+        expect(insert.sql).toMatch(/\bupdated_by\b/);
+        expect(insert.sql).not.toMatch(/\bfrom_status\b/);
+        expect(insert.sql).not.toMatch(/\bto_status\b/);
+        expect(insert.sql).not.toMatch(/\bchanged_by\b/);
+    });
+
+    // `source` supersedes 0022's `is_auto`, but 0022's get_order_timeline
+    // procedure still selects is_auto -- leaving it unwritten would report
+    // every transition as automatic.
+    it('keeps 0022 is_auto in step with the actor', async () => {
+        const manual = fakeConnection();
+        await service.recordTransition(manual, {
+            orderId: ORDER,
+            fromStatus: 'pending',
+            toStatus: 'shipped',
+            changedBy: 'admin-1'
+        });
+        expect(ran(manual, /INSERT INTO order_status_logs/)[0].params).toContain(0);
+
+        const automatic = fakeConnection();
+        await service.recordTransition(automatic, {
+            orderId: ORDER,
+            fromStatus: 'pending',
+            toStatus: 'shipped',
+            source: 'courier'
+        });
+        expect(ran(automatic, /INSERT INTO order_status_logs/)[0].params).toContain(1);
+    });
+
     // A timeline of "shipped -> shipped" buries the transitions that matter,
     // and hides duplicate-write bugs rather than exposing them.
     it('skips a transition that changes nothing', async () => {
