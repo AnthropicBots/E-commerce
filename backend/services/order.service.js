@@ -11,6 +11,7 @@ const { validatePromo } = require("./promo.service");
 const pricing = require("./pricing.service");
 const cartLifecycle = require("./cartLifecycleService");
 const shipping = require("./shipping.service");
+const cartRecoveryAttribution = require("./cartRecoveryAttributionService");
 
 // Marks the one failure the client can act on, so controllers can answer with
 // the specific figures instead of a generic server error.
@@ -169,6 +170,9 @@ const resolveItemVariant = async (connection, productId, item, lockRows = true) 
  * enforcement; the quote endpoint runs it read-only, where an out-of-stock
  * item should still be priced rather than rejected.
  *
+ * Each line carries the variant it resolved to, so the sale, the order record
+ * and any later return all name the same counter.
+ *
  * @param {Object} connection - pool or transactional connection
  * @param {Array<Object>} items
  * @param {{ lockRows?: boolean, enforceStock?: boolean }} [options]
@@ -200,7 +204,24 @@ const resolveOrderLines = async (connection, items, options = {}) => {
         const product = safeResults[0];
         const qty = Math.max(1, safeInteger(item.qty, 1));
 
-        if (enforceStock && safeInteger(product.stock) < qty) {
+        // `lockRows` is off for read-only pricing (a quote holds no rows);
+        // order creation keeps it on so neither the price nor the quantity can
+        // move under the transaction.
+        const variant = await stockCounter.resolveVariant(
+            connection,
+            productId,
+            item,
+            { lockRows },
+        );
+
+        // The order has to be covered by the quantity it will actually draw
+        // down. Checking the product total for a line that names a variant is
+        // what let a size with two left go out ten at a time on the strength of
+        // its siblings.
+        const { stock: availableStock, variantId } =
+            stockCounter.resolveAvailableStock(product, variant);
+
+        if (enforceStock && availableStock < qty) {
             throw new Error(
                 `Insufficient stock for ${sanitizeString(product.name)}`,
             );
@@ -215,13 +236,6 @@ const resolveOrderLines = async (connection, items, options = {}) => {
         // the catalogue; the shipping service decides what to assume rather
         // than a zero being invented here.
         let realWeight = product.weight === null ? null : safeNumber(product.weight);
-
-        const variant = await resolveItemVariant(
-            connection,
-            productId,
-            item,
-            lockRows,
-        );
 
         if (variant && variant.price !== null && variant.price !== undefined) {
             const variantPrice = safeNumber(variant.price);
@@ -241,6 +255,7 @@ const resolveOrderLines = async (connection, items, options = {}) => {
 
         resolvedLines.push({
             id: safeUUID(product.id),
+            variantId,
             name: sanitizeString(product.name),
             image: sanitizeString(product.image),
             price: realPrice,
@@ -288,6 +303,9 @@ const createOrderService = async (connection, orderData) => {
             // deletes the saved address -- and this only records *which* saved
             // address the order came from.
             address_id,
+            // Abandoned-cart recovery (#1429). The reference to the restore
+            // link this basket came back through, if it came back through one.
+            recovery_ref,
         } = orderData;
 
         // validate empty cart
@@ -361,6 +379,17 @@ const createOrderService = async (connection, orderData) => {
         const crypto = require("crypto");
         const orderId = crypto.randomUUID();
 
+        // Resolved on this connection, inside the caller's transaction: an
+        // order that rolls back must not leave a claim that it was recovered.
+        // A reference that does not check out costs the order nothing -- it is
+        // simply not attributed.
+        const { recoveryTokenId, recoveredCartId } =
+            await cartRecoveryAttribution.resolveAttribution({
+                recoveryRef: recovery_ref,
+                userId: user_id,
+                connection,
+            });
+
         // create order
         const orderQuery = `
             INSERT INTO orders (
@@ -385,6 +414,8 @@ const createOrderService = async (connection, orderData) => {
                 discount,
                 discount_code,
                 promo_code,
+                recovery_token_id,
+                recovered_cart_id,
                 discount_amount,
                 final_amount,
                 created_at,
@@ -415,27 +446,37 @@ const createOrderService = async (connection, orderData) => {
             discountAmount,
             appliedPromoCode,
             appliedPromoCode,
+            recoveryTokenId,
+            recoveredCartId,
             discountAmount,
             breakdown.total,
         ]);
 
         // insert into order_items
+        //
+        // The variant is recorded on the line, not merely implied by the colour
+        // and size text. A return has to credit the counter the sale drew down,
+        // and re-deriving that months later from free-text attributes is a
+        // guess. Sentinel zero becomes NULL: the column is a foreign key, and
+        // no variant has id 0.
         for (const item of validatedItems) {
             const itemQuery = `
                 INSERT INTO order_items (
                     order_id,
                     product_id,
+                    variant_id,
                     name,
                     price,
                     qty,
                     color,
                     size,
                     total
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
             await connection.query(itemQuery, [
                 orderId,
                 item.id,
+                item.variantId > NO_VARIANT_ID ? item.variantId : null,
                 item.name,
                 item.price,
                 item.qty,
@@ -445,21 +486,19 @@ const createOrderService = async (connection, orderData) => {
             ]);
         }
 
-        // reduce stock safely
+        // Reduce the same counter the availability check was made against, on
+        // this connection so the movement shares the order's fate. The
+        // sufficiency test lives in the UPDATE's WHERE clause rather than in a
+        // read before it, so two checkouts racing for the last unit cannot both
+        // pass: the loser changes no rows and is refused here.
         for (const item of validatedItems) {
-            const stockQuery = `UPDATE products SET stock = stock - ? WHERE id = ? 
-            AND stock >= ? `;
+            const movement = await stockCounter.deductStock(connection, {
+                productId: item.id,
+                variantId: item.variantId,
+                quantity: item.qty,
+            });
 
-            const [result] = await connection.query(
-                stockQuery,
-                [
-                    item.qty,
-                    item.id,
-                    item.qty
-                ]
-            );
-
-            if (result.affectedRows === 0) {
+            if (!movement.ok) {
                 throw new Error(
                     `Insufficient stock for ${item.name}`
                 );
@@ -518,6 +557,10 @@ const createOrderService = async (connection, orderData) => {
                 );
                 logger.info(`Recorded promo usage for user ${user_id} and promo ${appliedPromoId}`);
             }
+        }
+
+        if (recoveredCartId) {
+            logger.info(`Order ${orderId} recovered cart ${recoveredCartId}`);
         }
 
         logger.info(`Order created successfully: ${orderId} by user ${user_id || 'guest'}`);
