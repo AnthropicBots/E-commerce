@@ -15,6 +15,10 @@ const {
     changePassword,
     getSecurityAudit,
     getFraudStatus,
+    requestDataErasure,
+    confirmDataErasure,
+    getMyErasureStatus,
+    verifyErasureReceipt,
     //verify2FA,
     //generate2FA,
     //enable2FA,
@@ -183,6 +187,46 @@ router.post(
     applyCaptchaCheck,
     validateChangePassword,
     changePassword
+);
+
+// ======================== GDPR / DPDP ERASURE (#1397) ========================
+
+/**
+ * POST /api/auth/erasure/request
+ * Open a staged erasure request (confirmation email sent).
+ */
+router.post(
+    "/erasure/request",
+    authMiddleware,
+    requestDataErasure
+);
+
+/**
+ * POST /api/auth/erasure/confirm
+ * Confirm with emailed token → soft-delete → anonymize → purge → receipt.
+ */
+router.post(
+    "/erasure/confirm",
+    confirmDataErasure
+);
+
+/**
+ * GET /api/auth/erasure/receipt/:receiptId
+ * Public receipt verification (no PII).
+ */
+router.get(
+    "/erasure/receipt/:receiptId",
+    verifyErasureReceipt
+);
+
+/**
+ * GET /api/auth/erasure/:requestId
+ * Authenticated status check for the caller's own request.
+ */
+router.get(
+    "/erasure/:requestId",
+    authMiddleware,
+    getMyErasureStatus
 );
 
 // ======================== SESSION ROUTES ========================

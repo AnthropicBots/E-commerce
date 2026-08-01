@@ -498,6 +498,80 @@ const getAdminLogs = async (req, res) => {
     }
 };
 
+// =====================
+// GDPR / DPDP ERASURE TRACKER (#1397)
+// =====================
+const dataErasureService = require("../services/dataErasureService");
+
+const listErasureRequests = async (req, res) => {
+    try {
+        const page = safeNumber(req.query.page) || 1;
+        const limit = safeNumber(req.query.limit) || 20;
+        const status = req.query.status ? sanitizeString(req.query.status) : null;
+
+        const result = await dataErasureService.listErasureRequests({
+            status,
+            page,
+            limit
+        });
+
+        return res.status(200).json({
+            success: true,
+            requests: result.requests,
+            total: result.total,
+            page: result.page,
+            limit: result.limit
+        });
+    } catch (error) {
+        logger.error("Admin list erasure requests error:", {
+            error: error.message,
+            adminId: req.user?.id
+        });
+        return res.status(500).json({
+            success: false,
+            message: "Failed to list erasure requests"
+        });
+    }
+};
+
+const getErasureRequest = async (req, res) => {
+    try {
+        const id = sanitizeString(req.params.id || "");
+        const erasure = await dataErasureService.getErasureStatus(id, {
+            asAdmin: true
+        });
+        return res.status(200).json({
+            success: true,
+            erasure
+        });
+    } catch (error) {
+        const status = error.status || 500;
+        return res.status(status).json({
+            success: false,
+            code: error.code || "ERASURE_ERROR",
+            message: error.message || "Failed to fetch erasure request"
+        });
+    }
+};
+
+const verifyErasureReceiptAdmin = async (req, res) => {
+    try {
+        const receiptId = sanitizeString(req.params.receiptId || "");
+        const receipt = await dataErasureService.verifyReceipt(receiptId);
+        return res.status(200).json({
+            success: true,
+            receipt
+        });
+    } catch (error) {
+        const status = error.status || 500;
+        return res.status(status).json({
+            success: false,
+            code: error.code || "ERASURE_ERROR",
+            message: error.message || "Failed to verify receipt"
+        });
+    }
+};
+
 
 module.exports = {
     getDashboardStats,
@@ -508,5 +582,8 @@ module.exports = {
     bulkUpdateUserRole,
     deleteUser,
     verifyUserEmail,
-    getAdminLogs
+    getAdminLogs,
+    listErasureRequests,
+    getErasureRequest,
+    verifyErasureReceiptAdmin
 };

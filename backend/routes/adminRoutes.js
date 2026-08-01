@@ -10,7 +10,10 @@ const {
     bulkUpdateUserRole,  
     deleteUser,
     getAdminLogs,
-    verifyUserEmail
+    verifyUserEmail,
+    listErasureRequests,
+    getErasureRequest,
+    verifyErasureReceiptAdmin
 } = require("../controllers/admin.controller");
 
 const authMiddleware = require("../middleware/authMiddleware");
@@ -45,5 +48,10 @@ router.post("/users/verify-email", verifyUserEmail);
 
 // ==================== ADMIN LOGS ====================
 router.get("/logs", getAdminLogs);
+
+// ==================== GDPR / DPDP ERASURE TRACKER (#1397) ====================
+router.get("/erasure-requests", listErasureRequests);
+router.get("/erasure-requests/:id", getErasureRequest);
+router.get("/erasure-receipts/:receiptId", verifyErasureReceiptAdmin);
 
 module.exports = router;
