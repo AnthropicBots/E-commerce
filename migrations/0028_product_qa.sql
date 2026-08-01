@@ -11,14 +11,34 @@
 -- means the only people who can post about a product are those for whom the
 -- purchase decision is already made.
 --
--- backend/schema.sql carries the same definitions for fresh installs.
+-- These tables are new: nothing up to 0027 declares any of them, so this
+-- migration owns all three outright.
+--
+-- KEY TYPES -- KNOWN DIVERGENCE
+--
+-- `product_questions.id` and `product_answers.id` are CHAR(36) UUIDs. The key
+-- strategy settled in 0023 and recorded in migrations/README.md reserves UUIDs
+-- for `users`, `products` and `orders` and uses AUTO_INCREMENT integers
+-- everywhere else, so by that rule these two should be INT and only the
+-- columns pointing at products and users should be CHAR(36).
+--
+-- They were written before 0023 landed, and are left as UUIDs rather than
+-- converted while resolving a merge. The change is not mechanical -- the
+-- service mints ids with crypto.randomUUID and would have to read insertId
+-- instead, product_answers.question_id and product_qa_votes.target_id follow,
+-- and the tests assert on UUID ids throughout -- and it is a call for the
+-- reviewer of #1353, not a side effect of merging main. Nothing breaks as
+-- written: the types are self-consistent and every reference to products and
+-- users is correctly CHAR(36). Recorded here so it is findable rather than
+-- rediscovered.
 
 -- ============================================
 -- QUESTIONS
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS product_questions (
-    -- CHAR(36) throughout, matching products.id and users.id (#1025).
+    -- See the divergence note in the header: by 0023's rule this should be
+    -- INT AUTO_INCREMENT.
     id CHAR(36) PRIMARY KEY,
     product_id CHAR(36) NOT NULL,
 
