@@ -9,6 +9,7 @@ const {
 const logger = require("../utils/logger");
 const { validatePromo } = require("./promo.service");
 const pricing = require("./pricing.service");
+const cartLifecycle = require("./cartLifecycleService");
 
 // Marks the one failure the client can act on, so controllers can answer with
 // the specific figures instead of a generic server error.
@@ -438,8 +439,20 @@ const createOrderService = async (connection, orderData) => {
             }
         }
 
-        // Clear authenticated user's cart
+        // Close the cart and clear it. Both happen on this connection, inside
+        // the caller's transaction: a cart must never be recorded as converted
+        // against an order that then rolls back.
         if (user_id) {
+            const { cartId, converted } = await cartLifecycle.markCartConverted(
+                user_id,
+                orderId,
+                connection,
+            );
+
+            if (converted) {
+                logger.info(`Cart ${cartId} converted into order ${orderId}`);
+            }
+
             await connection.query(
                 "DELETE FROM cart_items WHERE user_id = ?",
                 [user_id]
