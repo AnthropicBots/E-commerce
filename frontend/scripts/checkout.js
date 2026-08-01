@@ -869,6 +869,12 @@ async function createOrderPayload() {
         promoCode:
             appliedCoupon || null,
 
+        // Set when this basket came back through a recovery link (#1429). The
+        // backend decides whether it attributes anything; sending one it does
+        // not recognise costs the order nothing.
+        recoveryRef:
+            AppUtils.getRecoveryRef(),
+
         items:
             AppUtils.safeArray(
                 cart
@@ -1207,6 +1213,10 @@ if (
                 // clear cart
                 AppUtils.clearCart();
                 AppUtils.removeStorage("appliedCoupon");
+
+                // The recovery is spent on the order that just used it. Left
+                // in place it would go on to claim the next order too.
+                AppUtils.clearRecoveryRef();
 
                 // update ui
                 if (

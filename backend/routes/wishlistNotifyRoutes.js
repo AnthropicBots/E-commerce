@@ -30,13 +30,16 @@ router.get("/preferences", authMiddleware, async (req, res) => {
 
 /**
  * PUT /api/wishlist-notify/preferences
- * Body: { priceDropEmail?, priceDropInApp?, unsubscribedAll? }
+ * Body: { priceDropEmail?, priceDropInApp?, cartRecoveryEmail?,
+ *         cartRecoveryInApp?, unsubscribedAll? }
  */
 router.put("/preferences", authMiddleware, async (req, res) => {
     try {
         const preferences = await wishlistNotifyService.updatePreferences(req.user.id, {
             priceDropEmail: req.body?.priceDropEmail,
             priceDropInApp: req.body?.priceDropInApp,
+            cartRecoveryEmail: req.body?.cartRecoveryEmail,
+            cartRecoveryInApp: req.body?.cartRecoveryInApp,
             unsubscribedAll: req.body?.unsubscribedAll
         });
         return res.status(200).json({
