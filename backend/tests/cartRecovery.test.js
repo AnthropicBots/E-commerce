@@ -183,6 +183,35 @@ describe('a due basket', () => {
         );
     });
 
+    test('carries a restore link, minted for this basket', async () => {
+        mockSweep([candidate()]);
+
+        await cartRecovery.runRecoverySweep();
+
+        const [, payload] = notificationBroker.publish.mock.calls[0];
+
+        expect(payload.restoreUrl).toMatch(/cart\.html\?restore=[0-9a-f]{64}$/);
+
+        const [, params] = db.query.mock.calls
+            .find(([sql]) => /INSERT INTO cart_restore_tokens/i.test(sql));
+
+        // Bound to the basket at issue, and stored as a hash.
+        expect(params).toContain(CART);
+        expect(params[1]).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    test('the message body points at the link rather than describing it', () => {
+        const { text } = cartRecovery.buildRecoveryMessage({
+            userName: 'Sam',
+            items: [{ name: 'Tee', quantity: 1 }],
+            lineCount: 1,
+            restoreUrl: 'https://shop.example/cart.html?restore=abc',
+            preferencesUrl: 'https://shop.example/dashboard.html'
+        });
+
+        expect(text).toContain('https://shop.example/cart.html?restore=abc');
+    });
+
     test('claims its dedupe key before the message leaves', async () => {
         mockSweep([candidate()]);
 
