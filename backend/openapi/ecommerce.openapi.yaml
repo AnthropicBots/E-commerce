@@ -851,6 +851,34 @@ components:
           nullable: true
         currency:
           type: string
+        shippingMethod:
+          description: The delivery option the charge was computed for.
+          nullable: true
+          type: object
+          properties:
+            code:
+              type: string
+            label:
+              type: string
+
+    ShippingOption:
+      type: object
+      required: [code, label, cost]
+      properties:
+        code:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+          nullable: true
+        cost:
+          description: Server-computed charge for this option on this basket.
+          type: number
+        isDefault:
+          type: boolean
+        isSelected:
+          type: boolean
 
     CheckoutQuoteRequest:
       type: object
@@ -861,6 +889,10 @@ components:
             $ref: "#/components/schemas/CartLineInput"
         promoCode:
           type: string
+        shippingMethod:
+          description: Code naming a delivery option. Omitted, the default applies.
+          type: string
+          nullable: true
 
     CheckoutQuoteSuccess:
       type: object
@@ -871,6 +903,10 @@ components:
           const: true
         breakdown:
           $ref: "#/components/schemas/PriceBreakdown"
+        shippingOptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShippingOption"
         promoMessage:
           type: string
           nullable: true
@@ -946,6 +982,10 @@ components:
         paymentMethod:
           type: string
           enum: [cod, card, upi, paypal]
+        shippingMethod:
+          description: Code naming a delivery option. Omitted, the default applies.
+          type: string
+          nullable: true
         promoCode:
           type: string
         idempotencyKey:

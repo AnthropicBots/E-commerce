@@ -4,6 +4,7 @@ const db = require('../config/db');
 const { resolveOrderLines } = require('../services/order.service');
 const { validatePromo } = require('../services/promo.service');
 const pricing = require('../services/pricing.service');
+const shipping = require('../services/shipping.service');
 const { safeArray, sanitizeString } = require('../utils/helpers');
 const authMiddleware = require('../middleware/authMiddleware');
 const powChallengeService = require('../services/powChallengeService');
@@ -12,9 +13,11 @@ const powChallengeService = require('../services/powChallengeService');
 // resolves prices under lock, enforces stock and consumes inventory holds.
 router.post('/quote', async (req, res) => {
     try {
-        const { items, promoCode } = req.body;
+        const { items, promoCode, shippingMethod } = req.body;
         const requestedItems = safeArray(items);
 
+        // Nothing to price and nothing to deliver, so no options are offered
+        // either: on an empty basket every one of them would read as free.
         if (!requestedItems.length) {
             return res.status(200).json({
                 success: true,
@@ -45,15 +48,29 @@ router.post('/quote', async (req, res) => {
             }
         }
 
+        // Every option is priced alongside the chosen one, so the shopper can
+        // compare them without the browser doing any arithmetic and without a
+        // second round trip per option.
+        const { subtotal } = pricing.priceLineItems(lines);
+        const discount = pricing.applyDiscount(promo, subtotal);
+
+        const delivery = await shipping.quoteOptions({
+            postDiscountSubtotal: subtotal - discount.amount,
+            isShippingWaived: discount.isShippingWaived,
+            selectedCode: shippingMethod
+        });
+
         const breakdown = pricing.quote({
             items: lines,
             promo,
-            promoCode: promo ? promo.code : null
+            promoCode: promo ? promo.code : null,
+            shippingMethod: delivery.selected
         });
 
         return res.status(200).json({
             success: true,
             breakdown,
+            shippingOptions: delivery.options,
             promoMessage
         });
     } catch (error) {
