@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const RefundRequest = require("../models/RefundRequest");
+const stockCounter = require("../services/stockCounterService");
 const {
     safeArray,
     safeInteger,
@@ -264,8 +265,9 @@ const approveRequest = async (req, res) => {
             });
         }
 
-        // The order item may reference a variant; restock both the base
-        // product and the specific variant so inventory stays consistent.
+        // Credit the counter the sale drew down. The order item records which
+        // variant was bought; an item placed before that was recorded has none,
+        // and the return can only be credited to the product total.
         let variantId = null;
 
         if (request.orderItemId) {
@@ -277,19 +279,11 @@ const approveRequest = async (req, res) => {
             variantId = safeArray(items)[0]?.variant_id ?? null;
         }
 
-        if (request.productId) {
-            await connection.query(
-                "UPDATE products SET stock = stock + ? WHERE id = ?",
-                [request.quantity, request.productId]
-            );
-        }
-
-        if (variantId) {
-            await connection.query(
-                "UPDATE product_variants SET stock = stock + ? WHERE id = ?",
-                [request.quantity, variantId]
-            );
-        }
+        await stockCounter.restoreStock(connection, {
+            productId: request.productId,
+            variantId,
+            quantity: request.quantity
+        });
 
         await RefundRequest.updateStatus(
             requestId,
