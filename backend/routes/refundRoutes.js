@@ -1,4 +1,4 @@
-// backend/routes/refundRoutes.js
+// backend/routes/refundRoutes.js — RMA FSM (#1389)
 const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
@@ -7,18 +7,22 @@ const refundController = require("../controllers/refundController");
 
 // ==================== CUSTOMER ROUTES ====================
 
-// Submit a return/refund request for a delivered order item
+router.get("/reason-codes", authMiddleware, refundController.getReasonCodes);
+
 router.post("/request", authMiddleware, refundController.createRequest);
 
-// List the authenticated user's own return requests
 router.get("/mine", authMiddleware, refundController.listMyRequests);
+
+router.get("/mine/:id", authMiddleware, refundController.getMyRequest);
+
+router.post("/:id/in-transit", authMiddleware, refundController.markInTransit);
+
+router.post("/:id/cancel", authMiddleware, refundController.cancelMyRequest);
 
 // ==================== ADMIN ROUTES ====================
 
-// List all return requests (optionally filtered by ?status=)
 router.get("/", authMiddleware, authorizeRoles("admin"), refundController.listAll);
 
-// Approve a request and restock inventory
 router.post(
     "/:id/approve",
     authMiddleware,
@@ -26,12 +30,25 @@ router.post(
     refundController.approveRequest
 );
 
-// Reject a request
 router.post(
     "/:id/reject",
     authMiddleware,
     authorizeRoles("admin"),
     refundController.rejectRequest
+);
+
+router.post(
+    "/:id/received",
+    authMiddleware,
+    authorizeRoles("admin"),
+    refundController.markReceived
+);
+
+router.post(
+    "/:id/refunded",
+    authMiddleware,
+    authorizeRoles("admin"),
+    refundController.markRefunded
 );
 
 module.exports = router;

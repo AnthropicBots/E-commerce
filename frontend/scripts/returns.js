@@ -67,8 +67,22 @@
                 <label for="return-qty" style="display:block; margin-bottom:6px; font-size:0.85rem;">Quantity</label>
                 <input id="return-qty" type="number" min="1" value="1" style="width:100%; padding:8px; margin-bottom:12px; border:1px solid #ddd; border-radius:4px;">
 
-                <label for="return-reason" style="display:block; margin-bottom:6px; font-size:0.85rem;">Reason</label>
-                <textarea id="return-reason" rows="3" placeholder="Tell us why you're returning this item" style="width:100%; padding:8px; margin-bottom:16px; border:1px solid #ddd; border-radius:4px; resize:vertical;"></textarea>
+                <label for="return-reason-code" style="display:block; margin-bottom:6px; font-size:0.85rem;">Reason code</label>
+                <select id="return-reason-code" style="width:100%; padding:8px; margin-bottom:12px; border:1px solid #ddd; border-radius:4px;">
+                    <option value="defective">Defective</option>
+                    <option value="wrong_item">Wrong item</option>
+                    <option value="not_as_described">Not as described</option>
+                    <option value="size_fit">Size / fit</option>
+                    <option value="changed_mind">Changed mind</option>
+                    <option value="damaged_in_shipping">Damaged in shipping</option>
+                    <option value="other" selected>Other</option>
+                </select>
+
+                <label for="return-reason" style="display:block; margin-bottom:6px; font-size:0.85rem;">Details</label>
+                <textarea id="return-reason" rows="3" placeholder="Tell us why you're returning this item" style="width:100%; padding:8px; margin-bottom:12px; border:1px solid #ddd; border-radius:4px; resize:vertical;"></textarea>
+
+                <label for="return-photo" style="display:block; margin-bottom:6px; font-size:0.85rem;">Photo evidence URL (optional)</label>
+                <input id="return-photo" type="url" placeholder="https://…" style="width:100%; padding:8px; margin-bottom:16px; border:1px solid #ddd; border-radius:4px;">
 
                 <div style="display:flex; justify-content:flex-end; gap:8px;">
                     <button type="button" id="return-cancel" class="btn btn-sm" style="padding:8px 14px; border:1px solid #ccc; background:transparent; border-radius:4px; cursor:pointer;">Cancel</button>
@@ -127,6 +141,14 @@
             1
         );
         const reason = (overlay.querySelector("#return-reason").value || "").trim();
+        const reasonCode =
+            (overlay.querySelector("#return-reason-code") &&
+                overlay.querySelector("#return-reason-code").value) ||
+            "other";
+        const photoEvidenceUrl =
+            (overlay.querySelector("#return-photo") &&
+                overlay.querySelector("#return-photo").value.trim()) ||
+            null;
 
         if (!orderItemId) {
             AppUtils.notify("Please select an item to return", "error");
@@ -151,13 +173,23 @@
                     orderId,
                     orderItemId,
                     quantity,
-                    reason
+                    reason,
+                    reasonCode,
+                    photoEvidenceUrl
                 })
             });
 
             if (response.success) {
-                AppUtils.notify("Return request submitted", "success");
+                AppUtils.notify(
+                    response.data && response.data.rma_number
+                        ? `Return request submitted (${response.data.rma_number})`
+                        : "Return request submitted",
+                    "success"
+                );
                 closeModal();
+                if (typeof window.renderDashboardOrders === "function") {
+                    window.renderDashboardOrders();
+                }
             } else {
                 AppUtils.notify(
                     response.message || "Failed to submit return request",
