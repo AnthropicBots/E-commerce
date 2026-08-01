@@ -55,6 +55,13 @@ const CONFIG = {
     CURRENCY:
         CURRENCY_INFO.SYMBOL,
 
+    // Feature flags (#1390) — hydrated at runtime via /api/flags/bootstrap
+    // Object is mutable (CONFIG freeze is shallow) so bootstrap can fill keys.
+    FLAGS: {
+        new_checkout: false,
+        ai_widgets: false
+    },
+
     // pricing rules (single source of truth for cart math)
     PRICING: {
         TAX_RATE: 0.18,

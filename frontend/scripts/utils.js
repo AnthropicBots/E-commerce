@@ -669,9 +669,79 @@ const initCurrencySelector = () => {
     }
 };
 
+// ==================== FEATURE FLAGS (#1390) ====================
+
+const applyFeatureFlags = (flags = {}) => {
+    if (!CONFIG.FLAGS || typeof CONFIG.FLAGS !== "object") {
+        CONFIG.FLAGS = {};
+    }
+    Object.keys(flags || {}).forEach((key) => {
+        CONFIG.FLAGS[key] = Boolean(flags[key]);
+    });
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(
+            new CustomEvent("featureFlagsUpdated", {
+                detail: { flags: { ...CONFIG.FLAGS } }
+            })
+        );
+    }
+    return CONFIG.FLAGS;
+};
+
+const bootstrapFeatureFlags = async () => {
+    try {
+        const user = typeof getUser === "function" ? getUser() : null;
+        const qs =
+            user && user.id
+                ? `?userId=${encodeURIComponent(user.id)}`
+                : "";
+        const response = await apiRequest(`/flags/bootstrap${qs}`, {
+            method: "GET"
+        });
+        if (response && response.success && response.flags) {
+            return applyFeatureFlags(response.flags);
+        }
+    } catch (error) {
+        console.warn(
+            "Feature flag bootstrap failed:",
+            error.message || error
+        );
+    }
+    return CONFIG.FLAGS || {};
+};
+
+const isFeatureEnabled = (flagKey, defaultValue = false) => {
+    if (!flagKey || !CONFIG.FLAGS) return Boolean(defaultValue);
+    if (Object.prototype.hasOwnProperty.call(CONFIG.FLAGS, flagKey)) {
+        return Boolean(CONFIG.FLAGS[flagKey]);
+    }
+    return Boolean(defaultValue);
+};
+
+const whenFeatureEnabled = (flagKey, fn, fallback = undefined) => {
+    if (!isFeatureEnabled(flagKey)) {
+        return typeof fallback === "function" ? fallback() : fallback;
+    }
+    return typeof fn === "function" ? fn() : fn;
+};
+
+const applyFeatureFlagDom = (root = document) => {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll("[data-feature-flag]").forEach((el) => {
+        const key = el.getAttribute("data-feature-flag");
+        const enabled = isFeatureEnabled(key, false);
+        el.hidden = !enabled;
+        el.style.display = enabled ? "" : "none";
+    });
+};
+
 if (typeof window !== "undefined") {
     window.addEventListener("DOMContentLoaded", initCurrencySelector);
     window.addEventListener("componentsLoaded", initCurrencySelector);
+    window.addEventListener("DOMContentLoaded", () => {
+        bootstrapFeatureFlags().then(() => applyFeatureFlagDom());
+    });
+    window.addEventListener("featureFlagsUpdated", () => applyFeatureFlagDom());
 }
 
 // image fallback constants & handlers
@@ -2009,6 +2079,11 @@ window.AppUtils = {
     getCurrencyInfo,
     setSelectedCurrency,
     initCurrencySelector,
+    bootstrapFeatureFlags,
+    applyFeatureFlags,
+    isFeatureEnabled,
+    whenFeatureEnabled,
+    applyFeatureFlagDom,
     defaultImage,
     safeArray,
     safeNumber,

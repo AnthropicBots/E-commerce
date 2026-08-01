@@ -1,4 +1,6 @@
--- Feature Flags (#1390) — see migrations/0029_feature_flags.sql for the applied schema.
+-- Feature flags with percentage rollouts, allowlists, kill switches (#1390)
+-- Folded from backend/sql/feature_flags.sql
+
 CREATE TABLE IF NOT EXISTS feature_flags (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     flag_id VARCHAR(100) NOT NULL,
@@ -17,6 +19,7 @@ CREATE TABLE IF NOT EXISTS feature_flags (
     kill_switch TINYINT(1) NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
+
     UNIQUE KEY uq_feature_flags_flag_id (flag_id),
     UNIQUE KEY uq_feature_flags_key (flag_key),
     INDEX idx_feature_flags_type (type),
@@ -30,6 +33,7 @@ CREATE TABLE IF NOT EXISTS feature_flag_evaluations (
     context_json JSON NULL,
     result_json JSON NULL,
     evaluated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+
     INDEX idx_ff_eval_flag (flag_key),
     INDEX idx_ff_eval_user (user_id),
     INDEX idx_ff_eval_at (evaluated_at)
@@ -43,6 +47,7 @@ CREATE TABLE IF NOT EXISTS feature_flag_audit (
     actor_email VARCHAR(255) NULL,
     meta_json JSON NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
     INDEX idx_ff_audit_flag (flag_key),
     INDEX idx_ff_audit_action (action),
     INDEX idx_ff_audit_created (created_at)
