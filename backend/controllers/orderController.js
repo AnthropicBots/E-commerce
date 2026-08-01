@@ -12,6 +12,7 @@ const paymentService = require("../services/payment.service");
 const CURRENCY = require("../config/currency");
 const { generateInvoicePdf } = require("../services/invoice.service");
 const inventoryReservationService = require("../services/inventoryReservationService");
+const { releaseInventoryLocksOnChaosFail } = require("../services/chaosProxy");
 
 const {
     safeNumber,
@@ -777,7 +778,17 @@ const createPaymentIntent = async (req, res) => {
         const paymentIntentResult = await paymentService.createPaymentIntent(chargeableTotal, CURRENCY.code, { orderId: result.orderId, userId: req.user.id });
         if (!paymentIntentResult.success) {
             await connection.rollback();
-            return res.status(500).json({ success: false, message: paymentIntentResult.error });
+            // Chaos / payment blips must not leave stock reserved (#1398)
+            await releaseInventoryLocksOnChaosFail(
+                req.user.id,
+                (uid) => inventoryReservationService.releaseUserLocks(uid)
+            );
+            return res.status(503).json({
+                success: false,
+                message: paymentIntentResult.error || "Payment service temporarily unavailable",
+                errorCode: paymentIntentResult.errorCode || "PAYMENT_ERROR",
+                retryable: paymentIntentResult.retryable !== false
+            });
         }
 
         await connection.query("UPDATE orders SET payment_intent_id = ? WHERE id = ?", [paymentIntentResult.paymentIntentId, result.orderId]);

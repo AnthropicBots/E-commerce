@@ -37,7 +37,12 @@ const ENV_CONFIG = {
         { name: 'CORS_ORIGINS', type: 'string', default: '*' },
         { name: 'RATE_LIMIT_WINDOW', type: 'number', default: 60000 },
         { name: 'RATE_LIMIT_MAX', type: 'number', default: 100 },
-        { name: 'SESSION_SECRET', type: 'string', default: '' }
+        { name: 'SESSION_SECRET', type: 'string', default: '' },
+        // Chaos harness (#1398) — NEVER enable in production
+        { name: 'CHAOS_ENABLED', type: 'boolean', default: false },
+        { name: 'CHAOS_PAYMENT', type: 'string', default: 'off' },
+        { name: 'CHAOS_REDIS', type: 'string', default: 'off' },
+        { name: 'CHAOS_MYSQL', type: 'string', default: 'off' }
     ]
 };
 
@@ -144,6 +149,17 @@ function validateEnv() {
                 });
             }
         }
+    }
+
+    // Hard safety: chaos harness must never run in production (#1398)
+    if (
+        process.env.NODE_ENV === 'production'
+        && String(process.env.CHAOS_ENABLED || '').toLowerCase() === 'true'
+    ) {
+        errors.push({
+            name: 'CHAOS_ENABLED',
+            message: 'CHAOS_ENABLED=true is forbidden when NODE_ENV=production'
+        });
     }
 
     // Validate optional variables
