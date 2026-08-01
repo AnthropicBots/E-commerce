@@ -287,6 +287,64 @@
 
                 </h2>
 
+                <section
+                    class="price-drop-preferences"
+                    id="price-drop-preferences"
+                    aria-labelledby="price-drop-pref-heading"
+                >
+                    <h3 id="price-drop-pref-heading">
+                        Price-drop alerts
+                    </h3>
+                    <p class="price-drop-pref-help">
+                        Get notified when wishlisted items get cheaper. You can unsubscribe anytime from email links.
+                    </p>
+                    <div class="price-drop-pref-controls">
+                        <label>
+                            <input
+                                type="checkbox"
+                                id="pref-price-drop-email"
+                            >
+                            Email alerts
+                        </label>
+                        <label>
+                            <input
+                                type="checkbox"
+                                id="pref-price-drop-in-app"
+                            >
+                            In-app alerts
+                        </label>
+                        <label>
+                            <input
+                                type="checkbox"
+                                id="pref-price-drop-unsub-all"
+                            >
+                            Pause all price-drop notifications
+                        </label>
+                    </div>
+                    <div class="price-drop-pref-actions">
+                        <button
+                            type="button"
+                            id="save-price-drop-prefs"
+                            class="normal"
+                        >
+                            Save preferences
+                        </button>
+                        <button
+                            type="button"
+                            id="sync-price-drop-baselines"
+                            class="normal"
+                        >
+                            Sync wishlist baselines
+                        </button>
+                    </div>
+                    <p
+                        id="price-drop-pref-status"
+                        class="price-drop-pref-status"
+                        role="status"
+                        aria-live="polite"
+                    ></p>
+                </section>
+
                 <div id="wishlist-items"></div>
 
             </div>
