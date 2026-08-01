@@ -12,7 +12,13 @@ const {
     applyDiscount,
     calculateTax,
     calculateShipping,
-    quote
+    quote,
+    getRulesDocument,
+    createSignedQuote,
+    verifySignedQuote,
+    fingerprintItems,
+    QUOTE_EXPIRED_CODE,
+    QUOTE_MISMATCH_CODE
 } = require("../services/pricing.service");
 
 // Every breakdown must satisfy this, whatever the inputs.
@@ -291,5 +297,113 @@ describe("quote", () => {
 
     it("tolerates being called with nothing at all", () => {
         expect(quote().total).toBe(0);
+    });
+});
+
+describe("tax and shipping edge cases (#1386)", () => {
+    it("taxes the post-discount base, not the raw subtotal", () => {
+        const breakdown = quote({
+            items: [{ id: "a", price: 1000, qty: 1 }],
+            promo: percentagePromo(10)
+        });
+        // 10% off → 900 taxable → 18% of 900 = 162; still below free-ship threshold
+        expect(breakdown.taxableBase).toBe(900);
+        expect(breakdown.tax).toBe(162);
+        expect(breakdown.shipping).toBe(PRICING_CONFIG.SHIPPING_FLAT_RATE);
+        expectReconciles(breakdown);
+    });
+
+    it("charges flat shipping just below the free-shipping threshold", () => {
+        const breakdown = quote({
+            items: [{ id: "a", price: 998, qty: 1 }]
+        });
+        expect(breakdown.shipping).toBe(PRICING_CONFIG.SHIPPING_FLAT_RATE);
+        expect(breakdown.tax).toBe(roundMoney(998 * PRICING_CONFIG.TAX_RATE));
+        expectReconciles(breakdown);
+    });
+
+    it("waives shipping at exactly the free-shipping threshold", () => {
+        const breakdown = quote({
+            items: [{ id: "a", price: 999, qty: 1 }]
+        });
+        expect(breakdown.shipping).toBe(0);
+        expectReconciles(breakdown);
+    });
+
+    it("never ships an empty basket", () => {
+        expect(calculateShipping(0)).toBe(0);
+        expect(calculateTax(0)).toBe(0);
+    });
+});
+
+describe("signed pricing quotes (#1386)", () => {
+    it("exposes a versioned rules document", () => {
+        const rules = getRulesDocument();
+        expect(rules.version).toBe(PRICING_CONFIG.VERSION);
+        expect(rules.authoritative).toBe(true);
+        expect(rules.taxRate).toBe(PRICING_CONFIG.TAX_RATE);
+        expect(rules.applicationOrder).toEqual(["discount", "tax", "shipping"]);
+    });
+
+    it("mints a signed quote with TTL and verifies it", () => {
+        const items = [{ id: "p1", price: 100, qty: 2 }];
+        const breakdown = quote({ items });
+        const signed = createSignedQuote(breakdown, { items });
+
+        expect(signed.quoteId).toBeTruthy();
+        expect(signed.quoteToken).toContain(".");
+        expect(signed.pricingVersion).toBe(PRICING_CONFIG.VERSION);
+
+        const payload = verifySignedQuote(signed.quoteToken, {
+            quoteId: signed.quoteId,
+            items,
+            expectedTotal: signed.total
+        });
+        expect(payload.total).toBe(signed.total);
+        expect(payload.itemFingerprint).toBe(fingerprintItems(items));
+    });
+
+    it("rejects expired quotes", () => {
+        const items = [{ id: "p1", price: 50, qty: 1 }];
+        const signed = createSignedQuote(quote({ items }), { items, ttlSec: 60 });
+        const [body, sig] = signed.quoteToken.split(".");
+        const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+        payload.expiresAt = new Date(Date.now() - 1000).toISOString();
+        const expiredBody = Buffer.from(JSON.stringify(payload)).toString("base64url");
+        // Re-sign with same secret by calling through create — forge using crypto
+        const crypto = require("crypto");
+        const secret =
+            process.env.PRICING_QUOTE_SECRET ||
+            process.env.JWT_SECRET ||
+            "pricing-quote-dev-secret";
+        const forgedSig = crypto
+            .createHmac("sha256", secret)
+            .update(expiredBody)
+            .digest("base64url");
+        const expiredToken = `${expiredBody}.${forgedSig}`;
+
+        expect(() => verifySignedQuote(expiredToken)).toThrow();
+        try {
+            verifySignedQuote(expiredToken);
+        } catch (err) {
+            expect(err.code).toBe(QUOTE_EXPIRED_CODE);
+        }
+    });
+
+    it("rejects cart fingerprint mismatch", () => {
+        const items = [{ id: "p1", price: 50, qty: 1 }];
+        const signed = createSignedQuote(quote({ items }), { items });
+        expect(() =>
+            verifySignedQuote(signed.quoteToken, {
+                items: [{ id: "p1", price: 50, qty: 2 }]
+            })
+        ).toThrow();
+        try {
+            verifySignedQuote(signed.quoteToken, {
+                items: [{ id: "p1", price: 50, qty: 2 }]
+            });
+        } catch (err) {
+            expect(err.code).toBe(QUOTE_MISMATCH_CODE);
+        }
     });
 });

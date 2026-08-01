@@ -34,10 +34,16 @@ async function quoteCheckout(req, res) {
         }
 
         if (!requestedItems.length) {
-            const empty = pricing.quote({ items: [] });
+            const empty = pricing.createSignedQuote(pricing.quote({ items: [] }), {
+                items: []
+            });
             return res.status(200).json({
                 success: true,
                 breakdown: empty,
+                quoteId: empty.quoteId,
+                quoteToken: empty.quoteToken,
+                quote: empty.quote,
+                pricingVersion: empty.pricingVersion,
                 displayCurrency,
                 fxLock: null
             });
@@ -68,6 +74,10 @@ async function quoteCheckout(req, res) {
             promoCode: promo ? promo.code : null
         });
 
+        const signed = pricing.createSignedQuote(breakdown, {
+            items: requestedItems.length ? requestedItems : lines
+        });
+
         let fxLock = null;
         const shouldLock =
             lockFx !== false &&
@@ -77,7 +87,8 @@ async function quoteCheckout(req, res) {
         if (shouldLock || lockFx === true) {
             const locked = await fxLockService.createFxLock({
                 displayCurrency: displayCurrency || CURRENCY.code,
-                baseTotal: breakdown.total
+                baseTotal: signed.total,
+                quoteId: signed.quoteId
             });
             fxLock = locked.lock;
             fxLock.token = locked.token;
@@ -88,7 +99,11 @@ async function quoteCheckout(req, res) {
 
         return res.status(200).json({
             success: true,
-            breakdown,
+            breakdown: signed,
+            quoteId: signed.quoteId,
+            quoteToken: signed.quoteToken,
+            quote: signed.quote,
+            pricingVersion: signed.pricingVersion,
             promoMessage,
             displayCurrency,
             currency: meta,
@@ -97,7 +112,7 @@ async function quoteCheckout(req, res) {
                 displayCurrency,
                 rate,
                 displayTotal: fxLockService.toDisplayAmount(
-                    breakdown.total,
+                    signed.total,
                     rate,
                     displayCurrency
                 )

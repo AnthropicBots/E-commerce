@@ -740,6 +740,18 @@ if (typeof window !== "undefined") {
     window.addEventListener("componentsLoaded", initCurrencySelector);
     window.addEventListener("DOMContentLoaded", () => {
         bootstrapFeatureFlags().then(() => applyFeatureFlagDom());
+        // Sync display pricing hints from canonical rules (#1386)
+        apiRequest("/pricing/rules", { method: "GET" })
+            .then((res) => {
+                if (res && res.success && res.rules && CONFIG.PRICING) {
+                    CONFIG.PRICING.VERSION = res.rules.version;
+                    CONFIG.PRICING.TAX_RATE = res.rules.taxRate;
+                    CONFIG.PRICING.SHIPPING_FEE = res.rules.shippingFlatRate;
+                    CONFIG.PRICING.FREE_SHIPPING_THRESHOLD =
+                        res.rules.freeShippingThreshold;
+                }
+            })
+            .catch(() => {});
     });
     window.addEventListener("featureFlagsUpdated", () => applyFeatureFlagDom());
 }
@@ -2052,12 +2064,12 @@ const fetchCartQuote = async (
     const displayCurrency = getSelectedCurrency();
 
     try {
-        const response = await apiRequest("/checkout/quote", {
+        // Canonical price engine (#1386) — /pricing/quote is authoritative
+        const response = await apiRequest("/pricing/quote", {
             method: "POST",
             body: JSON.stringify({
                 items,
                 promoCode: couponCode || null,
-                // Mid-session FX lock (#1392): lock display rate with the quote
                 currency: displayCurrency,
                 lockFx: true
             })
@@ -2069,13 +2081,26 @@ const fetchCartQuote = async (
             );
         }
 
+        // Sync display hints from the signed quote's pricing version
+        if (response.pricingVersion && CONFIG.PRICING) {
+            CONFIG.PRICING.VERSION = response.pricingVersion;
+        }
+
         return {
             ...response.breakdown,
             promoMessage: response.promoMessage || null,
             isServerQuote: true,
             displayCurrency: response.displayCurrency || displayCurrency,
             fx: response.fx || null,
-            fxLock: response.fxLock || null
+            fxLock: response.fxLock || null,
+            quoteId: response.quoteId || response.breakdown.quoteId || null,
+            quoteToken:
+                response.quoteToken ||
+                response.breakdown.quoteToken ||
+                (response.quote && response.quote.token) ||
+                null,
+            quote: response.quote || response.breakdown.quote || null,
+            pricingVersion: response.pricingVersion || null
         };
     } catch (error) {
         console.error("CART QUOTE ERROR:", error);
@@ -2087,7 +2112,11 @@ const fetchCartQuote = async (
             isServerQuote: false,
             displayCurrency,
             fx: null,
-            fxLock: null
+            fxLock: null,
+            quoteId: null,
+            quoteToken: null,
+            quote: null,
+            pricingVersion: null
         };
     }
 };

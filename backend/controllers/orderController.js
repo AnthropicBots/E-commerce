@@ -95,7 +95,10 @@ const createOrder =
                 addressId,
                 // Mid-session FX lock (#1392)
                 fxLockToken,
-                currency: displayCurrency
+                currency: displayCurrency,
+                // Canonical signed quote (#1386)
+                quoteId,
+                quoteToken
             } = req.body;
 
             // Resolve a saved address into the same flat shape the manual form
@@ -207,6 +210,33 @@ const createOrder =
                         message:
                             "Invalid payment method"
                     });
+            }
+
+            // Canonical price engine quote (#1386) — reject expired / mismatched
+            const pricing = require("../services/pricing.service");
+            try {
+                const token = sanitizeString(quoteToken || "");
+                if (!token) {
+                    return res.status(409).json({
+                        success: false,
+                        code: pricing.QUOTE_MISSING_CODE,
+                        message:
+                            "A signed pricing quote is required. Refresh the checkout summary and try again."
+                    });
+                }
+                pricing.verifySignedQuote(token, {
+                    quoteId: quoteId ? sanitizeString(quoteId) : null,
+                    items,
+                    expectedTotal: total
+                });
+            } catch (quoteErr) {
+                return res.status(quoteErr.status || 409).json({
+                    success: false,
+                    code: quoteErr.code || "PRICING_QUOTE_INVALID",
+                    message: quoteErr.message,
+                    submittedTotal: quoteErr.submittedTotal,
+                    computedTotal: quoteErr.computedTotal
+                });
             }
 
             // Mid-session FX lock (#1392): reject expired / missing locks before charge
@@ -805,7 +835,9 @@ const createPaymentIntent = async (req, res) => {
             total,
             promoCode,
             fxLockToken,
-            currency: displayCurrency
+            currency: displayCurrency,
+            quoteId,
+            quoteToken
         } = req.body;
 
         if (!customer || !customer.name || !customer.email) {
@@ -820,6 +852,32 @@ const createPaymentIntent = async (req, res) => {
         // Shape check only; the charged amount comes from the order service.
         if (safeNumber(total) <= 0) {
             return res.status(400).json({ success: false, message: "Invalid order total" });
+        }
+
+        const pricing = require("../services/pricing.service");
+        try {
+            const token = sanitizeString(quoteToken || "");
+            if (!token) {
+                return res.status(409).json({
+                    success: false,
+                    code: pricing.QUOTE_MISSING_CODE,
+                    message:
+                        "A signed pricing quote is required. Refresh the checkout summary and try again."
+                });
+            }
+            pricing.verifySignedQuote(token, {
+                quoteId: quoteId ? sanitizeString(quoteId) : null,
+                items,
+                expectedTotal: total
+            });
+        } catch (quoteErr) {
+            return res.status(quoteErr.status || 409).json({
+                success: false,
+                code: quoteErr.code || "PRICING_QUOTE_INVALID",
+                message: quoteErr.message,
+                submittedTotal: quoteErr.submittedTotal,
+                computedTotal: quoteErr.computedTotal
+            });
         }
 
         let fxContext = { required: false, lock: null, token: null };

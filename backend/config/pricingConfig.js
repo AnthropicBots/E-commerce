@@ -8,6 +8,9 @@
 // discounted subtotal, the checkout route subtracted the discount after tax).
 // Making it data means a change of policy is a change of this file, and the
 // tests that pin the ordering fail loudly if the engine stops honouring it.
+//
+// #1386 — VERSION is the canonical rules document stamp carried on every
+// signed checkout quote. Bump it when TAX_RATE / shipping / ordering changes.
 
 const CURRENCY = require("./currency");
 
@@ -27,6 +30,15 @@ const ROUNDING = Object.freeze({
     MODE: "half-up",
 });
 
+/** Bump when any chargeable rule below changes (#1386). */
+const PRICING_VERSION =
+    process.env.PRICING_VERSION || "2026.08.1";
+
+const QUOTE_TTL_SEC = Math.max(
+    60,
+    parseInt(process.env.PRICING_QUOTE_TTL_SEC, 10) || 15 * 60
+);
+
 const PRICING_CONFIG = Object.freeze({
     // Re-exported so a breakdown carries the currency it was priced in and
     // consumers need only one import.
@@ -34,6 +46,9 @@ const PRICING_CONFIG = Object.freeze({
     APPLICATION_ORDER,
     DISCOUNT_TYPES,
     ROUNDING,
+
+    VERSION: PRICING_VERSION,
+    QUOTE_TTL_SEC,
 
     TAX_RATE: 0.18,
     SHIPPING_FLAT_RATE: 49,

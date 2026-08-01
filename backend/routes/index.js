@@ -17,6 +17,7 @@ const courierWebhookRoutes = require("./courierWebhookRoutes");
 const refundRoutes = require("./refundRoutes");
 const addressRoutes = require("./addressRoutes");
 const wishlistNotifyRoutes = require("./wishlistNotifyRoutes");
+const pricingRoutes = require("./pricingRoutes");
 
 router.use("/products", productRoutes);
 router.use("/auth", authRoutes);
@@ -29,6 +30,7 @@ router.use("/wishlist-notify", wishlistNotifyRoutes);
 router.use("/recommendations", recommendationRoutes);
 router.use("/cart", cartRoutes);
 router.use("/checkout", checkoutRoutes);
+router.use("/pricing", pricingRoutes);
 router.use("/pincode", pincodeRoutes);
 router.use("/subscriptions", subscriptionRoutes);
 router.use("/courier-webhooks", courierWebhookRoutes);

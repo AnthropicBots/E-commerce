@@ -11,6 +11,9 @@ const appliedCoupon =
 // Mid-session FX lock (#1392) — token from last quote; cleared on currency switch
 let activeFxLock = null;
 
+// Canonical signed pricing quote (#1386) — checkout submits quote id/token only
+let activePricingQuote = null;
+
 // require authentication
 const currentUser =
     AppUtils.requireAuth();
@@ -367,6 +370,19 @@ async function refreshSummary() {
     const totals =
         await calculateTotals();
 
+    // Canonical signed quote (#1386) — required for place-order
+    if (totals && totals.quoteToken && totals.isServerQuote) {
+        activePricingQuote = {
+            quoteId: totals.quoteId,
+            quoteToken: totals.quoteToken,
+            total: totals.total,
+            pricingVersion: totals.pricingVersion,
+            expiresAt: totals.quote && totals.quote.expiresAt
+        };
+    } else if (!totals || !totals.isServerQuote) {
+        activePricingQuote = null;
+    }
+
     if (totals && totals.fxLock && totals.fxLock.token) {
         activeFxLock = totals.fxLock;
         // Keep currency switcher conversion aligned with the locked mid-session rate
@@ -676,7 +692,9 @@ async function createOrderPayload() {
                 .toLowerCase(),
 
         total:
-            totals.total,
+            (activePricingQuote && activePricingQuote.total != null)
+                ? activePricingQuote.total
+                : totals.total,
 
         // Without this the backend never sees the coupon the shopper applied
         // and quietly charges them the undiscounted price.
@@ -713,7 +731,14 @@ async function createOrderPayload() {
                 || AppUtils.getSelectedCurrency()),
 
         fxLockToken:
-            (activeFxLock && activeFxLock.token) || null
+            (activeFxLock && activeFxLock.token) || null,
+
+        // Canonical price engine (#1386) — submit quote id/token, not local math
+        quoteId:
+            (activePricingQuote && activePricingQuote.quoteId) || null,
+
+        quoteToken:
+            (activePricingQuote && activePricingQuote.quoteToken) || null
     };
 }
 
@@ -754,6 +779,18 @@ function orderFailure(
                 || response.code === "FX_LOCK_MISSING"
                 || response.code === "FX_LOCK_CURRENCY_MISMATCH"
                 || response.code === "FX_LOCK_TOTAL_MISMATCH"
+            )
+        );
+
+    failure.isPricingQuoteInvalid =
+        Boolean(
+            response
+            &&
+            (
+                response.code === "PRICING_QUOTE_EXPIRED"
+                || response.code === "PRICING_QUOTE_MISMATCH"
+                || response.code === "PRICING_QUOTE_MISSING"
+                || response.code === "PRICING_QUOTE_INVALID"
             )
         );
 
@@ -1102,6 +1139,18 @@ if (
                         "error"
                     );
 
+                } else if (
+                    error.isPricingQuoteInvalid
+                ) {
+
+                    activePricingQuote = null;
+                    await refreshSummary();
+
+                    AppUtils.notify(
+                        `${error.message} The summary has been re-quoted — please review it and try again.`,
+                        "error"
+                    );
+
                 } else {
 
                     AppUtils.notify(
@@ -1134,6 +1183,7 @@ if (
 window.addEventListener("currencyUpdated", () => {
     // Currency switcher sync (#1392): drop stale lock and re-quote
     activeFxLock = null;
+    activePricingQuote = null;
     if (typeof renderCheckout === "function") {
         renderCheckout();
     }

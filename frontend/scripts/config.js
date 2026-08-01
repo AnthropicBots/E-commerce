@@ -75,8 +75,11 @@ const CONFIG = {
         SIZES: "(max-width: 600px) 50vw, (max-width: 1024px) 33vw, 280px"
     },
 
-    // pricing rules (single source of truth for cart math)
+    // Display-only pricing hints (#1386). Chargeable totals MUST come from
+    // /api/pricing/quote (signed). Do not submit locally recomputed totals.
     PRICING: {
+        AUTHORITATIVE: false,
+        VERSION: null,
         TAX_RATE: 0.18,
         SHIPPING_FEE: 49,
         FREE_SHIPPING_THRESHOLD: 999
