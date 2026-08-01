@@ -713,6 +713,117 @@ const getQueryBudgetMetrics = async (req, res) => {
     }
 };
 
+// ==================== EVENT DLQ (#1387) ====================
+
+const listEventDlq = async (req, res) => {
+    try {
+        const { eventDlqService } = require("../services/eventDlqService");
+        const status = req.query.status || "open";
+        const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+        const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+        const data = await eventDlqService.list({ status, limit, offset });
+        return res.status(200).json({
+            success: true,
+            message: "DLQ entries loaded",
+            count: data.length,
+            data
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message || "Failed to list DLQ"
+        });
+    }
+};
+
+const getEventDlqMetrics = async (req, res) => {
+    try {
+        const { eventDlqService } = require("../services/eventDlqService");
+        const metrics = await eventDlqService.getMetrics();
+        return res.status(200).json({
+            success: true,
+            message: "DLQ metrics",
+            data: metrics
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message || "Failed to load DLQ metrics"
+        });
+    }
+};
+
+const replayEventDlq = async (req, res) => {
+    try {
+        const { eventDlqService } = require("../services/eventDlqService");
+        const { outboxService } = require("../services/outboxService");
+        const result = await eventDlqService.replayOne(req.params.id, {
+            outboxService,
+            actorId: req.user?.id || null
+        });
+        return res.status(200).json({
+            success: true,
+            message: "DLQ entry replayed to outbox",
+            data: result
+        });
+    } catch (error) {
+        return res.status(error.status || 500).json({
+            success: false,
+            code: error.code,
+            message: error.message || "Failed to replay DLQ entry"
+        });
+    }
+};
+
+const replayEventDlqBatch = async (req, res) => {
+    try {
+        const { eventDlqService } = require("../services/eventDlqService");
+        const { outboxService } = require("../services/outboxService");
+        const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+        if (!ids.length) {
+            return res.status(400).json({
+                success: false,
+                message: "ids array is required"
+            });
+        }
+        const result = await eventDlqService.replayBatch(ids.slice(0, 100), {
+            outboxService,
+            actorId: req.user?.id || null
+        });
+        return res.status(200).json({
+            success: true,
+            message: "DLQ batch replay finished",
+            data: result
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message || "Failed to replay DLQ batch"
+        });
+    }
+};
+
+const discardEventDlq = async (req, res) => {
+    try {
+        const { eventDlqService } = require("../services/eventDlqService");
+        const result = await eventDlqService.discard(req.params.id, {
+            actorId: req.user?.id || null,
+            reason: req.body?.reason || ""
+        });
+        return res.status(200).json({
+            success: true,
+            message: "DLQ entry discarded",
+            data: result
+        });
+    } catch (error) {
+        return res.status(error.status || 500).json({
+            success: false,
+            code: error.code,
+            message: error.message || "Failed to discard DLQ entry"
+        });
+    }
+};
+
 
 module.exports = {
     getDashboardStats,
@@ -730,5 +841,10 @@ module.exports = {
     startImpersonation,
     revokeImpersonation,
     listImpersonationAudit,
-    getQueryBudgetMetrics
+    getQueryBudgetMetrics,
+    listEventDlq,
+    getEventDlqMetrics,
+    replayEventDlq,
+    replayEventDlqBatch,
+    discardEventDlq
 };

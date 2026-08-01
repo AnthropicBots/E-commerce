@@ -17,7 +17,12 @@ const {
     startImpersonation,
     revokeImpersonation,
     listImpersonationAudit,
-    getQueryBudgetMetrics
+    getQueryBudgetMetrics,
+    listEventDlq,
+    getEventDlqMetrics,
+    replayEventDlq,
+    replayEventDlqBatch,
+    discardEventDlq
 } = require("../controllers/admin.controller");
 
 const authMiddleware = require("../middleware/authMiddleware");
@@ -75,5 +80,12 @@ router.get("/impersonate/audit", listImpersonationAudit);
 
 // SQL query budget / slow-query circuit metrics (#1391)
 router.get("/query-budget", getQueryBudgetMetrics);
+
+// ==================== EVENT DLQ (#1387) ====================
+router.get("/dlq", listEventDlq);
+router.get("/dlq/metrics", getEventDlqMetrics);
+router.post("/dlq/replay-batch", replayEventDlqBatch);
+router.post("/dlq/:id/replay", replayEventDlq);
+router.post("/dlq/:id/discard", discardEventDlq);
 
 module.exports = router;

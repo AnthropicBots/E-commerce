@@ -3,6 +3,11 @@ const db = require('../config/db');
 const { withTransaction } = require('../config/db');
 const crypto = require('crypto');
 const { v5: uuidv5 } = require('uuid');
+const {
+    eventDlqService,
+    nextRetryAt,
+    DLQ_CONFIG
+} = require('./eventDlqService');
 
 // ============================================
 // OUTBOX CONFIGURATION
@@ -12,8 +17,8 @@ const OUTBOX_CONFIG = {
     // Polling configuration
     pollInterval: 5000, // 5 seconds
     batchSize: 100,
-    maxRetries: 5,
-    retryDelay: 30000, // 30 seconds
+    maxRetries: DLQ_CONFIG.maxRetries,
+    retryDelay: DLQ_CONFIG.backoffBaseMs,
 
     // Event retention
     retentionDays: 7,
@@ -452,16 +457,44 @@ class OutboxService {
             // connection for its whole duration, starving every other
             // processor.
             const events = await withTransaction(async (connection) => {
-                const [rows] = await connection.query(
-                    `SELECT * FROM outbox_events 
-                     WHERE status IN (?, ?)
-                     AND attempts < max_attempts
-                     ORDER BY created_at ASC
-                     LIMIT ?
-                     FOR UPDATE SKIP LOCKED`,
-                    [OUTBOX_STATUS.PENDING, OUTBOX_STATUS.RETRY, OUTBOX_CONFIG.batchSize]
-                );
-                return rows;
+                try {
+                    const [rows] = await connection.query(
+                        `SELECT * FROM outbox_events 
+                         WHERE status IN (?, ?)
+                         AND attempts < max_attempts
+                         AND (
+                           status = ?
+                           OR next_retry_at IS NULL
+                           OR next_retry_at <= NOW()
+                         )
+                         ORDER BY created_at ASC
+                         LIMIT ?
+                         FOR UPDATE SKIP LOCKED`,
+                        [
+                            OUTBOX_STATUS.PENDING,
+                            OUTBOX_STATUS.RETRY,
+                            OUTBOX_STATUS.PENDING,
+                            OUTBOX_CONFIG.batchSize
+                        ]
+                    );
+                    return rows;
+                } catch (error) {
+                    if (error.code !== "ER_BAD_FIELD_ERROR") throw error;
+                    const [rows] = await connection.query(
+                        `SELECT * FROM outbox_events 
+                         WHERE status IN (?, ?)
+                         AND attempts < max_attempts
+                         ORDER BY created_at ASC
+                         LIMIT ?
+                         FOR UPDATE SKIP LOCKED`,
+                        [
+                            OUTBOX_STATUS.PENDING,
+                            OUTBOX_STATUS.RETRY,
+                            OUTBOX_CONFIG.batchSize
+                        ]
+                    );
+                    return rows;
+                }
             });
 
             if (events.length === 0) {
@@ -572,19 +605,43 @@ class OutboxService {
                 ? OUTBOX_STATUS.FAILED
                 : OUTBOX_STATUS.RETRY;
 
+            const retryAt =
+                newStatus === OUTBOX_STATUS.RETRY
+                    ? nextRetryAt(newAttempts)
+                    : null;
+
             await this.updateEventStatus(event.id, newStatus, {
                 attempts: newAttempts,
                 error: error.message,
                 version: event.version,
-                clearProcessingLock: true
+                clearProcessingLock: true,
+                nextRetryAt: retryAt
             });
 
             if (newStatus === OUTBOX_STATUS.FAILED) {
                 this.stats.failed++;
                 console.error(`💀 Event permanently failed: ${event.type} (${event.id})`);
+                // Move poison message to DLQ (#1387)
+                try {
+                    await eventDlqService.enqueuePoison({
+                        eventId: event.id,
+                        eventType: event.type,
+                        idempotencyKey,
+                        payload: event.data,
+                        metadata: event.metadata,
+                        errorMessage: error.message,
+                        errorStack: error.stack,
+                        attempts: newAttempts,
+                        source: "outbox"
+                    });
+                } catch (dlqErr) {
+                    console.error(`DLQ enqueue failed for ${event.id}:`, dlqErr.message);
+                }
             } else {
                 this.stats.retried++;
-                console.log(`🔄 Event retrying: ${event.type} (${event.id}) attempt ${newAttempts}`);
+                console.log(
+                    `🔄 Event retrying: ${event.type} (${event.id}) attempt ${newAttempts} next=${retryAt?.toISOString?.() || 'soon'}`
+                );
             }
         }
     }
@@ -603,56 +660,197 @@ class OutboxService {
             || status === OUTBOX_STATUS.RETRY
             || additional.clearProcessingLock;
 
-        if (additional.version != null) {
-            const [result] = await db.query(
-                `UPDATE outbox_events 
-                 SET status = ?, 
-                     attempts = COALESCE(?, attempts),
-                     error = COALESCE(?, error),
-                     processed_at = COALESCE(?, processed_at),
-                     processing_started_at = IF(?, NULL, processing_started_at),
-                     version = version + 1,
-                     updated_at = ?
-                 WHERE event_id = ?
-                   AND version = ?`,
-                [
-                    status,
-                    additional.attempts != null ? additional.attempts : null,
-                    additional.error != null ? additional.error : null,
-                    processedAt,
-                    clearLock ? 1 : 0,
-                    updatedAt,
-                    eventId,
-                    additional.version
-                ]
-            );
+        const nextRetry =
+            additional.nextRetryAt instanceof Date
+                ? additional.nextRetryAt.toISOString().slice(0, 19).replace("T", " ")
+                : additional.nextRetryAt || null;
 
-            if (!result.affectedRows) {
-                this.stats.optimisticLockConflicts++;
-                console.warn(`Optimistic lock miss on status update for ${eventId}`);
+        const setNextRetry =
+            status === OUTBOX_STATUS.RETRY && nextRetry
+                ? nextRetry
+                : status === OUTBOX_STATUS.PENDING || status === OUTBOX_STATUS.COMPLETED
+                  ? null
+                  : undefined;
+
+        try {
+            if (additional.version != null) {
+                const [result] = await db.query(
+                    `UPDATE outbox_events 
+                     SET status = ?, 
+                         attempts = COALESCE(?, attempts),
+                         error = COALESCE(?, error),
+                         processed_at = COALESCE(?, processed_at),
+                         processing_started_at = IF(?, NULL, processing_started_at),
+                         next_retry_at = COALESCE(?, next_retry_at),
+                         version = version + 1,
+                         updated_at = ?
+                     WHERE event_id = ?
+                       AND version = ?`,
+                    [
+                        status,
+                        additional.attempts != null ? additional.attempts : null,
+                        additional.error != null ? additional.error : null,
+                        processedAt,
+                        clearLock ? 1 : 0,
+                        setNextRetry === undefined ? null : setNextRetry,
+                        // When setNextRetry is undefined we shouldn't wipe — use IF
+                        // Simpler: pass nextRetry only when provided
+                        updatedAt,
+                        eventId,
+                        additional.version
+                    ]
+                );
+
+                // Fix: COALESCE(?, next_retry_at) with null keeps old value — good for non-retry.
+                // For retry we pass the timestamp. For completed/failed clear it explicitly below if needed.
+                if (!result.affectedRows) {
+                    this.stats.optimisticLockConflicts++;
+                    console.warn(`Optimistic lock miss on status update for ${eventId}`);
+                }
+            } else {
+                await db.query(
+                    `UPDATE outbox_events 
+                     SET status = ?, 
+                         attempts = COALESCE(?, attempts),
+                         error = COALESCE(?, error),
+                         processed_at = COALESCE(?, processed_at),
+                         processing_started_at = IF(?, NULL, processing_started_at),
+                         next_retry_at = COALESCE(?, next_retry_at),
+                         updated_at = ?
+                     WHERE event_id = ?`,
+                    [
+                        status,
+                        additional.attempts != null ? additional.attempts : null,
+                        additional.error != null ? additional.error : null,
+                        processedAt,
+                        clearLock ? 1 : 0,
+                        setNextRetry === undefined ? null : setNextRetry,
+                        updatedAt,
+                        eventId
+                    ]
+                );
             }
-            return;
+
+            // Clear next_retry_at on terminal / pending replay
+            if (
+                status === OUTBOX_STATUS.FAILED ||
+                status === OUTBOX_STATUS.COMPLETED ||
+                status === OUTBOX_STATUS.PENDING
+            ) {
+                try {
+                    await db.query(
+                        `UPDATE outbox_events SET next_retry_at = NULL WHERE event_id = ?`,
+                        [eventId]
+                    );
+                } catch (_) {
+                    /* column may be absent pre-migrate */
+                }
+            } else if (status === OUTBOX_STATUS.RETRY && nextRetry) {
+                try {
+                    await db.query(
+                        `UPDATE outbox_events SET next_retry_at = ? WHERE event_id = ?`,
+                        [nextRetry, eventId]
+                    );
+                } catch (_) {
+                    /* column may be absent */
+                }
+            }
+        } catch (error) {
+            if (error.code === "ER_BAD_FIELD_ERROR") {
+                // Legacy schema without next_retry_at — fall back
+                await db.query(
+                    `UPDATE outbox_events 
+                     SET status = ?, 
+                         attempts = COALESCE(?, attempts),
+                         error = COALESCE(?, error),
+                         processed_at = COALESCE(?, processed_at),
+                         processing_started_at = IF(?, NULL, processing_started_at),
+                         updated_at = ?
+                     WHERE event_id = ?`,
+                    [
+                        status,
+                        additional.attempts != null ? additional.attempts : null,
+                        additional.error != null ? additional.error : null,
+                        processedAt,
+                        clearLock ? 1 : 0,
+                        updatedAt,
+                        eventId
+                    ]
+                );
+                return;
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Re-queue a poison event from the DLQ back into the outbox (#1387).
+     */
+    async requeueFromDlq({
+        eventId,
+        eventType,
+        idempotencyKey,
+        data = {},
+        metadata = {}
+    }) {
+        // Prefer resetting the original outbox row when it still exists
+        try {
+            const [existing] = await db.query(
+                `SELECT event_id, status FROM outbox_events WHERE event_id = ? LIMIT 1`,
+                [eventId]
+            );
+            if (existing.length) {
+                try {
+                    await db.query(
+                        `UPDATE outbox_events
+                         SET status = ?,
+                             attempts = 0,
+                             error = NULL,
+                             processing_started_at = NULL,
+                             next_retry_at = NULL,
+                             updated_at = NOW(),
+                             version = version + 1
+                         WHERE event_id = ?`,
+                        [OUTBOX_STATUS.PENDING, eventId]
+                    );
+                } catch (error) {
+                    if (error.code !== "ER_BAD_FIELD_ERROR") throw error;
+                    await db.query(
+                        `UPDATE outbox_events
+                         SET status = ?,
+                             attempts = 0,
+                             error = NULL,
+                             processing_started_at = NULL,
+                             updated_at = NOW(),
+                             version = version + 1
+                         WHERE event_id = ?`,
+                        [OUTBOX_STATUS.PENDING, eventId]
+                    );
+                }
+                this.stats.retried++;
+                console.log(`♻️ Requeued from DLQ (reset): ${eventType} (${eventId})`);
+                return { eventId, mode: "reset" };
+            }
+        } catch (error) {
+            if (error.code !== "ER_BAD_FIELD_ERROR") {
+                console.warn("requeueFromDlq reset warning:", error.message);
+            }
         }
 
-        await db.query(
-            `UPDATE outbox_events 
-             SET status = ?, 
-                 attempts = COALESCE(?, attempts),
-                 error = COALESCE(?, error),
-                 processed_at = COALESCE(?, processed_at),
-                 processing_started_at = IF(?, NULL, processing_started_at),
-                 updated_at = ?
-             WHERE event_id = ?`,
-            [
-                status,
-                additional.attempts != null ? additional.attempts : null,
-                additional.error != null ? additional.error : null,
-                processedAt,
-                clearLock ? 1 : 0,
-                updatedAt,
-                eventId
-            ]
-        );
+        // Otherwise insert a fresh pending event (new id to avoid UNIQUE conflicts)
+        const stored = await this.storeEvent(eventType, data, {
+            ...metadata,
+            idempotencyKey:
+                idempotencyKey ||
+                this.generateIdempotencyKey(
+                    eventType,
+                    data,
+                    metadata.occurredAt || new Date().toISOString()
+                ),
+            originalEventId: eventId
+        });
+        console.log(`♻️ Requeued from DLQ (insert): ${eventType} (${stored.id})`);
+        return { eventId: stored.id, mode: "insert", duplicate: stored.duplicate };
     }
 
     /**
@@ -727,6 +925,7 @@ class OutboxService {
                 ledger,
                 staleProcessingMs: OUTBOX_CONFIG.staleProcessingMs,
                 idempotencyRetentionDays: OUTBOX_CONFIG.idempotencyRetentionDays,
+                dlq: await eventDlqService.getMetrics().catch(() => null),
                 timestamp: new Date().toISOString()
             };
         } catch (error) {
