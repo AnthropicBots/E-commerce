@@ -16,6 +16,7 @@ const subscriptionRoutes = require("./subscriptionRoutes");
 const courierWebhookRoutes = require("./courierWebhookRoutes");
 const refundRoutes = require("./refundRoutes");
 const addressRoutes = require("./addressRoutes");
+const wishlistNotifyRoutes = require("./wishlistNotifyRoutes");
 
 router.use("/products", productRoutes);
 router.use("/auth", authRoutes);
@@ -24,6 +25,7 @@ router.use("/promos", promoRoutes);
 router.use("/admin", adminRoutes);
 router.use("/chat", chatRoutes);
 router.use("/wishlist", wishlistRoutes);
+router.use("/wishlist-notify", wishlistNotifyRoutes);
 router.use("/recommendations", recommendationRoutes);
 router.use("/cart", cartRoutes);
 router.use("/checkout", checkoutRoutes);
