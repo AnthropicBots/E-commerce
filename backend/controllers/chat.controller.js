@@ -6,6 +6,7 @@ const {
   safeUUID,
 } = require("../utils/helpers");
 const logger = require("../utils/logger");
+const { PERMISSIONS, hasPermission } = require("../config/policy");
 
 const getConversations = async (req, res) => {
   try {
@@ -170,7 +171,7 @@ const assignAdmin = async (req, res) => {
       });
     }
 
-    if (req.user.role !== "admin") {
+    if (!hasPermission(req.user, PERMISSIONS.CHAT_MANAGE)) {
       logger.warn(
         `[AUDIT] Unauthorized assignment attempt: User ${req.user.id} (${req.user.role}) tried to assign conversation ${id}`,
       );
