@@ -11,6 +11,10 @@
 //   * free shipping covers the standard rate and no more, so upgrading on top
 //     of an earned waiver still costs the difference;
 //   * nothing on the request side of the boundary carries a rate.
+//
+// The threshold itself is a rate rule now rather than a constant in the
+// engine, so it is seeded into the rules the fixture serves. Its selection is
+// covered on its own in shippingRates.test.js.
 
 jest.mock('../config/db', () => ({
     query: jest.fn()
@@ -47,12 +51,31 @@ const EXPRESS = {
     sort_order: 20
 };
 
+// The threshold as migration 0037 seeds it: a waiver over basket value, with
+// no stated amount, so it covers whatever the default option costs.
+const THRESHOLD_RULE = {
+    id: 1,
+    name: 'Free delivery over 999',
+    method_code: null,
+    destination_scope: 'any',
+    destination_value: null,
+    min_weight_kg: null,
+    max_weight_kg: null,
+    min_order_value: PRICING_CONFIG.FREE_SHIPPING_THRESHOLD,
+    max_order_value: null,
+    effect: 'waive',
+    amount: null,
+    priority: 100
+};
+
 // Comfortably under the free-shipping threshold, so a charge actually applies.
 const SMALL_BASKET = 500;
 const LARGE_BASKET = PRICING_CONFIG.FREE_SHIPPING_THRESHOLD + 1;
 
-function offering(rows) {
-    db.query.mockResolvedValue([rows]);
+function offering(methods, rules = [THRESHOLD_RULE]) {
+    db.query.mockImplementation(async (sql) =>
+        /shipping_rate_rules/.test(sql) ? [rules] : [methods]
+    );
 }
 
 beforeEach(() => {
@@ -205,7 +228,8 @@ describe('the pricing descriptor handed across the boundary', () => {
             code: 'express',
             label: 'Express delivery',
             rate: 149,
-            waiverRate: 49
+            waiverRate: 0,
+            isWaiverEarned: false
         });
     });
 
@@ -217,5 +241,92 @@ describe('the pricing descriptor handed across the boundary', () => {
 
         expect(options.map((option) => option.isSelected)).toEqual([false, true]);
         expect(options.map((option) => option.isDefault)).toEqual([true, false]);
+    });
+});
+
+describe('rules reaching the quote', () => {
+    it('tells the shopper how far short of free delivery they are', async () => {
+        const { freeShipping } = await shipping.quoteOptions({
+            postDiscountSubtotal: 799
+        });
+
+        expect(freeShipping).toEqual({
+            threshold: PRICING_CONFIG.FREE_SHIPPING_THRESHOLD,
+            remaining: 200,
+            qualified: false
+        });
+    });
+
+    it('keeps the rule\'s internal name out of the response', async () => {
+        const { freeShipping } = await shipping.quoteOptions({
+            postDiscountSubtotal: 799
+        });
+
+        expect(freeShipping).not.toHaveProperty('name');
+    });
+
+    it('surcharges by weight when a rule says so', async () => {
+        offering([STANDARD, EXPRESS], [
+            {
+                ...THRESHOLD_RULE,
+                id: 2,
+                name: 'Heavy parcel',
+                min_order_value: null,
+                min_weight_kg: 5,
+                effect: 'surcharge',
+                amount: 60,
+                priority: 50
+            }
+        ]);
+        shipping.clearCache();
+
+        const light = await shipping.quoteOptions({
+            postDiscountSubtotal: SMALL_BASKET,
+            weightKg: 2
+        });
+        const heavy = await shipping.quoteOptions({
+            postDiscountSubtotal: SMALL_BASKET,
+            weightKg: 8
+        });
+
+        expect(light.options[0].cost).toBe(49);
+        expect(heavy.options[0].cost).toBe(109);
+    });
+
+    it('falls back to flat rates when the rules cannot be read', async () => {
+        db.query.mockImplementation(async (sql) => {
+            if (/shipping_rate_rules/.test(sql)) {
+                throw new Error('Table shipping_rate_rules does not exist');
+            }
+            return [[STANDARD, EXPRESS]];
+        });
+        shipping.clearCache();
+
+        const { options, freeShipping } = await shipping.quoteOptions({
+            postDiscountSubtotal: LARGE_BASKET
+        });
+
+        // No rules means no waiver: the options cost what they cost. Charging
+        // is the safe direction — the alternative is giving delivery away
+        // because a table could not be read.
+        expect(options.map((option) => option.cost)).toEqual([49, 149]);
+        expect(freeShipping).toBeNull();
+    });
+});
+
+describe('basket weight', () => {
+    it('assumes a weight for products that have none recorded', () => {
+        expect(
+            shipping.basketWeightKg([{ weight: null, qty: 2 }])
+        ).toBe(SHIPPING_CONFIG.DEFAULT_ITEM_WEIGHT_KG * 2);
+    });
+
+    it('counts each unit of a line', () => {
+        expect(shipping.basketWeightKg([{ weight: 1.5, qty: 3 }])).toBe(4.5);
+    });
+
+    it('is zero for an empty basket', () => {
+        expect(shipping.basketWeightKg([])).toBe(0);
+        expect(shipping.basketWeightKg(null)).toBe(0);
     });
 });

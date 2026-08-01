@@ -18,10 +18,16 @@ const SHIPPING_CONFIG = Object.freeze({
     // whose rate a free-shipping entitlement covers.
     DEFAULT_METHOD_CODE: "standard",
 
-    // Delivery options change on the scale of campaigns, not requests, so they
-    // are read once and reused. Short enough that an operator changing a rate
-    // sees it take effect without a restart.
+    // Delivery options and rate rules change on the scale of campaigns, not
+    // requests, so they are read once and reused. Short enough that an operator
+    // changing a rate sees it take effect without a restart.
     CACHE_TTL_MS: Number(process.env.SHIPPING_METHOD_CACHE_TTL_MS) || 60_000,
+
+    // Assumed weight of a product that has none recorded. Most of the catalogue
+    // is in that state, and treating those as weightless would put every such
+    // basket in the lightest band of every weight rule.
+    DEFAULT_ITEM_WEIGHT_KG:
+        Number(process.env.SHIPPING_DEFAULT_ITEM_WEIGHT_KG) || 0.5,
 
     // Used only when `shipping_methods` cannot be read. The rate is the flat
     // rate the pricing engine has always applied, so a store running on the

@@ -28,20 +28,25 @@ function calculateTax(taxableBase) {
  * @param {number} [input.discountAmount]
  * @param {string|null} [input.promoCode]
  * @param {string|null} [input.shippingMethod] - code naming a delivery option
+ * @param {Object|null} [input.destination] - where the parcel is going
  * @returns {Promise<Object>} breakdown
  */
 async function quoteOrder({
     items = [],
     discountAmount = 0,
     promoCode = null,
-    shippingMethod = null
+    shippingMethod = null,
+    destination = null
 } = {}) {
     const discount = Number(discountAmount) || 0;
+    const { subtotal } = pricing.priceLineItems(items);
 
-    const [selected, fallback] = await Promise.all([
-        shipping.resolveMethod(shippingMethod),
-        shipping.getDefaultMethod()
-    ]);
+    const delivery = await shipping.quoteOptions({
+        postDiscountSubtotal: subtotal - Math.min(discount, subtotal),
+        selectedCode: shippingMethod,
+        destination,
+        weightKg: shipping.basketWeightKg(items)
+    });
 
     return pricing.quote({
         items,
@@ -50,7 +55,7 @@ async function quoteOrder({
                 ? { discount_type: "fixed", discount_value: discount }
                 : null,
         promoCode,
-        shippingMethod: shipping.toPricingDescriptor(selected, fallback)
+        shippingMethod: delivery.selected
     });
 }
 
@@ -64,7 +69,13 @@ async function processOrder(orderData) {
         appliedRules = []
     } = orderData;
 
-    const priced = breakdown || (await quoteOrder({ items, shippingMethod }));
+    const priced =
+        breakdown ||
+        (await quoteOrder({
+            items,
+            shippingMethod,
+            destination: shippingAddress
+        }));
 
     const crypto = require("crypto");
     const orderId = crypto.randomUUID();

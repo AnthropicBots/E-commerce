@@ -893,6 +893,32 @@ components:
           description: Code naming a delivery option. Omitted, the default applies.
           type: string
           nullable: true
+        destination:
+          description: >
+            Where the parcel would go, so destination rules can apply. Optional:
+            the cart has no address yet. Re-resolved from the order when one is
+            placed, so it cannot be used to buy a cheaper rate.
+          nullable: true
+          type: object
+          properties:
+            pincode:
+              type: string
+            city:
+              type: string
+            state:
+              type: string
+
+    FreeShippingProgress:
+      description: Progress toward the nearest free-delivery threshold.
+      type: object
+      required: [threshold, remaining, qualified]
+      properties:
+        threshold:
+          type: number
+        remaining:
+          type: number
+        qualified:
+          type: boolean
 
     CheckoutQuoteSuccess:
       type: object
@@ -907,6 +933,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ShippingOption"
+        freeShipping:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/FreeShippingProgress"
         promoMessage:
           type: string
           nullable: true

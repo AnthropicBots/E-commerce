@@ -13,7 +13,7 @@ const powChallengeService = require('../services/powChallengeService');
 // resolves prices under lock, enforces stock and consumes inventory holds.
 router.post('/quote', async (req, res) => {
     try {
-        const { items, promoCode, shippingMethod } = req.body;
+        const { items, promoCode, shippingMethod, destination } = req.body;
         const requestedItems = safeArray(items);
 
         // Nothing to price and nothing to deliver, so no options are offered
@@ -57,7 +57,12 @@ router.post('/quote', async (req, res) => {
         const delivery = await shipping.quoteOptions({
             postDiscountSubtotal: subtotal - discount.amount,
             isShippingWaived: discount.isShippingWaived,
-            selectedCode: shippingMethod
+            selectedCode: shippingMethod,
+            // A destination is optional: the cart page has no address yet, and
+            // a basket still has to be priced there. Rules scoped to a place
+            // simply do not match until one is known.
+            destination: destination || null,
+            weightKg: shipping.basketWeightKg(lines)
         });
 
         const breakdown = pricing.quote({
@@ -71,6 +76,7 @@ router.post('/quote', async (req, res) => {
             success: true,
             breakdown,
             shippingOptions: delivery.options,
+            freeShipping: delivery.freeShipping,
             promoMessage
         });
     } catch (error) {

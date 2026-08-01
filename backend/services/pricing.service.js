@@ -142,21 +142,24 @@ const calculateTax = (taxableBase) =>
 /**
  * Shipping due on a post-discount subtotal for a chosen delivery method.
  *
- * The charge is the method's own rate. A waiver — the free-shipping threshold,
- * or a `free_shipping` promo — covers `waiverRate` of it and no more, which is
- * what "free shipping" has always meant here: the store absorbs the standard
- * cost of delivery. A shopper who has earned it and then upgrades to a faster
- * option pays the difference rather than nothing at all.
+ * The charge is the rate the caller resolved for the chosen option. A waiver —
+ * a rule the basket satisfies, or a `free_shipping` promo — covers
+ * `waiverRate` of it and no more, which is what "free shipping" has always
+ * meant here: the store absorbs the standard cost of delivery. A shopper who
+ * has earned it and then upgrades to a faster option pays the difference
+ * rather than nothing at all.
  *
- * With no method supplied both rates fall back to the flat rate, which
- * reproduces the pre-#1430 figure exactly: nothing below the threshold, free
- * at or above it. That is what lets a caller that does not offer a choice keep
- * pricing baskets the way it always has.
+ * Whether a waiver has been earned is the caller's to decide, because since
+ * the rate rules landed the free-shipping threshold is a rule like any other
+ * and can depend on more than basket value. A caller that expresses no opinion
+ * gets the configured threshold instead, which reproduces the pre-#1430
+ * figure exactly: nothing below it, free at or above it. That is what lets a
+ * caller with no rules to hand keep pricing baskets the way it always has.
  *
  * An empty basket never attracts a shipping charge.
  *
  * @param {number} postDiscountSubtotal
- * @param {{ isShippingWaived?: boolean, methodRate?: number, waiverRate?: number }} [options]
+ * @param {{ isShippingWaived?: boolean, isWaiverEarned?: boolean, methodRate?: number, waiverRate?: number }} [options]
  * @returns {number}
  */
 const calculateShipping = (postDiscountSubtotal, options = {}) => {
@@ -175,7 +178,10 @@ const calculateShipping = (postDiscountSubtotal, options = {}) => {
         ),
     );
 
-    const isEarned = base >= PRICING_CONFIG.FREE_SHIPPING_THRESHOLD;
+    const isEarned =
+        options.isWaiverEarned === undefined
+            ? base >= PRICING_CONFIG.FREE_SHIPPING_THRESHOLD
+            : Boolean(options.isWaiverEarned);
 
     if (!options.isShippingWaived && !isEarned) {
         return rate;
@@ -204,8 +210,9 @@ const calculateShipping = (postDiscountSubtotal, options = {}) => {
  * @param {Object|null} [input.promo] - validated promo descriptor, if any
  * @param {string|null} [input.promoCode] - code to echo back on the breakdown
  * @param {Object|null} [input.shippingMethod] - resolved delivery method,
- *        carrying its own `rate` and the `waiverRate` free shipping covers.
- *        Omitted, the flat rate applies, which is what every caller got before
+ *        carrying the `rate` the rules produced for it, how much of that a
+ *        waiver covers, and whether one was earned. Omitted, the flat rate and
+ *        the configured threshold apply, which is what every caller got before
  *        there was a choice of delivery.
  * @returns {Object} breakdown
  */
@@ -222,6 +229,7 @@ const quote = ({
     const tax = calculateTax(taxableBase);
     const shipping = calculateShipping(taxableBase, {
         isShippingWaived: discount.isShippingWaived,
+        isWaiverEarned: shippingMethod?.isWaiverEarned,
         methodRate: shippingMethod?.rate,
         waiverRate: shippingMethod?.waiverRate,
     });

@@ -80,6 +80,11 @@ const elements = {
             "delivery-options"
         ),
 
+    freeShippingProgress:
+        document.getElementById(
+            "free-shipping-progress"
+        ),
+
     discount:
         document.getElementById(
             "checkout-discount"
@@ -288,13 +293,47 @@ function safeQty(
 let selectedShippingMethod =
     null;
 
+// Where the parcel is going, as far as the form knows so far. Rates can depend
+// on it, so it travels with every quote; the order is re-priced against the
+// address it is actually placed with, so this can only ever be an estimate the
+// server has to agree with.
+function currentDestination() {
+
+    const pincode =
+        elements.zip
+            ? elements.zip.value.trim()
+            : "";
+
+    if (
+        !pincode
+    ) {
+        return null;
+    }
+
+    return {
+
+        pincode,
+
+        city:
+            elements.city
+                ? elements.city.value.trim()
+                : "",
+
+        state:
+            elements.state
+                ? elements.state.value.trim()
+                : ""
+    };
+}
+
 // CALCULATE TOTALS
 async function calculateTotals() {
 
     return AppUtils.fetchCartQuote(
         cart,
         appliedCoupon,
-        selectedShippingMethod
+        selectedShippingMethod,
+        currentDestination()
     );
 }
 
@@ -514,7 +553,44 @@ async function refreshSummary() {
         totals.currency
     );
 
+    if (
+        elements.freeShippingProgress
+    ) {
+
+        elements.freeShippingProgress.innerText =
+            AppUtils.formatFreeShippingProgress(
+                totals.freeShipping,
+                totals.currency
+            );
+    }
+
     return totals;
+}
+
+// A rate can depend on where the parcel is going, so the summary follows the
+// address rather than waiting for the order to be placed to reveal the real
+// figure. Debounced, because this fires on every keystroke in a PIN code.
+if (
+    elements.zip
+) {
+
+    elements.zip.addEventListener(
+        "input",
+        AppUtils.debounce(
+            () => {
+
+                if (
+                    /^\d{5,6}$/.test(
+                        elements.zip.value.trim()
+                    )
+                ) {
+
+                    refreshSummary();
+                }
+            },
+            500
+        )
+    );
 }
 
 // RENDER CHECKOUT
