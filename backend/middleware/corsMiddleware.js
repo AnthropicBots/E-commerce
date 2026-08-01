@@ -53,7 +53,9 @@ const corsOptions = {
 
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
 
-  allowedHeaders: ["Content-Type", "Authorization"],
+  // X-Cart-Token is how a shopper without an account is identified, so a
+  // browser that cannot send it cannot have a basket at all.
+  allowedHeaders: ["Content-Type", "Authorization", "X-Cart-Token"],
 };
 
 // Export the configured middleware

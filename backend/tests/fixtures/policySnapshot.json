@@ -1,5 +1,5 @@
 {
-  "_comment": "Pinned authorization policy. Changing a role's permissions or opening a route to anonymous traffic must show up as an edit to this file, reviewed on its own terms. Lists are sorted; the test sorts both sides before comparing.",
+  "_comment": "Pinned authorization policy. Changing a role's permissions, opening a route to anonymous traffic, or letting one be reached without an account must show up as an edit to this file, reviewed on its own terms. Lists are sorted; the test sorts both sides before comparing.",
   "rolePermissions": {
     "customer": [
       "address:manage:own",
@@ -137,5 +137,13 @@
     "POST /api/orders/validate",
     "POST /api/promos/validate",
     "POST /api/wishlist-notify/unsubscribe"
+  ],
+  "guestRoutes": [
+    "DELETE /api/cart/clear",
+    "DELETE /api/cart/remove/:productId",
+    "GET /api/cart",
+    "POST /api/cart/add",
+    "POST /api/cart/sync",
+    "PUT /api/cart/update"
   ]
 }

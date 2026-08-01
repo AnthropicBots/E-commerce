@@ -13,8 +13,8 @@
 // database, so it can run during bootstrap or inside a unit test without any
 // chance of hanging.
 
-const { isPolicyMiddleware } = require('../config/policy');
-const { AUDITED_MOUNTS, isPublicRoute } = require('../config/routePolicy');
+const { isGuestCapableMiddleware, isPolicyMiddleware } = require('../config/policy');
+const { AUDITED_MOUNTS, isGuestRoute, isPublicRoute } = require('../config/routePolicy');
 
 /**
  * Join a mount prefix and a route path into the path a client would call.
@@ -39,7 +39,8 @@ function joinPaths(basePath, routePath) {
  *
  * @param {object} router an Express Router or app
  * @param {string} [basePath='']
- * @returns {Array<{method: string, path: string, handlers: string[], isProtected: boolean}>}
+ * @returns {Array<{method: string, path: string, handlers: string[],
+ *   isProtected: boolean, admitsGuests: boolean}>}
  */
 function collectRoutes(router, basePath = '') {
     const stack = router?.stack || router?.router?.stack || router?._router?.stack;
@@ -73,7 +74,8 @@ function collectRoutes(router, basePath = '') {
                 method: method === '_all' ? 'ALL' : method.toUpperCase(),
                 path: joinPaths(basePath, layer.route.path),
                 handlers: guards.map((guard) => guard.name || '<anonymous>'),
-                isProtected: guards.some(isPolicyMiddleware)
+                isProtected: guards.some(isPolicyMiddleware),
+                admitsGuests: guards.some(isGuestCapableMiddleware)
             });
         }
     }
@@ -98,6 +100,25 @@ function collectMountedRoutes(mounts) {
 function findUnprotectedRoutes(mounts) {
     return collectMountedRoutes(mounts)
         .filter((route) => !route.isProtected && !isPublicRoute(route.method, route.path))
+        .map(({ method, path }) => ({ method, path }));
+}
+
+/**
+ * Routes whose guard admits a caller with no account, without that having
+ * been declared in the registry.
+ *
+ * The reverse of `findUnprotectedRoutes`: these routes are guarded, so the
+ * unprotected check is satisfied and says nothing. What it cannot see is a
+ * guard being widened -- somebody swapping an authenticator for one that also
+ * serves guests, on a route where that was never the intention. Declaring the
+ * guest surface separately makes widening it an edit to a reviewed list.
+ *
+ * @param {Array<{basePath: string, router: object}>} mounts
+ * @returns {Array<{method: string, path: string}>}
+ */
+function findUndeclaredGuestRoutes(mounts) {
+    return collectMountedRoutes(mounts)
+        .filter((route) => route.admitsGuests && !isGuestRoute(route.method, route.path))
         .map(({ method, path }) => ({ method, path }));
 }
 
@@ -144,6 +165,29 @@ function assertRoutesProtected(mounts = loadAuditedMounts()) {
 }
 
 /**
+ * Throw unless every route that admits a guest is declared as one.
+ *
+ * @param {Array<{basePath: string, router: object}>} [mounts]
+ * @throws {Error} listing every undeclared route
+ */
+function assertGuestRoutesDeclared(mounts = loadAuditedMounts()) {
+    const undeclared = findUndeclaredGuestRoutes(mounts);
+
+    if (undeclared.length === 0) {
+        return;
+    }
+
+    const listing = undeclared
+        .map(({ method, path }) => `  ${method} ${path}`)
+        .join('\n');
+
+    throw new Error(
+        'Routes are reachable without an account but are not on the guest ' +
+        `allowlist in config/routePolicy.js:\n${listing}`
+    );
+}
+
+/**
  * Bootstrap hook.
  *
  * Off unless ROUTE_POLICY_AUDIT is set, so an existing deployment does not
@@ -165,6 +209,7 @@ function runStartupAudit({ mode = process.env.ROUTE_POLICY_AUDIT, mounts } = {})
 
     if (mode === 'enforce') {
         assertRoutesProtected(resolved);
+        assertGuestRoutesDeclared(resolved);
         return [];
     }
 
@@ -174,6 +219,10 @@ function runStartupAudit({ mode = process.env.ROUTE_POLICY_AUDIT, mounts } = {})
         console.warn(`[route-policy] no policy declared for ${method} ${path}`);
     }
 
+    for (const { method, path } of findUndeclaredGuestRoutes(resolved)) {
+        console.warn(`[route-policy] reachable without an account and not declared: ${method} ${path}`);
+    }
+
     return unprotected;
 }
 
@@ -181,7 +230,9 @@ module.exports = {
     collectRoutes,
     collectMountedRoutes,
     findUnprotectedRoutes,
+    findUndeclaredGuestRoutes,
     loadAuditedMounts,
     assertRoutesProtected,
+    assertGuestRoutesDeclared,
     runStartupAudit
 };

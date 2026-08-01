@@ -79,6 +79,11 @@ const CONFIG = {
         USER:
             "user",
 
+        // What a shopper without an account is identified by. Nothing else
+        // reaches their basket, so losing this key loses the basket.
+        CART_TOKEN:
+            "cartToken",
+
         RECENTLY_VIEWED:
             "recentlyViewed"
     }
