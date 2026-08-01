@@ -696,7 +696,188 @@ function orderFailure(
             response.code === TOTAL_MISMATCH_CODE
         );
 
+    failure.requiresChallenge =
+        Boolean(
+            response
+            &&
+            (
+                response.requiresChallenge
+                || response.code === "CHALLENGE_REQUIRED"
+            )
+        );
+
+    failure.challenge =
+        response && response.challenge
+            ? response.challenge
+            : null;
+
+    failure.raw = response || null;
+
     return failure;
+}
+
+// ==================== BOT-RESISTANT CHECKOUT PoW (#1396) ====================
+
+function mintIdempotencyKey() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+        return window.crypto.randomUUID();
+    }
+    return `chk_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+}
+
+async function sha256Hex(message) {
+    const data = new TextEncoder().encode(message);
+    const digest = await window.crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+}
+
+/**
+ * Vanilla JS PoW solver — finds nonce so
+ * sha256(challengeId:idempotencyKey:nonce) starts with `difficulty` hex zeros.
+ */
+async function solveCheckoutPow(challenge, onProgress) {
+    const challengeId = challenge.challengeId;
+    const idempotencyKey = challenge.idempotencyKey;
+    const difficulty = Number(challenge.difficulty) || 3;
+    const prefix = challenge.prefix || "0".repeat(difficulty);
+    const maxAttempts = 2_000_000;
+
+    for (let nonce = 0; nonce < maxAttempts; nonce += 1) {
+        const digest = await sha256Hex(`${challengeId}:${idempotencyKey}:${nonce}`);
+        if (digest.startsWith(prefix)) {
+            return { nonce: String(nonce), digest };
+        }
+        if (onProgress && nonce > 0 && nonce % 500 === 0) {
+            onProgress(nonce);
+            // Yield so the UI can paint "Verifying..." without freezing.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+    }
+
+    throw new Error("Could not solve checkout challenge in time. Please try again.");
+}
+
+async function ensureCheckoutChallenge(order, idempotencyKey, initialResponse) {
+    let challenge = initialResponse && initialResponse.challenge;
+
+    if (!challenge) {
+        const issued = await AppUtils.apiRequest("/checkout/challenge/issue", {
+            method: "POST",
+            headers: {
+                "Idempotency-Key": idempotencyKey
+            },
+            body: JSON.stringify({
+                idempotencyKey,
+                riskScore: initialResponse && initialResponse.riskScore,
+                riskLevel: initialResponse && initialResponse.riskLevel
+            })
+        });
+
+        if (!issued.success || !issued.challenge) {
+            throw new Error(
+                (issued && issued.message) || "Failed to start checkout challenge."
+            );
+        }
+        challenge = issued.challenge;
+    }
+
+    if (
+        elements.placeOrderBtn
+    ) {
+        elements.placeOrderBtn.innerText = "Verifying you are human…";
+    }
+
+    AppUtils.notify(
+        "Extra verification needed for this checkout — solving a quick challenge…",
+        "info"
+    );
+
+    const solution = await solveCheckoutPow(challenge);
+
+    const verified = await AppUtils.apiRequest("/checkout/challenge/verify", {
+        method: "POST",
+        headers: {
+            "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify({
+            challengeId: challenge.challengeId,
+            nonce: solution.nonce,
+            idempotencyKey
+        })
+    });
+
+    if (!verified.success) {
+        throw new Error(
+            (verified && verified.message) || "Checkout challenge failed."
+        );
+    }
+
+    return {
+        idempotencyKey,
+        challengeId: challenge.challengeId,
+        nonce: solution.nonce
+    };
+}
+
+function challengeHeaders(proof) {
+    if (!proof) {
+        return {};
+    }
+    return {
+        "Idempotency-Key": proof.idempotencyKey,
+        "X-Checkout-Challenge-Id": proof.challengeId,
+        "X-Checkout-Challenge-Nonce": proof.nonce
+    };
+}
+
+/**
+ * Place order / payment-intent with automatic PoW retry when risk-gated.
+ */
+async function placeOrderWithChallenge(path, order, idempotencyKey) {
+    let proof = { idempotencyKey, challengeId: "", nonce: "" };
+
+    let response = await AppUtils.apiRequest(path, {
+        method: "POST",
+        headers: {
+            "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify({
+            ...order,
+            idempotencyKey
+        })
+    });
+
+    if (
+        response
+        && !response.success
+        && (
+            response.requiresChallenge
+            || response.code === "CHALLENGE_REQUIRED"
+        )
+    ) {
+        proof = await ensureCheckoutChallenge(order, idempotencyKey, response);
+
+        if (
+            elements.placeOrderBtn
+        ) {
+            elements.placeOrderBtn.innerText = "Processing...";
+        }
+
+        response = await AppUtils.apiRequest(path, {
+            method: "POST",
+            headers: challengeHeaders(proof),
+            body: JSON.stringify({
+                ...order,
+                idempotencyKey: proof.idempotencyKey,
+                challengeId: proof.challengeId,
+                challengeNonce: proof.nonce
+            })
+        });
+    }
+
+    return response;
 }
 
 if (
@@ -740,17 +921,19 @@ if (
 
             const order = await createOrderPayload();
             const selectedPaymentMethod = order.paymentMethod;
+            const idempotencyKey = mintIdempotencyKey();
 
             // Whichever branch runs, the id of the order the server created.
             let placedOrderId = null;
 
             try {
                 if (selectedPaymentMethod === "card") {
-                    // 1. Create Payment Intent
-                    const intentRes = await AppUtils.apiRequest("/orders/create-payment-intent", {
-                        method: "POST",
-                        body: JSON.stringify(order)
-                    });
+                    // 1. Create Payment Intent (PoW gate may challenge first)
+                    const intentRes = await placeOrderWithChallenge(
+                        "/orders/create-payment-intent",
+                        order,
+                        idempotencyKey
+                    );
 
                     if (!intentRes.success) {
                         throw orderFailure(intentRes);
@@ -778,11 +961,12 @@ if (
                         AppUtils.notify("Payment successful! Order placed. 🎉", "success");
                     }
                 } else {
-                    // Fallback for COD/UPI
-                    const data = await AppUtils.apiRequest("/orders", {
-                        method: "POST",
-                        body: JSON.stringify(order)
-                    });
+                    // Fallback for COD/UPI — challenge gate targets scripted COD.
+                    const data = await placeOrderWithChallenge(
+                        "/orders",
+                        order,
+                        idempotencyKey
+                    );
 
                     if (!data.success) {
                         throw orderFailure(data);

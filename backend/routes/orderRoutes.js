@@ -246,10 +246,15 @@ router.post("/validate", orderController.validateOrder);
 // ==================== USER ENDPOINTS ====================
 
 // Create payment intent
-router.post("/create-payment-intent", authMiddleware, orderController.createPaymentIntent);
+router.post(
+    "/create-payment-intent",
+    authMiddleware,
+    require("../middleware/checkoutChallengeMiddleware").checkoutChallengeMiddleware,
+    orderController.createPaymentIntent
+);
 
 // Create order
-router.post("/", authMiddleware, (req, res, next) => {
+router.post("/", authMiddleware, require("../middleware/checkoutChallengeMiddleware").checkoutChallengeMiddleware, (req, res, next) => {
     const { items, total, paymentMethod } = req.body;
 
     // Validate items

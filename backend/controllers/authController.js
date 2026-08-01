@@ -815,6 +815,116 @@ const getMe = async (req, res) => {
     }
 };
 
+// ==================== GDPR / DPDP ERASURE (#1397) ====================
+
+const dataErasureService = require("../services/dataErasureService");
+
+/**
+ * POST /api/auth/erasure/request
+ * Authenticated user opens a staged erasure request; confirmation email sent.
+ */
+const requestDataErasure = async (req, res) => {
+    try {
+        const { ip, userAgent } = clientMeta(req);
+        const result = await dataErasureService.requestErasure(req.user.id, {
+            reason: req.body?.reason,
+            ip,
+            userAgent
+        });
+        return res.status(201).json({
+            success: true,
+            message: result.message,
+            requestId: result.requestId,
+            status: result.status,
+            expiresAt: result.expiresAt,
+            emailDelivered: result.emailDelivered,
+            ...(result.confirmationToken
+                ? { confirmationToken: result.confirmationToken }
+                : {})
+        });
+    } catch (error) {
+        const status = error.status || 500;
+        return res.status(status).json({
+            success: false,
+            code: error.code || "ERASURE_ERROR",
+            message: error.message || "Failed to create erasure request"
+        });
+    }
+};
+
+/**
+ * POST /api/auth/erasure/confirm
+ * Confirm with the emailed token — runs soft-delete → anonymize → purge → receipt.
+ */
+const confirmDataErasure = async (req, res) => {
+    try {
+        const token = sanitizeString(req.body?.token || req.body?.confirmationToken || "");
+        const requestId = sanitizeString(req.body?.requestId || "") || null;
+        const result = await dataErasureService.confirmErasure(token, { requestId });
+        return res.status(200).json({
+            success: true,
+            message: result.message,
+            receiptId: result.receiptId,
+            requestId: result.requestId,
+            status: result.status,
+            summary: result.summary
+        });
+    } catch (error) {
+        const status = error.status || 500;
+        return res.status(status).json({
+            success: false,
+            code: error.code || "ERASURE_ERROR",
+            message: error.message || "Failed to confirm erasure"
+        });
+    }
+};
+
+/**
+ * GET /api/auth/erasure/:requestId
+ * Authenticated user checks their own erasure request status.
+ */
+const getMyErasureStatus = async (req, res) => {
+    try {
+        const requestId = sanitizeString(req.params.requestId || "");
+        const status = await dataErasureService.getErasureStatus(requestId, {
+            userId: req.user.id,
+            asAdmin: false
+        });
+        return res.status(200).json({
+            success: true,
+            erasure: status
+        });
+    } catch (error) {
+        const status = error.status || 500;
+        return res.status(status).json({
+            success: false,
+            code: error.code || "ERASURE_ERROR",
+            message: error.message || "Failed to fetch erasure status"
+        });
+    }
+};
+
+/**
+ * GET /api/auth/erasure/receipt/:receiptId
+ * Public verification of an erasure receipt (no PII).
+ */
+const verifyErasureReceipt = async (req, res) => {
+    try {
+        const receiptId = sanitizeString(req.params.receiptId || "");
+        const receipt = await dataErasureService.verifyReceipt(receiptId);
+        return res.status(200).json({
+            success: true,
+            receipt
+        });
+    } catch (error) {
+        const status = error.status || 500;
+        return res.status(status).json({
+            success: false,
+            code: error.code || "ERASURE_ERROR",
+            message: error.message || "Failed to verify receipt"
+        });
+    }
+};
 
 // ==================== EXPORTS ====================
 module.exports = {
@@ -830,7 +940,11 @@ module.exports = {
     validateToken,  
     getSecurityAudit, 
     getFraudStatus,
-    getMe
+    getMe,
+    requestDataErasure,
+    confirmDataErasure,
+    getMyErasureStatus,
+    verifyErasureReceipt
 };
 
 // Internal login-guard helpers exposed for unit testing only. Not part of the
