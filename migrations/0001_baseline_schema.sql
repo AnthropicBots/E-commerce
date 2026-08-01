@@ -1,4 +1,16 @@
 -- ============================================
+-- BASELINE (0001)
+-- ============================================
+--
+-- The schema established installations already have, adopted verbatim as the
+-- starting point of the sequence. It is not idempotent -- it declares stored
+-- procedures that cannot be redeclared -- so a database that already has these
+-- tables adopts the sequence with `npm run migrate:baseline`, which records this
+-- version as applied without running it. A fresh database runs it normally.
+--
+-- Nothing in this file may change. Later migrations amend the schema.
+--
+-- ============================================
 -- ENHANCED DATABASE SCHEMA FOR E-COMMERCE PLATFORM
 -- Includes: Audit Trail, Soft Delete, Indexes, 
 -- Inventory Management, Coupons, Shipping Tracking,
