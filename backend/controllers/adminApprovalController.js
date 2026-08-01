@@ -1,12 +1,13 @@
 // backend/controllers/adminApprovalController.js
 const db = require('../config/db').promise;
+const { PERMISSIONS, hasPermission } = require('../config/policy');
 
 /**
  * Get pending approval requests (Admin only)
  */
 exports.getPendingApprovals = async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
+    if (!hasPermission(req.user, PERMISSIONS.APPROVAL_MANAGE)) {
       return res.status(403).json({
         success: false,
         error: 'Admin access required'
@@ -37,7 +38,7 @@ exports.getPendingApprovals = async (req, res) => {
 exports.decideApproval = async (req, res) => {
   let connection;
   try {
-    if (req.user.role !== 'admin') {
+    if (!hasPermission(req.user, PERMISSIONS.APPROVAL_MANAGE)) {
       return res.status(403).json({
         success: false,
         error: 'Admin access required'

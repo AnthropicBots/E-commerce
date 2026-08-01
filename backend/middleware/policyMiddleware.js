@@ -1,5 +1,6 @@
 // backend/middleware/policyMiddleware.js
 const { policyEngine } = require('../services/policyEngineService');
+const { isAdminRole } = require('../config/policy');
 
 /**
  * Middleware to check authorization policy
@@ -61,7 +62,7 @@ function isResourceOwner(getResourceId) {
             // This would be implemented based on your data model
             const isOwner = await checkResourceOwnership(req.user.id, resourceId);
             
-            if (!isOwner && req.user.role !== 'admin') {
+            if (!isOwner && !isAdminRole(req.user.role)) {
                 return res.status(403).json({
                     success: false,
                     error: 'Access denied'

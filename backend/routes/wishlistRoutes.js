@@ -27,6 +27,7 @@ const router = express.Router();
 
 const authMiddleware = require("../middleware/authMiddleware");
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
+const { ROLES } = require("../config/policy");
 const wishlistController = require("../controllers/wishlistController");
 const { safeUUID } = require("../utils/helpers");
 const {
@@ -225,7 +226,7 @@ router.get("/share/:token", validateShareToken, wishlistController.getSharedWish
 router.get(
   "/admin/stats/all",
   authMiddleware,
-  authorizeRoles("admin"),
+  authorizeRoles(ROLES.ADMIN),
   wishlistController.getWishlistStats
 );
 
@@ -233,7 +234,7 @@ router.get(
 router.get(
   "/admin/:userId",
   authMiddleware,
-  authorizeRoles("admin"),
+  authorizeRoles(ROLES.ADMIN),
   wishlistController.getAdminUserWishlist
 );
 

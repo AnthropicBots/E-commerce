@@ -2,6 +2,7 @@
 const { validatePromo, calculateDiscount, getPromoByCode, applyPromoTransaction } = require("../services/promo.service");
 const cartLifecycle = require("../services/cartLifecycleService");
 const { safeNumber, sanitizeString } = require("../utils/helpers");
+const { PERMISSIONS, hasPermission } = require("../config/policy");
 const NodeCache = require('node-cache');
 const crypto = require('crypto');
 
@@ -628,7 +629,7 @@ const getPromoDetails = async (req, res) => {
 
 const clearPromoCache = async (req, res) => {
     try {
-        if (!req.user || req.user.role !== 'admin') {
+        if (!hasPermission(req.user, PERMISSIONS.CACHE_MANAGE)) {
             console.log(`[AUDIT] Unauthorized cache clear attempt by user ${req.user?.id || 'unknown'}`);
             return res.status(403).json({ success: false, message: "Unauthorized: Only admins can clear promo cache" });
         }

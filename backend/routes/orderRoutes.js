@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
+const { ROLES } = require("../config/policy");
 const orderController = require("../controllers/orderController");
 const { safeArray, safeNumber, sanitizeString } = require("../utils/helpers");
 
@@ -336,7 +337,7 @@ router.get("/my-orders", authMiddleware, (req, res, next) => {
 router.get(
     "/reports/fulfilment",
     authMiddleware,
-    authorizeRoles("admin"),
+    authorizeRoles(ROLES.ADMIN),
     orderController.getFulfilmentReport
 );
 
@@ -372,7 +373,7 @@ router.patch("/:id/cancel", authMiddleware, (req, res, next) => {
 router.get(
     "/export/csv",
     authMiddleware,
-    authorizeRoles("admin", "support"),
+    authorizeRoles(ROLES.ADMIN, ROLES.SUPPORT),
     (req, res, next) => {
         if (req.query.status) {
             const statusValidation = validateStatus(req.query.status);
@@ -400,7 +401,7 @@ router.get(
 router.get(
     "/",
     authMiddleware,
-    authorizeRoles("admin"),
+    authorizeRoles(ROLES.ADMIN),
     orderController.getAllOrders
 );
 
@@ -408,7 +409,7 @@ router.get(
 router.put(
     "/:id/status",
     authMiddleware,
-    authorizeRoles("admin"),
+    authorizeRoles(ROLES.ADMIN),
     (req, res, next) => {
         const { status } = req.body;
         const statusValidation = validateStatus(status);

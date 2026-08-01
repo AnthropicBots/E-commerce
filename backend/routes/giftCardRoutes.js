@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
+const { ROLES } = require("../config/policy");
 const giftCardService = require("../services/giftCardService");
 
 const { GiftCardError } = giftCardService;
@@ -35,7 +36,7 @@ function handleError(res, error, logLabel) {
 // ==================== ADMIN ROUTES ====================
 
 // Issue a new gift card. Returns the plaintext code exactly once.
-router.post("/issue", authMiddleware, authorizeRoles("admin"), async (req, res) => {
+router.post("/issue", authMiddleware, authorizeRoles(ROLES.ADMIN), async (req, res) => {
     try {
         const { amount, currency, expiresAt } = req.body;
 

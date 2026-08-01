@@ -2,6 +2,7 @@ const db = require("../config/db");
 const { withTransaction } = require("../config/db");
 const logger = require("../utils/logger");
 const { safeArray, safeNumber, sanitizeString, safeUUID } = require("../utils/helpers");
+const { PERMISSIONS, hasPermission } = require("../config/policy");
 const NodeCache = require('node-cache');
 
 // Shared client -- see config/redis.js. This module used to construct its own
@@ -527,7 +528,7 @@ const verifyConversationAccess = async (conversationId, userId, role) => {
         const [conv] = await db.query(`SELECT * FROM chat_conversations WHERE id = ?`, [validConvId]);
         if (!conv.length) return false;
 
-        if (role === 'admin') return true;
+        if (hasPermission(role, PERMISSIONS.CHAT_MANAGE)) return true;
         return conv[0].customer_id === userId;
     } catch (error) {
         logger.error(`Verify conversation access error: ${error.message}`);
