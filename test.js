@@ -56,7 +56,7 @@ Options:
 
 Examples:
   node test.js                          # Extract users table from ecommerce.sql
-  node test.js schema.sql               # Extract users table from schema.sql
+  node test.js migrations/0001_baseline_schema.sql   # Extract from the baseline migration
   node test.js --table=products         # Extract products table
   node test.js --list                   # List all tables in the file
   node test.js --encoding=utf16le       # Use UTF-16LE encoding
