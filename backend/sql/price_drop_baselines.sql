@@ -6,7 +6,7 @@
 -- enqueues notifications via the notification broker, respecting preferences
 -- and daily dedupe keys.
 --
--- Also folded into migrations/0027_price_drop_baselines.sql for migrate.
+-- Also folded into migrations/0030_price_drop_baselines.sql for migrate.
 
 CREATE TABLE IF NOT EXISTS price_drop_baselines (
     id INT AUTO_INCREMENT PRIMARY KEY,
