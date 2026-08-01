@@ -1,4 +1,4 @@
-// dashboard wishlist elements + price-drop preference center (#1394)
+// dashboard wishlist elements + notification preference center (#1394, #1429)
 const getDashboardElements = () => ({
     wishlistContainer: document.getElementById("wishlist-items"),
     wishlistCount: document.getElementById("wishlist-count"),
@@ -6,6 +6,8 @@ const getDashboardElements = () => ({
     cartCount: document.getElementById("cart-count-dashboard"),
     prefEmail: document.getElementById("pref-price-drop-email"),
     prefInApp: document.getElementById("pref-price-drop-in-app"),
+    prefRecoveryEmail: document.getElementById("pref-cart-recovery-email"),
+    prefRecoveryInApp: document.getElementById("pref-cart-recovery-in-app"),
     prefUnsubAll: document.getElementById("pref-price-drop-unsub-all"),
     savePrefsBtn: document.getElementById("save-price-drop-prefs"),
     syncBaselinesBtn: document.getElementById("sync-price-drop-baselines"),
@@ -28,6 +30,12 @@ function paintPreferenceForm(preferences) {
     }
     if (elements.prefInApp) {
         elements.prefInApp.checked = Boolean(preferences.priceDropInApp);
+    }
+    if (elements.prefRecoveryEmail) {
+        elements.prefRecoveryEmail.checked = Boolean(preferences.cartRecoveryEmail);
+    }
+    if (elements.prefRecoveryInApp) {
+        elements.prefRecoveryInApp.checked = Boolean(preferences.cartRecoveryInApp);
     }
     if (elements.prefUnsubAll) {
         elements.prefUnsubAll.checked = Boolean(preferences.unsubscribedAll);
@@ -109,6 +117,12 @@ async function savePriceDropPreferences() {
     const payload = {
         priceDropEmail: Boolean(elements.prefEmail && elements.prefEmail.checked),
         priceDropInApp: Boolean(elements.prefInApp && elements.prefInApp.checked),
+        cartRecoveryEmail: Boolean(
+            elements.prefRecoveryEmail && elements.prefRecoveryEmail.checked
+        ),
+        cartRecoveryInApp: Boolean(
+            elements.prefRecoveryInApp && elements.prefRecoveryInApp.checked
+        ),
         unsubscribedAll: Boolean(elements.prefUnsubAll && elements.prefUnsubAll.checked)
     };
 
@@ -124,7 +138,7 @@ async function savePriceDropPreferences() {
 
         paintPreferenceForm(response.preferences);
         setPrefStatus("Preferences saved.", "ok");
-        AppUtils.notify("Price-drop preferences updated.", "success");
+        AppUtils.notify("Notification preferences updated.", "success");
     } catch (error) {
         console.error("Failed to save preferences:", error);
         setPrefStatus(error.message || "Could not save preferences.", "error");

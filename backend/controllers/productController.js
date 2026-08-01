@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const productService = require("../services/productService");
+const stockCounter = require("../services/stockCounterService");
 
 // helper functions
 const {
@@ -596,6 +597,35 @@ const updateProduct = async (req, res) => {
     try {
         const categoryId = category !== undefined ? await getOrCreateCategoryId(category, db) : undefined;
 
+        // For a product with variants, `products.stock` is a roll-up of the
+        // variants a shopper can pick, not a figure of its own. Refuse an edit
+        // to it rather than accept a number and quietly discard it at the next
+        // sale -- the quantity has to be set on the variant that holds it. A
+        // submission that already agrees with the roll-up is not an edit and
+        // passes, so an administrator renaming a product does not have to fight
+        // the stock field.
+        const rollup = await stockCounter.getVariantRollup(db, id);
+        const hasVariants = rollup.variantCount > 0;
+
+        if (hasVariants && stock !== undefined && Math.max(0, safeInteger(stock)) !== rollup.stock) {
+            return res.status(400).json({
+                success: false,
+                message:
+                    "This product's stock is held on its variants. Update the variant quantities instead."
+            });
+        }
+
+        // Recomputed by the statement rather than written from the figure read
+        // a moment ago, so a sale landing in between is not undone here.
+        const stockAssignment = hasVariants
+            ? `stock = COALESCE((
+                    SELECT SUM(v.stock) FROM product_variants v
+                    WHERE v.product_id = products.id
+                      AND v.is_active = 1
+                      AND v.deleted_at IS NULL
+                ), stock)`
+            : "stock = ?";
+
         const query = `
             UPDATE products
             SET
@@ -604,7 +634,7 @@ const updateProduct = async (req, res) => {
                 price = ?,
                 image = ?,
                 category_id = COALESCE(?, category_id),
-                stock = ?,
+                ${stockAssignment},
                 featured = ?
             WHERE id = ? AND deleted_at IS NULL
         `;
@@ -617,10 +647,7 @@ const updateProduct = async (req, res) => {
                 safeNumber(price),
                 sanitizeString(image),
                 categoryId,
-                Math.max(
-                    0,
-                    safeInteger(stock)
-                ),
+                ...(hasVariants ? [] : [Math.max(0, safeInteger(stock))]),
                 featured === true
                     || featured === 1
                     || featured === "1"

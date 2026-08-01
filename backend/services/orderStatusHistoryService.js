@@ -23,7 +23,10 @@
 // history written *before* a rolled-back status change is worse than none.
 
 const db = require('../config/db');
-const { safeArray, sanitizeString } = require('../utils/helpers');
+const { safeArray, safeNumber, sanitizeString } = require('../utils/helpers');
+// Delivery options (#1430). Needed only to put a label on the method code the
+// order recorded; the dates themselves were computed when the order was placed.
+const shipping = require('./shipping.service');
 
 /**
  * Where a status change came from.
@@ -299,7 +302,10 @@ class OrderStatusHistoryService {
      * without an intervening `out_for_delivery` event.
      */
     async getTimeline(order, options = {}) {
-        const history = await this.getHistory(order.id, options);
+        const [history, delivery] = await Promise.all([
+            this.getHistory(order.id, options),
+            this.describeDelivery(order)
+        ]);
 
         const reached = new Set(history.map((entry) => entry.status));
         const isTerminal = order.status === 'cancelled' || order.status === 'refunded';
@@ -327,7 +333,56 @@ class OrderStatusHistoryService {
             currentStatus: order.status,
             isCancelled: isTerminal,
             steps: isTerminal ? [] : steps,
+            delivery,
             history
+        };
+    }
+
+    /**
+     * What the order was sold, and when it was promised for.
+     *
+     * Read back from the order rather than recomputed: these are the figures
+     * the shopper agreed to at checkout, and a delivery option retuned since
+     * then must not retrospectively change what they were told.
+     *
+     * The estimate is dropped once the order reaches a state where it is no
+     * longer a prediction. A delivered order has a real date and a cancelled
+     * one has no delivery at all; continuing to show "arriving Thursday"
+     * against either is worse than showing nothing.
+     *
+     * Returns null for orders placed before checkout offered a choice, which
+     * recorded no method — the timeline simply says nothing about delivery for
+     * those, rather than guessing what they were sent by.
+     *
+     * @param {Object} order - id, status, and the shipping columns
+     * @returns {Promise<Object|null>}
+     */
+    async describeDelivery(order = {}) {
+        const code = sanitizeString(order.shipping_method);
+
+        if (!code) return null;
+
+        const methods = await shipping.listMethods();
+        const method = methods.find((candidate) => candidate.code === code);
+
+        const isSettled =
+            order.status === 'delivered' ||
+            order.status === 'cancelled' ||
+            order.status === 'refunded';
+
+        const from = order.estimated_delivery_from || null;
+        const to = order.estimated_delivery || null;
+
+        return {
+            method: {
+                code,
+                // A code the options table no longer carries is still shown,
+                // because the order was genuinely sold under it. Falling back
+                // to the code beats rendering an empty label.
+                label: method ? method.label : code
+            },
+            charge: safeNumber(order.shipping_cost, 0),
+            estimate: !isSettled && from && to ? { from, to } : null
         };
     }
 

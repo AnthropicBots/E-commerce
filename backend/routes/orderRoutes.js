@@ -390,6 +390,15 @@ router.get(
     orderController.getFulfilmentReport
 );
 
+// What the abandoned-cart recovery programme earned (#1429). Answerable at all
+// only because orders record the link they arrived through.
+router.get(
+    "/reports/recovery",
+    authMiddleware,
+    authorizeRoles(ROLES.ADMIN),
+    orderController.getRecoveryReport
+);
+
 // The order's progress ladder plus the recorded history behind it. Scoped to
 // the order's owner; admins additionally see the actor and internal notes.
 router.get("/:id/timeline", authMiddleware, ownsOrder, orderController.getOrderTimeline);

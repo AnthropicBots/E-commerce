@@ -61,6 +61,21 @@ const elements = {
             "checkout-shipping"
         ),
 
+    shippingMethodNote:
+        document.getElementById(
+            "checkout-shipping-method"
+        ),
+
+    deliveryOptions:
+        document.getElementById(
+            "delivery-options"
+        ),
+
+    freeShippingProgress:
+        document.getElementById(
+            "free-shipping-progress"
+        ),
+
     discount:
         document.getElementById(
             "checkout-discount"
@@ -261,13 +276,166 @@ function safeQty(
         );
 }
 
+// DELIVERY OPTION
+//
+// Which option the shopper picked, and nothing else. What it costs is never
+// held here: the server prices the selection and the summary renders whatever
+// comes back, so there is no figure on this page the browser could send.
+let selectedShippingMethod =
+    null;
+
+// Where the parcel is going, as far as the form knows so far. Rates can depend
+// on it, so it travels with every quote; the order is re-priced against the
+// address it is actually placed with, so this can only ever be an estimate the
+// server has to agree with.
+function currentDestination() {
+
+    const pincode =
+        elements.zip
+            ? elements.zip.value.trim()
+            : "";
+
+    if (
+        !pincode
+    ) {
+        return null;
+    }
+
+    return {
+
+        pincode,
+
+        city:
+            elements.city
+                ? elements.city.value.trim()
+                : "",
+
+        state:
+            elements.state
+                ? elements.state.value.trim()
+                : ""
+    };
+}
+
 // CALCULATE TOTALS
 async function calculateTotals() {
 
     return AppUtils.fetchCartQuote(
         cart,
-        appliedCoupon
+        appliedCoupon,
+        selectedShippingMethod,
+        currentDestination()
     );
+}
+
+function renderDeliveryOptions(
+    options,
+    currency
+) {
+
+    if (
+        !elements.deliveryOptions
+    ) {
+        return;
+    }
+
+    const available =
+        AppUtils.safeArray(
+            options
+        );
+
+    if (
+        !available.length
+    ) {
+
+        // The quote could not be reached, or this basket has nothing to
+        // deliver. Saying so is better than an empty box, and leaving the
+        // selection untouched means the order still goes out on the default.
+        elements.deliveryOptions.innerHTML =
+            '<p class="delivery-options-loading">Delivery options are unavailable right now — your order will be sent by our standard service.</p>';
+
+        return;
+    }
+
+    elements.deliveryOptions.innerHTML =
+        available
+            .map(
+                (
+                    option
+                ) => `
+                    <label class="delivery-option${option.isSelected ? " is-selected" : ""}">
+
+                        <input
+                            type="radio"
+                            name="delivery"
+                            value="${escapeHTML(option.code)}"
+                            ${option.isSelected ? "checked" : ""}
+                        >
+
+                        <span class="delivery-option-body">
+
+                            <span class="delivery-option-label">
+                                ${escapeHTML(option.label)}
+                            </span>
+
+                            <small class="delivery-option-description">
+                                ${escapeHTML(option.description || "")}
+                            </small>
+
+                        </span>
+
+                        <span class="delivery-option-cost">
+                            ${
+                                option.cost === 0
+                                    ? "Free"
+                                    : AppUtils.formatPrice(
+                                        option.cost,
+                                        currency
+                                    )
+                            }
+                        </span>
+
+                    </label>
+                `
+            )
+            .join("");
+
+    const selected =
+        available.find(
+            (
+                option
+            ) => option.isSelected
+        );
+
+    selectedShippingMethod =
+        selected
+            ? selected.code
+            : null;
+
+    elements.deliveryOptions
+        .querySelectorAll(
+            'input[name="delivery"]'
+        )
+        .forEach(
+            (
+                input
+            ) => {
+
+                input.addEventListener(
+                    "change",
+                    async () => {
+
+                        selectedShippingMethod =
+                            input.value;
+
+                        // Re-price rather than adjust the total locally. The
+                        // charge for an option is the server's to state, and
+                        // the two must not be able to disagree.
+                        await refreshSummary();
+                    }
+                );
+            }
+        );
 }
 
 function renderTotals(
@@ -312,6 +480,18 @@ function renderTotals(
                     totals.shipping,
                     currency
                 );
+    }
+
+    if (
+        elements.shippingMethodNote
+    ) {
+
+        // Naming the option next to the charge is what makes the line
+        // reconcilable — "Shipping ₹149" alone does not say what was bought.
+        elements.shippingMethodNote.innerText =
+            totals.shippingMethod
+                ? `(${totals.shippingMethod.label})`
+                : "";
     }
 
     const discount =
@@ -359,7 +539,49 @@ async function refreshSummary() {
         totals
     );
 
+    renderDeliveryOptions(
+        totals.shippingOptions,
+        totals.currency
+    );
+
+    if (
+        elements.freeShippingProgress
+    ) {
+
+        elements.freeShippingProgress.innerText =
+            AppUtils.formatFreeShippingProgress(
+                totals.freeShipping,
+                totals.currency
+            );
+    }
+
     return totals;
+}
+
+// A rate can depend on where the parcel is going, so the summary follows the
+// address rather than waiting for the order to be placed to reveal the real
+// figure. Debounced, because this fires on every keystroke in a PIN code.
+if (
+    elements.zip
+) {
+
+    elements.zip.addEventListener(
+        "input",
+        AppUtils.debounce(
+            () => {
+
+                if (
+                    /^\d{5,6}$/.test(
+                        elements.zip.value.trim()
+                    )
+                ) {
+
+                    refreshSummary();
+                }
+            },
+            500
+        )
+    );
 }
 
 // RENDER CHECKOUT
@@ -625,6 +847,11 @@ async function createOrderPayload() {
             selectedPayment.value
                 .toLowerCase(),
 
+        // The code only. The server looks up what it costs, so nothing about
+        // the delivery charge travels in this payload.
+        shippingMethod:
+            selectedShippingMethod,
+
         total:
             totals.total,
 
@@ -632,6 +859,12 @@ async function createOrderPayload() {
         // and quietly charges them the undiscounted price.
         promoCode:
             appliedCoupon || null,
+
+        // Set when this basket came back through a recovery link (#1429). The
+        // backend decides whether it attributes anything; sending one it does
+        // not recognise costs the order nothing.
+        recoveryRef:
+            AppUtils.getRecoveryRef(),
 
         items:
             AppUtils.safeArray(
@@ -985,6 +1218,10 @@ if (
                 AppUtils.clearCart();
                 AppUtils.clearCartToken();
                 AppUtils.removeStorage("appliedCoupon");
+
+                // The recovery is spent on the order that just used it. Left
+                // in place it would go on to claim the next order too.
+                AppUtils.clearRecoveryRef();
 
                 // update ui
                 if (

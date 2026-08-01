@@ -25,6 +25,7 @@ const elements = {
     taxElement: document.getElementById("tax"),
     totalElement: document.getElementById("total"),
     shippingElement: document.getElementById("shipping"),
+    freeShippingProgress: document.getElementById("free-shipping-progress"),
     discountElement: document.getElementById("discount"),
     checkoutBtn: document.getElementById("checkout-btn"),
     emptyCartBtn: document.getElementById("empty-cart-btn"),
@@ -264,6 +265,12 @@ async function updateCartTotals() {
     }
     if (elements.shippingElement) {
         elements.shippingElement.innerText = totals.shipping === 0 ? "Free" : AppUtils.formatPrice(totals.shipping, currency);
+    }
+    if (elements.freeShippingProgress) {
+        // The cart is where this matters most: it is the last screen where
+        // adding another item is still the obvious thing to do.
+        elements.freeShippingProgress.innerText =
+            AppUtils.formatFreeShippingProgress(totals.freeShipping, currency);
     }
     if (elements.discountElement) {
         elements.discountElement.innerText = `-${AppUtils.formatPrice(totals.discount > 0 ? totals.discount : 0, currency)}`;

@@ -1886,6 +1886,43 @@ const mergeGuestCartIntoAccount = async () => {
     return accepted ? merged : getCart();
 };
 
+// ---------- Recovery attribution (#1429) ----------
+// A basket restored from a recovery link hands back a reference to the link it
+// came through. Checkout sends it on, so the order can record that it was
+// recovered instead of the figure being guessed from timestamps afterwards.
+//
+// It lives here rather than with the restore landing page because the two ends
+// are on different pages: the reference is written on the cart page and read on
+// the checkout page, and only utils is loaded by both.
+
+const RECOVERY_REF_KEY = "cart_recovery_ref";
+
+// Housekeeping, not enforcement. The server has its own attribution window and
+// is the only thing that decides what counts; this just stops a reference from
+// a fortnight ago riding along on every order in the meantime.
+const RECOVERY_REF_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+
+const rememberRecoveryRef = (reference) => {
+    if (!reference) return;
+
+    setJSON(RECOVERY_REF_KEY, { ref: String(reference), storedAt: Date.now() });
+};
+
+const getRecoveryRef = () => {
+    const stored = getJSON(RECOVERY_REF_KEY, null);
+
+    if (!stored || !stored.ref) return null;
+
+    if (Date.now() - safeNumber(stored.storedAt, 0) > RECOVERY_REF_TTL_MS) {
+        removeStorage(RECOVERY_REF_KEY);
+        return null;
+    }
+
+    return stored.ref;
+};
+
+const clearRecoveryRef = () => removeStorage(RECOVERY_REF_KEY);
+
 const getCartCount = (
     cart = getCart()
 ) => {
@@ -2038,7 +2075,9 @@ const calculateCartTotals = async (
 // `isServerQuote` tells callers which of the two they are looking at.
 const fetchCartQuote = async (
     cart = getCart(),
-    couponCode = ""
+    couponCode = "",
+    shippingMethod = null,
+    destination = null
 ) => {
     const items = safeArray(cart).map(
         (item) => ({
@@ -2055,7 +2094,14 @@ const fetchCartQuote = async (
             method: "POST",
             body: JSON.stringify({
                 items,
-                promoCode: couponCode || null
+                promoCode: couponCode || null,
+                // A code naming a delivery option, never a rate. The server
+                // decides what it costs.
+                shippingMethod: shippingMethod || null,
+                // Where it is going, so destination rules can apply. Null
+                // until an address is known, which is the whole of the cart
+                // page.
+                destination: destination || null
             })
         });
 
@@ -2067,6 +2113,8 @@ const fetchCartQuote = async (
 
         return {
             ...response.breakdown,
+            shippingOptions: safeArray(response.shippingOptions),
+            freeShipping: response.freeShipping || null,
             promoMessage: response.promoMessage || null,
             isServerQuote: true
         };
@@ -2077,9 +2125,37 @@ const fetchCartQuote = async (
 
         return {
             ...fallback,
+            // Deliberately empty: the local fallback cannot price a delivery
+            // option, and offering a choice it could not cost would show the
+            // shopper a figure the server never agreed to. The same goes for
+            // promising free delivery at a threshold only the server knows.
+            shippingOptions: [],
+            freeShipping: null,
             isServerQuote: false
         };
     }
+};
+
+// How the progress toward free delivery reads. The threshold and the shortfall
+// are both the server's figures — the browser knows neither the rule nor the
+// basket value it is measured against — so this only chooses the wording.
+//
+// Returns an empty string when there is no threshold to work toward, which is
+// a perfectly ordinary configuration and should render nothing rather than an
+// empty promise.
+const formatFreeShippingProgress = (freeShipping, currency) => {
+    if (!freeShipping) {
+        return "";
+    }
+
+    if (freeShipping.qualified) {
+        return "Your order qualifies for free delivery.";
+    }
+
+    return (
+        `Add ${formatPrice(freeShipping.remaining, currency)} more to qualify ` +
+        "for free delivery."
+    );
 };
 
 const getWishlist = () => {
@@ -2168,9 +2244,13 @@ window.AppUtils = {
     mergeCartLines,
     hydrateCartFromServer,
     mergeGuestCartIntoAccount,
+    rememberRecoveryRef,
+    getRecoveryRef,
+    clearRecoveryRef,
     validateCoupon,
     calculateCartTotals,
     fetchCartQuote,
+    formatFreeShippingProgress,
     getWishlist,
     saveWishlist,
     getSkeletonCardHTML,

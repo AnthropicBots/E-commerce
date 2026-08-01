@@ -59,6 +59,11 @@ const PUBLIC_ROUTES = Object.freeze([
     { method: 'POST', path: '/api/auth/erasure/confirm', reason: PUBLIC_REASON.SIGNED_TOKEN },
     { method: 'GET', path: '/api/auth/erasure/receipt/:receiptId', reason: PUBLIC_REASON.SIGNED_TOKEN },
     { method: 'POST', path: '/api/wishlist-notify/unsubscribe', reason: PUBLIC_REASON.SIGNED_TOKEN },
+    // Abandoned-cart recovery (#1429). The token is single-purpose, bound to
+    // one cart, expiring and single-use; it establishes no session, and the
+    // handler writes to no cart. Every other /api/cart route stays behind
+    // authentication.
+    { method: 'POST', path: '/api/cart/restore', reason: PUBLIC_REASON.SIGNED_TOKEN },
 
     { method: 'POST', path: '/api/courier-webhooks/:provider', reason: PUBLIC_REASON.WEBHOOK }
 ]);

@@ -2,6 +2,7 @@ const promisePool = require("../config/db");
 const { safeArray, safeInteger, safeNumber, sanitizeString } = require("../utils/helpers");
 const { NO_VARIANT_ID } = require("./cart.service");
 const { cacheService } = require("./cacheService");
+const stockCounter = require("./stockCounterService");
 
 // Atomic reservation TTL — 10 minutes (#1260)
 const LOCK_TTL_MS = parseInt(process.env.INVENTORY_LOCK_TTL_MS, 10) || 10 * 60 * 1000;
@@ -64,53 +65,16 @@ function hasVariantChoice(line) {
     return line.variantId > NO_VARIANT_ID || Boolean(line.color) || Boolean(line.size);
 }
 
+// Reservation resolves a line to a variant exactly the way the sale does, by
+// calling the same resolver. Two implementations of "which variant is this"
+// would eventually disagree, and the counter that was reserved would not be the
+// counter that gets decremented.
 async function resolveLockVariant(conn, productId, line) {
     if (!hasVariantChoice(line)) {
         return null;
     }
 
-    try {
-        if (line.variantId > NO_VARIANT_ID) {
-            const [rows] = await conn.query(
-                `SELECT id, stock FROM product_variants
-                 WHERE id = ? AND product_id = ? AND is_active = 1
-                 LIMIT 1 FOR UPDATE`,
-                [line.variantId, productId]
-            );
-
-            return safeArray(rows)[0] || null;
-        }
-
-        const conditions = [];
-        const params = [productId];
-
-        if (line.color) {
-            conditions.push(
-                "LOWER(JSON_UNQUOTE(JSON_EXTRACT(attributes, '$.color'))) = LOWER(?)"
-            );
-            params.push(line.color);
-        }
-
-        if (line.size) {
-            conditions.push(
-                "LOWER(JSON_UNQUOTE(JSON_EXTRACT(attributes, '$.size'))) = LOWER(?)"
-            );
-            params.push(line.size);
-        }
-
-        const [rows] = await conn.query(
-            `SELECT id, stock FROM product_variants
-             WHERE product_id = ? AND is_active = 1
-             AND ${conditions.join(" AND ")}
-             LIMIT 2 FOR UPDATE`,
-            params
-        );
-
-        const matches = safeArray(rows);
-        return matches.length === 1 ? matches[0] : null;
-    } catch {
-        return null;
-    }
+    return stockCounter.resolveVariant(conn, productId, line);
 }
 
 /**
@@ -139,15 +103,17 @@ async function reserveStockInTransaction(conn, userId, productId, quantity, now,
     let totalStock = safeNumber(products[0].stock);
     const productName = products[0].name;
 
+    // Where the line names a variant, the variant's own quantity is what has to
+    // cover the reservation, because it is what the sale will draw down. This
+    // machinery was keyed per variant from the start; comparing against the
+    // product total was what made it guard a number that was not the variant's.
     const variant = await resolveLockVariant(conn, productId, line);
-    const hasVariantStock =
-        Boolean(variant) && variant.stock !== null && variant.stock !== undefined;
 
-    if (hasVariantStock) {
+    if (variant) {
         totalStock = safeNumber(variant.stock);
     }
 
-    const [locks] = hasVariantStock
+    const [locks] = variant
         ? await conn.query(
             "SELECT SUM(quantity) as locked_qty FROM inventory_locks WHERE product_id = ? AND variant_id = ? AND color = ? AND size = ? AND expires_at > ?",
             [productId, line.variantId, line.color, line.size, now]
@@ -337,15 +303,23 @@ const inventoryReservationService = {
             const requested = safeInteger(item.quantity ?? item.qty, 0);
 
             if (requested > lockedQty) {
-                // Also report live available stock under FOR UPDATE when possible
+                // Report the live figure from whichever counter governs this
+                // line, so the number in the 409 is the number the shopper is
+                // actually being held to.
                 let availableStock = lockedQty;
                 try {
-                    const [products] = await pool.query(
-                        "SELECT stock FROM products WHERE id = ? FOR UPDATE",
-                        [line.productId]
-                    );
-                    if (products[0]) {
-                        availableStock = Math.max(0, safeNumber(products[0].stock));
+                    const variant = await resolveLockVariant(pool, line.productId, line);
+
+                    if (variant) {
+                        availableStock = Math.max(0, safeNumber(variant.stock));
+                    } else {
+                        const [products] = await pool.query(
+                            "SELECT stock FROM products WHERE id = ? FOR UPDATE",
+                            [line.productId]
+                        );
+                        if (products[0]) {
+                            availableStock = Math.max(0, safeNumber(products[0].stock));
+                        }
                     }
                 } catch (_) { /* ignore */ }
 
@@ -404,16 +378,19 @@ const inventoryReservationService = {
     },
 
     /**
-     * Deduct stock under the same connection after FOR UPDATE (used at checkout).
+     * Deduct stock under the same connection after FOR UPDATE, from whichever
+     * counter is authoritative for the line. `line` is optional so a caller
+     * with no variant choice keeps the product-level behaviour.
      */
-    deductStockAtomic: async (connection, productId, quantity) => {
-        const [result] = await connection.query(
-            `UPDATE products SET stock = stock - ?
-             WHERE id = ? AND stock >= ?`,
-            [quantity, productId, quantity]
-        );
+    deductStockAtomic: async (connection, productId, quantity, line = {}) => {
+        const movement = await stockCounter.deductStock(connection, {
+            productId,
+            variantId: lockLine({ ...line, productId }).variantId,
+            quantity
+        });
+
         return {
-            ok: result.affectedRows > 0,
+            ok: movement.ok,
             productId,
             requested: quantity
         };
