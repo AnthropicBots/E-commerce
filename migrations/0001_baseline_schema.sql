@@ -831,21 +831,9 @@ CREATE TABLE IF NOT EXISTS reviews (
     images JSON,
     is_verified TINYINT(1) DEFAULT 0,
     is_approved TINYINT(1) DEFAULT 1,
-
-    -- Moderation has three states, not two: approved, rejected, and *waiting
-    -- for a human*. Without the third, a review auto-flagged by reports is
-    -- indistinguishable from one a moderator actively rejected (#1349).
-    -- `is_approved` is retained and kept in step so any reader that has not
-    -- been updated still sees something correct.
-    moderation_status ENUM('approved', 'pending', 'rejected') NOT NULL DEFAULT 'approved',
-
-    -- Denormalised caches of review_votes, recalculated from it rather than
-    -- incremented blind.
     helpful_count INT DEFAULT 0,
     reported_count INT DEFAULT 0,
     moderation_notes TEXT,
-    moderated_by CHAR(36),
-    moderated_at DATETIME,
     deleted_by CHAR(36),
     deleted_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1268,7 +1256,8 @@ CREATE TABLE IF NOT EXISTS recently_viewed (
     INDEX idx_recently_viewed_user (user_id),
     INDEX idx_recently_viewed_product (product_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
--- =====================================-- USER ADDRESSES (saved address book, #1347)
+-- ============================================
+-- USER ADDRESSES (saved address book, #1347)
 -- ============================================
 --
 -- `users` still carries a single flattened address inline (address, city,
@@ -1322,43 +1311,4 @@ CREATE TABLE IF NOT EXISTS user_addresses (
     INDEX idx_user_addresses_user (user_id, deleted_at),
     INDEX idx_user_addresses_default (user_id, is_default),
     INDEX idx_user_addresses_last_used (user_id, last_used_at)
-=======
-
--- ============================================
--- REVIEW VOTES (#1349)
--- ============================================
---
--- One row per (review, user, vote type). The UNIQUE key is the point: with
--- only `reviews.helpful_count` to go on, one shopper can vote the same review
--- up a hundred times, and a report button with no memory can be held down
--- until a review disappears.
---
--- Helpful votes and reports share a table because they are the same shape and
--- are counted the same way, so "has this user already interacted with this
--- review" is a single lookup.
-
-CREATE TABLE IF NOT EXISTS review_votes (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    review_id INT NOT NULL,
-    user_id CHAR(36) NOT NULL,
-
-    vote_type ENUM('helpful', 'report') NOT NULL,
-
-    -- Only meaningful for reports.
-    reason VARCHAR(50),
-    details VARCHAR(500),
-
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT fk_review_votes_review
-        FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE,
-    CONSTRAINT fk_review_votes_user
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-
-    -- Idempotence enforced by the database rather than by a read-then-write
-    -- that two concurrent requests can both pass.
-    UNIQUE KEY uq_review_votes_once (review_id, user_id, vote_type),
-
-    INDEX idx_review_votes_review (review_id, vote_type),
-    INDEX idx_review_votes_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

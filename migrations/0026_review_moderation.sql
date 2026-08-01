@@ -67,15 +67,17 @@ CREATE TABLE IF NOT EXISTS review_votes (
 --
 -- The boolean is kept and derived from the status rather than dropped, so any
 -- reader that has not been updated still sees something correct.
+--
+-- The columns are added unconditionally: `ADD COLUMN IF NOT EXISTS` is MariaDB
+-- syntax that MySQL rejects outright, and the runner applies each migration
+-- exactly once, so the guard bought nothing anyway.
 
 ALTER TABLE reviews
-    ADD COLUMN IF NOT EXISTS moderation_status
+    ADD COLUMN moderation_status
         ENUM('approved', 'pending', 'rejected') NOT NULL DEFAULT 'approved'
-        AFTER is_approved;
-
-ALTER TABLE reviews
-    ADD COLUMN IF NOT EXISTS moderated_by CHAR(36) NULL AFTER moderation_notes,
-    ADD COLUMN IF NOT EXISTS moderated_at DATETIME NULL AFTER moderated_by;
+        AFTER is_approved,
+    ADD COLUMN moderated_by CHAR(36) NULL AFTER moderation_notes,
+    ADD COLUMN moderated_at DATETIME NULL AFTER moderated_by;
 
 -- Existing rows: everything currently visible stays visible. `is_approved`
 -- defaulted to 1 and was never written, so this is a no-op in practice --
