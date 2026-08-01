@@ -12,6 +12,7 @@ const NOTIFICATION_TYPES = {
     ORDER_DELIVERED: 'order.delivered',
     COUPON_EXPIRED: 'coupon.expired',
     WISHLIST_PRICE_DROP: 'wishlist.price_drop',
+    CART_RECOVERY: 'cart.recovery',
     PAYMENT_CONFIRMED: 'payment.confirmed',
     ORDER_SHIPPED: 'order.shipped',
     ORDER_CANCELLED: 'order.cancelled',
