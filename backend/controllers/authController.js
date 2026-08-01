@@ -10,6 +10,9 @@ const { sanitizeString, safeArray } = require("../utils/helpers");
 const { getClearCookieOptions } = require("../config/cookieConfig");
 const refreshTokenService = require("../services/refreshTokenService");
 const agentIdentityService = require("../services/agentIdentityService");
+// Lockout state lives in Redis so it survives a restart and is observed by
+// every instance; the policy it enforces is unchanged.
+const loginLockoutService = require("../services/loginLockoutService");
 
 // Appwrite SDK
 const { Client, Account, ID, Databases } = require('node-appwrite');
@@ -24,11 +27,11 @@ const OTP_EXPIRY_MINUTES = parseInt(process.env.OTP_EXPIRY_MINUTES) || 10;
 const OTP_RATE_LIMIT_WINDOW = 5 * 60 * 1000; // 5 minutes
 const OTP_RATE_LIMIT_MAX = 3; // Max 3 OTP requests per window
 const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
-const MAX_LOGIN_ATTEMPTS = 5;
-const LOGIN_LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
-// Window in which the failed attempts must accumulate to trip the lockout.
-// Failures older than this roll off so isolated mistakes never reach the threshold.
-const LOGIN_ATTEMPT_WINDOW = 15 * 60 * 1000; // 15 minutes
+const {
+    MAX_LOGIN_ATTEMPTS,
+    LOGIN_LOCKOUT_DURATION,
+    LOGIN_ATTEMPT_WINDOW
+} = loginLockoutService;
 
 // ==================== VALIDATION PATTERNS ====================
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -37,7 +40,6 @@ const otpRegex = /^\d{6}$/;
 
 // ==================== RATE LIMITING ====================
 const otpRateLimiter = new Map();
-const loginAttempts = new Map();
 
 // ==================== PENDING SIGNUPS CACHE ====================
 const pendingSignups = new Map();
@@ -142,57 +144,12 @@ function isOTPRateLimited(email) {
     return false;
 }
 
-function isLoginLocked(email) {
-    const now = Date.now();
-    const record = loginAttempts.get(email);
-
-    if (!record) return false;
-
-    // Only an active lockout blocks login. Counting failures within the
-    // window is not itself a lock — that is what let a single mistyped
-    // password lock the account before.
-    if (record.lockoutUntil && now < record.lockoutUntil) {
-        return true;
-    }
-
-    // No active lockout: drop the record once the lockout has expired or the
-    // rolling attempt window has elapsed, so the counter restarts cleanly.
-    if ((record.lockoutUntil && now >= record.lockoutUntil) || now > record.windowExpires) {
-        loginAttempts.delete(email);
-    }
-    return false;
-}
-
-function recordLoginFailure(email) {
-    const now = Date.now();
-    const record = loginAttempts.get(email);
-
-    // Start a fresh window on the first failure or after the previous window
-    // rolled off without reaching the threshold.
-    if (!record || now > record.windowExpires) {
-        loginAttempts.set(email, {
-            attempts: 1,
-            windowExpires: now + LOGIN_ATTEMPT_WINDOW,
-            lockoutUntil: null
-        });
-        return;
-    }
-
-    record.attempts++;
-    // The lockout only starts once the threshold is reached within the window.
-    if (record.attempts >= MAX_LOGIN_ATTEMPTS) {
-        record.lockoutUntil = now + LOGIN_LOCKOUT_DURATION;
-    }
-}
-
-function resetLoginAttempts(email) {
-    loginAttempts.delete(email);
-}
-
-// Test-only: drop all tracked attempts so cases start from a clean slate.
-function clearLoginAttempts() {
-    loginAttempts.clear();
-}
+const {
+    isLoginLocked,
+    recordLoginFailure,
+    resetLoginAttempts,
+    clearLoginAttempts
+} = loginLockoutService;
 
 // ==================== 1. SIGNUP (Send OTP) ====================
 const signup = async (req, res) => {
@@ -344,7 +301,7 @@ const login = async (req, res) => {
         }
 
         // Check login lockout
-        if (isLoginLocked(cleanEmail)) {
+        if (await isLoginLocked(cleanEmail)) {
             return res.status(429).json({ 
                 success: false, 
                 message: "Too many failed attempts. Account locked for 15 minutes." 
@@ -353,7 +310,7 @@ const login = async (req, res) => {
 
         const [users] = await db.query(`SELECT * FROM users WHERE email = ? LIMIT 1`, [cleanEmail]);
         if (!safeArray(users).length) {
-            recordLoginFailure(cleanEmail);
+            await recordLoginFailure(cleanEmail);
             return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
 
@@ -364,12 +321,12 @@ const login = async (req, res) => {
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            recordLoginFailure(cleanEmail);
+            await recordLoginFailure(cleanEmail);
             return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
 
         // Reset login attempts on success
-        resetLoginAttempts(cleanEmail);
+        await resetLoginAttempts(cleanEmail);
 
         // Check if 2FA is enabled
         if (user.is_2fa_enabled === 1) {
