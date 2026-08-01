@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const Redis = require('ioredis');
 const db = require('../config/db');
+const { publishSessionRevoked } = require('../utils/sessionRevocationBus');
 
 const REFRESH_TOKEN_TTL_DAYS = parseInt(process.env.REFRESH_TOKEN_TTL_DAYS, 10) || 30;
 const REDIS_FAMILY_TTL_SEC = REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60;
@@ -450,6 +451,11 @@ async function revokeTokenFamily(familyId, userId, reason, meta = {}) {
 
     console.warn(`🚨 Refresh token family revoked: ${familyId} reason=${reason}`);
 
+    // Access tokens minted from this family are still valid on the wire until
+    // they expire, so any connection holding one has to be closed rather than
+    // left running until its own clock runs out.
+    publishSessionRevoked({ familyId, reason });
+
     return { familyId, reason };
 }
 
@@ -468,6 +474,10 @@ async function revokeAllUserFamilies(userId, reason = 'user_logout_all') {
     }
 
     await db.query(`UPDATE users SET refresh_token = NULL, last_logout = NOW() WHERE id = ?`, [userId]);
+
+    // The per-family disconnects above cannot match a connection whose token
+    // predates family ids; an account-wide one can.
+    publishSessionRevoked({ userId, reason });
 
     return { revokedFamilies: families.length };
 }
