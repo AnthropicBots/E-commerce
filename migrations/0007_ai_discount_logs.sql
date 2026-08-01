@@ -1,7 +1,12 @@
+-- AI discount decisions and the admin approvals they trigger.
+--
+-- User references are CHAR(36) to match `users.id`. Declared as INT, the
+-- foreign keys below could not be built and the whole file failed to apply.
+
 -- AI Decision Logs Table
 CREATE TABLE IF NOT EXISTS ai_decision_logs (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    user_id INT NOT NULL,
+    user_id CHAR(36) NOT NULL,
     order_total DECIMAL(10,2) NOT NULL,
     proposed_discount DECIMAL(10,2) NOT NULL,
     applied_discount DECIMAL(10,2) NOT NULL,
@@ -16,14 +21,14 @@ CREATE TABLE IF NOT EXISTS ai_decision_logs (
 -- Admin Approval Requests Table
 CREATE TABLE IF NOT EXISTS admin_approval_requests (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    user_id INT NOT NULL,
+    user_id CHAR(36) NOT NULL,
     order_total DECIMAL(10,2) NOT NULL,
     discount DECIMAL(10,2) NOT NULL,
     discount_percentage DECIMAL(5,2) NOT NULL,
     promo_code VARCHAR(50),
     items JSON,
     status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
-    admin_id INT NULL,
+    admin_id CHAR(36) NULL,
     admin_notes TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

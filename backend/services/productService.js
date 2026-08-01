@@ -1,6 +1,5 @@
 // backend/services/productService.js
 const { productRepo } = require('../repositories');
-const Redis = require('ioredis');
 const { cacheService, CACHE_TARGETS } = require('./cacheService');
 
 const CATEGORY_TREE_CACHE_PREFIX = 'category:tree:';
@@ -8,15 +7,10 @@ const CATEGORY_TREE_TTL = parseInt(process.env.CATEGORY_TREE_CACHE_TTL, 10) || 1
 const DEFAULT_MAX_DEPTH = parseInt(process.env.CATEGORY_TREE_MAX_DEPTH, 10) || 5;
 const PRODUCT_CACHE_TTL = parseInt(process.env.PRODUCT_CACHE_TTL, 10) || 600;
 
-const redis = new Redis({
-    host: process.env.REDIS_HOST || 'localhost',
-    port: process.env.REDIS_PORT || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
-    retryStrategy: (times) => Math.min(times * 50, 2000),
-    maxRetriesPerRequest: 3,
-    lazyConnect: true,
-    enableOfflineQueue: false
-});
+// Shared client -- see config/redis.js. A per-module `new Redis({ ... })`
+// means an extra connection and an extra reconnect loop per module, and
+// makes the module impossible to load without a live Redis (#1341).
+const redis = require("../config/redis");
 
 let redisReady = false;
 redis.connect().then(() => {
