@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const productService = require("../services/productService");
+const fairQueueService = require("../services/fairQueueService");
 
 // helper functions
 const {
@@ -766,6 +767,156 @@ const invalidateCategoryTreeCache = async (req, res) => {
     }
 };
 
+// ---------- Fair queue (#1384) ----------
+function resolveProductId(req) {
+    return (
+        safeUUID(req.params.id) ||
+        sanitizeString(req.params.id) ||
+        sanitizeString(req.productId) ||
+        null
+    );
+}
+
+function clientFingerprint(req) {
+    return (
+        sanitizeString(req.headers["x-device-fingerprint"]) ||
+        sanitizeString(req.body?.fingerprint) ||
+        ""
+    ).slice(0, 64);
+}
+
+async function loadUserVerified(userId) {
+    try {
+        const [rows] = await db.query(
+            "SELECT is_verified FROM users WHERE id = ? LIMIT 1",
+            [userId]
+        );
+        return Boolean(rows?.[0]?.is_verified);
+    } catch (_) {
+        return false;
+    }
+}
+
+const fairQueueInfo = async (req, res) => {
+    try {
+        const productId = resolveProductId(req);
+        if (!productId) {
+            return res.status(400).json({ success: false, message: "Invalid product ID" });
+        }
+        const active = await fairQueueService.isQueueActive(productId);
+        return res.status(200).json({
+            success: true,
+            message: "Fair queue info",
+            productId,
+            active,
+            config: fairQueueService.getConfig()
+        });
+    } catch (error) {
+        console.error("FAIR QUEUE INFO ERROR:", error);
+        return res.status(500).json({ success: false, message: "Failed to load fair queue info" });
+    }
+};
+
+const fairQueueJoin = async (req, res) => {
+    try {
+        const productId = resolveProductId(req);
+        const userId = req.user?.id;
+        if (!productId || !userId) {
+            return res.status(400).json({ success: false, message: "Product and auth required" });
+        }
+        const verified = await loadUserVerified(userId);
+        const result = await fairQueueService.joinQueue(productId, userId, {
+            verified,
+            fingerprint: clientFingerprint(req)
+        });
+        return res.status(200).json({ success: true, ...result });
+    } catch (error) {
+        console.error("FAIR QUEUE JOIN ERROR:", error);
+        return res.status(error.status || 500).json({
+            success: false,
+            code: error.code || undefined,
+            message: error.message || "Failed to join fair queue"
+        });
+    }
+};
+
+const fairQueueStatus = async (req, res) => {
+    try {
+        const productId = resolveProductId(req);
+        const userId = req.user?.id;
+        const waitToken =
+            sanitizeString(req.body?.waitToken) ||
+            sanitizeString(req.query?.waitToken) ||
+            sanitizeString(req.headers["x-fair-queue-token"]);
+        if (!productId || !userId || !waitToken) {
+            return res.status(400).json({
+                success: false,
+                message: "Product, auth, and waitToken required"
+            });
+        }
+        const result = await fairQueueService.getStatus(productId, userId, waitToken, {
+            fingerprint: clientFingerprint(req)
+        });
+        return res.status(200).json({ success: true, ...result });
+    } catch (error) {
+        console.error("FAIR QUEUE STATUS ERROR:", error);
+        return res.status(error.status || 500).json({
+            success: false,
+            code: error.code || undefined,
+            message: error.message || "Failed to read fair queue status"
+        });
+    }
+};
+
+const fairQueueLeave = async (req, res) => {
+    try {
+        const productId = resolveProductId(req);
+        const userId = req.user?.id;
+        const waitToken = sanitizeString(req.body?.waitToken);
+        if (!productId || !userId) {
+            return res.status(400).json({ success: false, message: "Product and auth required" });
+        }
+        const result = await fairQueueService.leaveQueue(productId, userId, waitToken);
+        return res.status(200).json({ success: true, ...result });
+    } catch (error) {
+        console.error("FAIR QUEUE LEAVE ERROR:", error);
+        return res.status(500).json({ success: false, message: "Failed to leave fair queue" });
+    }
+};
+
+const fairQueueActivate = async (req, res) => {
+    try {
+        const productId = resolveProductId(req);
+        if (!productId) {
+            return res.status(400).json({ success: false, message: "Invalid product ID" });
+        }
+        const active = req.body?.active !== false && req.body?.active !== "false";
+        await fairQueueService.setQueueActive(productId, active);
+        return res.status(200).json({
+            success: true,
+            message: active ? "Fair queue activated" : "Fair queue deactivated",
+            productId,
+            active
+        });
+    } catch (error) {
+        console.error("FAIR QUEUE ACTIVATE ERROR:", error);
+        return res.status(500).json({ success: false, message: "Failed to update fair queue" });
+    }
+};
+
+const fairQueueEmergencyUnlock = async (req, res) => {
+    try {
+        const productId = resolveProductId(req);
+        if (!productId) {
+            return res.status(400).json({ success: false, message: "Invalid product ID" });
+        }
+        const result = await fairQueueService.emergencyUnlock(productId);
+        return res.status(200).json({ success: true, productId, ...result });
+    } catch (error) {
+        console.error("FAIR QUEUE UNLOCK ERROR:", error);
+        return res.status(500).json({ success: false, message: "Failed to unlock fair queue" });
+    }
+};
 
 module.exports = {
     getProducts,
@@ -775,5 +926,11 @@ module.exports = {
     deleteProduct,
     getProductSuggestions,
     getCategoryTree,
-    invalidateCategoryTreeCache
+    invalidateCategoryTreeCache,
+    fairQueueJoin,
+    fairQueueStatus,
+    fairQueueLeave,
+    fairQueueInfo,
+    fairQueueActivate,
+    fairQueueEmergencyUnlock
 };

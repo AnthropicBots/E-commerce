@@ -190,6 +190,24 @@ async function addProductToCart() {
         return false;
     }
 
+    if (
+        typeof window.isFairQueueBlocking === "function"
+        && window.isFairQueueBlocking()
+    ) {
+        AppUtils.notify(
+            "Join the fair queue and wait for your turn before adding to cart",
+            "warning"
+        );
+        return false;
+    }
+
+    if (typeof window.getFairQueueAdmitToken === "function") {
+        const admitToken = window.getFairQueueAdmitToken();
+        if (admitToken) {
+            product.admitToken = admitToken;
+        }
+    }
+
     const countBefore =
         AppUtils.getCartCount();
 

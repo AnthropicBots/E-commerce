@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
+const { optionalAuth } = authMiddleware;
 
 const {
     getProducts,
@@ -10,7 +11,13 @@ const {
     deleteProduct,
     getProductSuggestions,
     getCategoryTree,
-    invalidateCategoryTreeCache
+    invalidateCategoryTreeCache,
+    fairQueueJoin,
+    fairQueueStatus,
+    fairQueueLeave,
+    fairQueueInfo,
+    fairQueueActivate,
+    fairQueueEmergencyUnlock
 } = require("../controllers/productController");
 
 const { validateProductReview } = require('../middleware/promptInjectionMiddleware');
@@ -28,10 +35,16 @@ const {
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
 const { validateCreateProduct, validateUpdateProduct } = require("../middleware/validators/productValidator");
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 // --------------------------------------------------------------
-// Validate product ID
+// Validate product ID (UUID or legacy positive int)
 // --------------------------------------------------------------
 router.param("id", (req, res, next, id) => {
+    if (UUID_RE.test(String(id))) {
+        req.productId = String(id);
+        return next();
+    }
     const parsedId = parseInt(id, 10);
     if (!parsedId || parsedId < 1) {
         return res.status(400).json({ success: false, message: "Invalid product ID" });
@@ -57,6 +70,26 @@ router.post(
     invalidateCategoryTreeCache
 );
 router.get("/", getProducts);
+
+// Fair queue (#1384) — registered before generic /:id handlers that share param
+router.get("/:id/fair-queue", optionalAuth, fairQueueInfo);
+router.post("/:id/fair-queue/join", authMiddleware, fairQueueJoin);
+router.post("/:id/fair-queue/status", authMiddleware, fairQueueStatus);
+router.get("/:id/fair-queue/status", authMiddleware, fairQueueStatus);
+router.post("/:id/fair-queue/leave", authMiddleware, fairQueueLeave);
+router.post(
+    "/:id/fair-queue/activate",
+    authMiddleware,
+    authorizeRoles("admin"),
+    fairQueueActivate
+);
+router.post(
+    "/:id/fair-queue/unlock",
+    authMiddleware,
+    authorizeRoles("admin"),
+    fairQueueEmergencyUnlock
+);
+
 router.get("/:id/reviews", getProductReviews);
 router.post("/:id/review", authMiddleware, createProductReview);
 router.delete(

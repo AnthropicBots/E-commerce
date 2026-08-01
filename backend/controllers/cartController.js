@@ -1,6 +1,7 @@
 const promisePool = require("../config/db");
-const { safeInteger, safeUUID } = require("../utils/helpers");
+const { safeInteger, safeUUID, sanitizeString } = require("../utils/helpers");
 const inventoryReservationService = require("../services/inventoryReservationService");
+const fairQueueService = require("../services/fairQueueService");
 const {
     CART_OWNERSHIP,
     cartLineKey,
@@ -180,12 +181,34 @@ const cartController = {
                 return res.status(400).json({ success: false, message: "Invalid product ID or quantity" });
             }
 
+            // Fair queue gate (#1384) — hyped SKUs require an admission token
+            const admitToken =
+                sanitizeString(req.body?.admitToken) ||
+                sanitizeString(req.headers["x-fair-admit-token"]);
+            const admission = await fairQueueService.assertAdmission(
+                line.productId,
+                userId,
+                admitToken
+            );
+            if (admission.required && !admission.ok) {
+                return res.status(429).json({
+                    success: false,
+                    code: admission.code,
+                    message: admission.message,
+                    fairQueueRequired: true
+                });
+            }
+
             await connection.beginTransaction();
 
             const reserved = await inventoryReservationService.reserveStock(userId, line.productId, line.quantity, connection, line);
             if (!reserved) {
                 await connection.rollback();
                 return res.status(400).json({ success: false, message: "Requested quantity exceeds available stock or could not be reserved" });
+            }
+
+            if (admission.required && admission.ok) {
+                await fairQueueService.consumeAdmission(line.productId, userId);
             }
 
             const [existingLines] = await connection.query(

@@ -42,6 +42,14 @@
     // call. They belong at module scope.
     let currentProductData = null;
     let isLoading = false;
+    let fairQueueState = {
+        active: false,
+        waitToken: null,
+        admitToken: null,
+        position: null,
+        etaSec: null,
+        pollTimer: null
+    };
 
     window.currentProductData = null;
 
@@ -501,6 +509,9 @@ async function toggleWishlist(productId) {
 
         setupCartActions(product);
 
+        // Fair shopping queue (#1384)
+        initFairQueue(product);
+
         // 🔥 Initialize Share Button
         initShareButton(product);
 
@@ -565,6 +576,211 @@ async function toggleWishlist(productId) {
     // ============================================
     const MAX_LINE_QUANTITY = 10;
 
+    function ensureFairQueuePanel() {
+        let panel = document.getElementById("fair-queue-panel");
+        if (panel) return panel;
+        const stockEl = productElements.productStock;
+        panel = document.createElement("div");
+        panel.id = "fair-queue-panel";
+        panel.style.cssText =
+            "display:none;margin:1rem 0;padding:1rem;border:1px solid #cde;background:#f7fbfd;border-radius:8px;";
+        panel.innerHTML = `
+            <strong style="display:block;margin-bottom:0.35rem;">Fair shopping queue</strong>
+            <p id="fair-queue-msg" style="margin:0 0 0.75rem;font-size:0.9rem;color:#555;">
+                High demand item — join the queue for a fair shot at stock.
+            </p>
+            <p id="fair-queue-position" style="margin:0 0 0.75rem;font-size:0.95rem;"></p>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                <button type="button" id="fair-queue-join-btn">Join queue</button>
+                <button type="button" id="fair-queue-leave-btn" style="display:none;">Leave queue</button>
+            </div>
+        `;
+        if (stockEl?.parentNode) {
+            stockEl.parentNode.insertBefore(panel, stockEl.nextSibling);
+        } else {
+            document.body.appendChild(panel);
+        }
+        return panel;
+    }
+
+    function updateFairQueueUI(status) {
+        const panel = ensureFairQueuePanel();
+        const msg = document.getElementById("fair-queue-msg");
+        const pos = document.getElementById("fair-queue-position");
+        const joinBtn = document.getElementById("fair-queue-join-btn");
+        const leaveBtn = document.getElementById("fair-queue-leave-btn");
+
+        if (!fairQueueState.active && !status?.enabled) {
+            panel.style.display = "none";
+            return;
+        }
+        panel.style.display = "block";
+
+        if (status?.admitted && status.admitToken) {
+            fairQueueState.admitToken = status.admitToken;
+            fairQueueState.waitToken = null;
+            if (msg) msg.textContent = "You are admitted — add to cart now before your slot expires.";
+            if (pos) pos.textContent = "Status: Ready to reserve";
+            if (joinBtn) joinBtn.style.display = "none";
+            if (leaveBtn) leaveBtn.style.display = "none";
+            if (productElements.addToCartBtn) productElements.addToCartBtn.disabled = false;
+            return;
+        }
+
+        if (status?.queued) {
+            if (msg) msg.textContent = status.message || "Waiting in fair queue…";
+            if (pos) {
+                pos.textContent = `Position ${status.position} of ${status.queueLength} · ETA ~${status.etaSec}s`;
+            }
+            if (joinBtn) {
+                joinBtn.style.display = "none";
+            }
+            if (leaveBtn) leaveBtn.style.display = "inline-block";
+            if (productElements.addToCartBtn) productElements.addToCartBtn.disabled = true;
+            return;
+        }
+
+        if (msg) {
+            msg.textContent =
+                "High demand item — join the queue for a fair shot at stock.";
+        }
+        if (pos) pos.textContent = "";
+        if (joinBtn) {
+            joinBtn.style.display = "inline-block";
+            joinBtn.disabled = false;
+        }
+        if (leaveBtn) leaveBtn.style.display = "none";
+        if (productElements.addToCartBtn && Number(currentProductData?.stock) > 0) {
+            // Block add until admitted when queue is active
+            productElements.addToCartBtn.disabled = fairQueueState.active;
+        }
+    }
+
+    function stopFairQueuePoll() {
+        if (fairQueueState.pollTimer) {
+            clearInterval(fairQueueState.pollTimer);
+            fairQueueState.pollTimer = null;
+        }
+    }
+
+    async function pollFairQueueStatus() {
+        if (!fairQueueState.waitToken || !productId) return;
+        try {
+            const res = await AppUtils.apiRequest(
+                `/products/${encodeURIComponent(productId)}/fair-queue/status`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({ waitToken: fairQueueState.waitToken })
+                }
+            );
+            if (!res?.success) return;
+            if (res.admitted && res.admitToken) {
+                stopFairQueuePoll();
+                updateFairQueueUI(res);
+                AppUtils.notify("Your turn — reserve stock now", "success");
+            } else {
+                updateFairQueueUI(res);
+            }
+        } catch (err) {
+            console.warn("Fair queue poll failed", err);
+        }
+    }
+
+    async function joinFairQueue() {
+        if (!AppUtils.requireLogin("Sign in to join the fair shopping queue")) return;
+        const joinBtn = document.getElementById("fair-queue-join-btn");
+        if (joinBtn) joinBtn.disabled = true;
+        try {
+            const res = await AppUtils.apiRequest(
+                `/products/${encodeURIComponent(productId)}/fair-queue/join`,
+                { method: "POST", body: JSON.stringify({}) }
+            );
+            if (!res?.success) {
+                AppUtils.notify(res?.message || "Could not join queue", "error");
+                return;
+            }
+            fairQueueState.waitToken = res.waitToken;
+            fairQueueState.active = true;
+            try {
+                sessionStorage.setItem(
+                    `fairq:${productId}`,
+                    JSON.stringify({ waitToken: res.waitToken })
+                );
+            } catch (_) { /* ignore */ }
+            updateFairQueueUI(res);
+            stopFairQueuePoll();
+            fairQueueState.pollTimer = setInterval(pollFairQueueStatus, 2000);
+            if (res.admitted) {
+                stopFairQueuePoll();
+            }
+        } catch (err) {
+            AppUtils.notify(err?.message || "Could not join queue", "error");
+        } finally {
+            if (joinBtn) joinBtn.disabled = false;
+        }
+    }
+
+    async function leaveFairQueue() {
+        stopFairQueuePoll();
+        try {
+            await AppUtils.apiRequest(
+                `/products/${encodeURIComponent(productId)}/fair-queue/leave`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({ waitToken: fairQueueState.waitToken })
+                }
+            );
+        } catch (_) { /* ignore */ }
+        fairQueueState.waitToken = null;
+        fairQueueState.admitToken = null;
+        try {
+            sessionStorage.removeItem(`fairq:${productId}`);
+        } catch (_) { /* ignore */ }
+        updateFairQueueUI({ queued: false, admitted: false });
+        AppUtils.notify("Left the fair queue", "info");
+    }
+
+    async function initFairQueue(product) {
+        if (!product?.id) return;
+        ensureFairQueuePanel();
+        const joinBtn = document.getElementById("fair-queue-join-btn");
+        const leaveBtn = document.getElementById("fair-queue-leave-btn");
+        joinBtn?.addEventListener("click", joinFairQueue);
+        leaveBtn?.addEventListener("click", leaveFairQueue);
+
+        try {
+            const info = await AppUtils.apiRequest(
+                `/products/${encodeURIComponent(product.id)}/fair-queue`,
+                { method: "GET" }
+            );
+            fairQueueState.active = Boolean(info?.active || info?.config?.forceAll);
+            if (!fairQueueState.active) {
+                updateFairQueueUI({ enabled: false });
+                return;
+            }
+            // Restore wait token after refresh (anti-refresh binding stays server-side)
+            try {
+                const saved = JSON.parse(sessionStorage.getItem(`fairq:${product.id}`) || "null");
+                if (saved?.waitToken) {
+                    fairQueueState.waitToken = saved.waitToken;
+                    updateFairQueueUI({
+                        queued: true,
+                        position: "…",
+                        queueLength: "…",
+                        etaSec: "…",
+                        message: "Reconnecting to fair queue…"
+                    });
+                    fairQueueState.pollTimer = setInterval(pollFairQueueStatus, 2000);
+                    pollFairQueueStatus();
+                    return;
+                }
+            } catch (_) { /* ignore */ }
+            updateFairQueueUI({ queued: false });
+        } catch (err) {
+            console.warn("Fair queue info unavailable", err);
+        }
+    }
+
     async function addProductToCart(product, redirect = false) {
         if (!product) return;
 
@@ -574,6 +790,12 @@ async function toggleWishlist(productId) {
 
         if (Number(product.stock) <= 0) {
             AppUtils.notify("Product is out of stock", "error");
+            return;
+        }
+
+        if (fairQueueState.active && !fairQueueState.admitToken) {
+            AppUtils.notify("Join the fair queue and wait for your turn before adding to cart", "warning");
+            ensureFairQueuePanel();
             return;
         }
 
@@ -605,12 +827,14 @@ async function toggleWishlist(productId) {
             price: product.price,
             image: product.image,
             qty,
-            stock: product.stock
+            stock: product.stock,
+            admitToken: fairQueueState.admitToken || undefined
         });
 
         // A refused add has already told the shopper why.
         if (AppUtils.getCartCount(cart) <= countBefore) return;
 
+        fairQueueState.admitToken = null;
         AppUtils.notify(`${product.name} added to cart`, "success");
 
         if (typeof loadProductReviews === "function") {
@@ -627,7 +851,13 @@ async function toggleWishlist(productId) {
     }
 
     function setupCartActions(product) {
-        // Handled by product-actions.js
+        // Handled by product-actions.js — fair queue still gates via addProductToCart
+        // and product-actions when it calls AppUtils.addCartItem with admitToken.
+        if (typeof window !== "undefined") {
+            window.getFairQueueAdmitToken = () => fairQueueState.admitToken;
+            window.isFairQueueBlocking = () =>
+                Boolean(fairQueueState.active && !fairQueueState.admitToken);
+        }
     }
 
     // ============================================

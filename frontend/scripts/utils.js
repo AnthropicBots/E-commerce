@@ -1554,7 +1554,8 @@ const addCartItem = async (
                         variantId: item.variantId,
                         color: item.color,
                         size: item.size,
-                        quantity: item.qty
+                        quantity: item.qty,
+                        admitToken: item.admitToken || undefined
                     })
                 }
             );
