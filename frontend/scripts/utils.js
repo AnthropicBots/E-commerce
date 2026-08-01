@@ -1929,7 +1929,8 @@ const calculateCartTotals = async (
 const fetchCartQuote = async (
     cart = getCart(),
     couponCode = "",
-    shippingMethod = null
+    shippingMethod = null,
+    destination = null
 ) => {
     const items = safeArray(cart).map(
         (item) => ({
@@ -1949,7 +1950,11 @@ const fetchCartQuote = async (
                 promoCode: couponCode || null,
                 // A code naming a delivery option, never a rate. The server
                 // decides what it costs.
-                shippingMethod: shippingMethod || null
+                shippingMethod: shippingMethod || null,
+                // Where it is going, so destination rules can apply. Null
+                // until an address is known, which is the whole of the cart
+                // page.
+                destination: destination || null
             })
         });
 
@@ -1962,6 +1967,7 @@ const fetchCartQuote = async (
         return {
             ...response.breakdown,
             shippingOptions: safeArray(response.shippingOptions),
+            freeShipping: response.freeShipping || null,
             promoMessage: response.promoMessage || null,
             isServerQuote: true
         };
@@ -1974,11 +1980,35 @@ const fetchCartQuote = async (
             ...fallback,
             // Deliberately empty: the local fallback cannot price a delivery
             // option, and offering a choice it could not cost would show the
-            // shopper a figure the server never agreed to.
+            // shopper a figure the server never agreed to. The same goes for
+            // promising free delivery at a threshold only the server knows.
             shippingOptions: [],
+            freeShipping: null,
             isServerQuote: false
         };
     }
+};
+
+// How the progress toward free delivery reads. The threshold and the shortfall
+// are both the server's figures — the browser knows neither the rule nor the
+// basket value it is measured against — so this only chooses the wording.
+//
+// Returns an empty string when there is no threshold to work toward, which is
+// a perfectly ordinary configuration and should render nothing rather than an
+// empty promise.
+const formatFreeShippingProgress = (freeShipping, currency) => {
+    if (!freeShipping) {
+        return "";
+    }
+
+    if (freeShipping.qualified) {
+        return "Your order qualifies for free delivery.";
+    }
+
+    return (
+        `Add ${formatPrice(freeShipping.remaining, currency)} more to qualify ` +
+        "for free delivery."
+    );
 };
 
 const getWishlist = () => {
@@ -2069,6 +2099,7 @@ window.AppUtils = {
     validateCoupon,
     calculateCartTotals,
     fetchCartQuote,
+    formatFreeShippingProgress,
     getWishlist,
     saveWishlist,
     getSkeletonCardHTML,

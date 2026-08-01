@@ -37,7 +37,11 @@ const PRICING_CONFIG = Object.freeze({
 
     TAX_RATE: 0.18,
     SHIPPING_FLAT_RATE: 49,
-    // At or above this post-discount subtotal shipping is free.
+    // At or above this post-discount subtotal shipping is free, for any caller
+    // that prices without rate rules to hand. The store's actual threshold is
+    // a waiver rule and can be moved, scoped or withdrawn; this is what the
+    // engine falls back to on its own, and it is the figure migration 0037
+    // seeds that rule with so the two start out saying the same thing.
     FREE_SHIPPING_THRESHOLD: 999,
 
     // Both the tax and the shipping rule read the subtotal *after* the

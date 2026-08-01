@@ -92,6 +92,75 @@ const validateOrderData = (orderData) => {
     };
 };
 
+// Create order service with enhanced validations
+// Resolve the priced product variant for an order item, if any. A variant is
+// matched either by an explicit `variantId`/`variant_id` on the item, or —
+// since the current cart payload only carries color/size — by matching those
+// against the variant's `attributes` JSON. Only an unambiguous, active match
+// is honored. The lookup is deliberately defensive: deployments without a
+// `product_variants` table simply fall back to base product pricing.
+//
+// `lockRows` is off for read-only pricing (a quote holds no rows); order
+// creation keeps it on so the price cannot move under the transaction.
+const resolveItemVariant = async (connection, productId, item, lockRows = true) => {
+    const explicitVariantId = safeInteger(item.variantId ?? item.variant_id, 0);
+    const rowLock = lockRows ? " FOR UPDATE" : "";
+
+    try {
+        if (explicitVariantId > 0) {
+            const [rows] = await connection.query(
+                `SELECT id, price, stock, weight FROM product_variants
+                 WHERE id = ? AND product_id = ? AND is_active = 1
+                 LIMIT 1${rowLock}`,
+                [explicitVariantId, productId],
+            );
+            return safeArray(rows)[0] || null;
+        }
+
+        const color = sanitizeString(item.color);
+        const size = sanitizeString(item.size);
+
+        if (!color && !size) {
+            return null;
+        }
+
+        const conditions = [];
+        const params = [productId];
+
+        if (color) {
+            conditions.push(
+                "LOWER(JSON_UNQUOTE(JSON_EXTRACT(attributes, '$.color'))) = LOWER(?)",
+            );
+            params.push(color);
+        }
+
+        if (size) {
+            conditions.push(
+                "LOWER(JSON_UNQUOTE(JSON_EXTRACT(attributes, '$.size'))) = LOWER(?)",
+            );
+            params.push(size);
+        }
+
+        const [rows] = await connection.query(
+            `SELECT id, price, stock, weight FROM product_variants
+             WHERE product_id = ? AND is_active = 1
+             AND ${conditions.join(" AND ")}
+             LIMIT 2${rowLock}`,
+            params,
+        );
+
+        const matches = safeArray(rows);
+
+        // Ambiguous attribute matches are ignored so we never guess a price.
+        return matches.length === 1 ? matches[0] : null;
+    } catch (error) {
+        logger.warn(
+            `Variant lookup skipped for product ${productId}: ${error.message}`,
+        );
+        return null;
+    }
+};
+
 /**
  * Turn a client-supplied basket into priced lines using the database's own
  * prices. Client-supplied prices are never read — the only fields taken from
@@ -122,7 +191,7 @@ const resolveOrderLines = async (connection, items, options = {}) => {
         }
 
         const [productResults] = await connection.query(
-            `SELECT id, name, price, stock, image FROM products WHERE id = ?
+            `SELECT id, name, price, stock, image, weight FROM products WHERE id = ?
              LIMIT 1${rowLock}`,
             [productId],
         );
@@ -162,6 +231,11 @@ const resolveOrderLines = async (connection, items, options = {}) => {
         // product price is only a fallback. This keeps order totals correct
         // for variants that are priced differently from their parent.
         let realPrice = safeNumber(product.price);
+        // Carried through so shipping rules can be written over how heavy a
+        // basket is. Null when nothing has recorded a weight, which is most of
+        // the catalogue; the shipping service decides what to assume rather
+        // than a zero being invented here.
+        let realWeight = product.weight === null ? null : safeNumber(product.weight);
 
         if (variant && variant.price !== null && variant.price !== undefined) {
             const variantPrice = safeNumber(variant.price);
@@ -171,12 +245,21 @@ const resolveOrderLines = async (connection, items, options = {}) => {
             }
         }
 
+        if (variant && variant.weight !== null && variant.weight !== undefined) {
+            const variantWeight = safeNumber(variant.weight);
+
+            if (variantWeight > 0) {
+                realWeight = variantWeight;
+            }
+        }
+
         resolvedLines.push({
             id: safeUUID(product.id),
             variantId,
             name: sanitizeString(product.name),
             image: sanitizeString(product.image),
             price: realPrice,
+            weight: realWeight,
             qty,
             color: sanitizeString(item.color),
             size: sanitizeString(item.size),
@@ -250,19 +333,29 @@ const createOrderService = async (connection, orderData) => {
             appliedPromo = promoValidation.promo;
         }
 
-        const [selectedMethod, defaultMethod] = await Promise.all([
-            shipping.resolveMethod(shipping_method),
-            shipping.getDefaultMethod(),
-        ]);
+        // Priced against the address the parcel is actually going to, not
+        // against whatever destination the browser used to fetch its quote. A
+        // client that quotes a cheap destination and ships to an expensive one
+        // is caught here, as a total that does not match.
+        const { subtotal: preDiscountSubtotal } =
+            pricing.priceLineItems(validatedItems);
+        const promoValue = appliedPromo
+            ? pricing.applyDiscount(appliedPromo, preDiscountSubtotal)
+            : { amount: 0, isShippingWaived: false };
+
+        const delivery = await shipping.quoteOptions({
+            postDiscountSubtotal: preDiscountSubtotal - promoValue.amount,
+            isShippingWaived: promoValue.isShippingWaived,
+            selectedCode: shipping_method,
+            destination: { pincode: zip, city, state },
+            weightKg: shipping.basketWeightKg(validatedItems),
+        });
 
         const breakdown = pricing.quote({
             items: validatedItems,
             promo: appliedPromo,
             promoCode: appliedPromo ? appliedPromo.code : null,
-            shippingMethod: shipping.toPricingDescriptor(
-                selectedMethod,
-                defaultMethod,
-            ),
+            shippingMethod: delivery.selected,
         });
 
         const verification = pricing.verifyClaimedTotal(
@@ -348,7 +441,7 @@ const createOrderService = async (connection, orderData) => {
             "pending",
             breakdown.subtotal,
             breakdown.tax,
-            selectedMethod.code,
+            delivery.selected.code,
             breakdown.shipping,
             discountAmount,
             appliedPromoCode,
