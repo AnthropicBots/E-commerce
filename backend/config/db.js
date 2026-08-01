@@ -471,19 +471,54 @@ async function shutdown() {
   }
 }
 
-async function beginTransaction(connection) {
-  await connection.query('START TRANSACTION');
-  logger.debug('Transaction started');
-}
+// Runs `fn` inside a transaction on a connection dedicated to it and returns
+// whatever `fn` returns. This is the only supported way to open a transaction.
+//
+// A transaction belongs to a connection, not to the pool. Issuing
+// START TRANSACTION as a pool query sends it to whichever connection happens to
+// be free, and the statements that follow go wherever the pool sends them next,
+// so under concurrent requests two transactions interleave on one connection and
+// a rollback can discard another request's writes. The only safe shape is to
+// check out one connection, run every statement of the transaction on it, and
+// give it back.
+//
+// The callback must use the connection it is handed for all of its queries.
+// Returning commits; throwing rolls back and rethrows. The connection is
+// released on every path, including when the rollback itself fails.
+async function withTransaction(fn) {
+  if (!promisePool) {
+    throw new Error('Database pool not initialized');
+  }
 
-async function commitTransaction(connection) {
-  await connection.query('COMMIT');
-  logger.debug('Transaction committed');
-}
+  if (isShuttingDown) {
+    throw new Error('Database is shutting down. Cannot start a transaction.');
+  }
 
-async function rollbackTransaction(connection) {
-  await connection.query('ROLLBACK');
-  logger.debug('Transaction rolled back');
+  const connection = await promisePool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    logger.debug(`Transaction started on connection ${connection.threadId}`);
+
+    try {
+      const result = await fn(connection);
+      await connection.commit();
+      logger.debug(`Transaction committed on connection ${connection.threadId}`);
+      return result;
+    } catch (error) {
+      // A rollback that fails must not replace the error that caused it, and
+      // must not stop the connection being released.
+      try {
+        await connection.rollback();
+        logger.debug(`Transaction rolled back on connection ${connection.threadId}`);
+      } catch (rollbackError) {
+        logger.error(`Rollback failed: ${rollbackError.message}`);
+      }
+      throw error;
+    }
+  } finally {
+    connection.release();
+  }
 }
 
 async function initializeDatabase() {
@@ -512,9 +547,7 @@ module.exports.getSlowQueries = getSlowQueries;
 module.exports.reconnectPool = reconnectPool;
 module.exports.initializeDatabase = initializeDatabase;
 module.exports.shutdown = shutdown;
-module.exports.beginTransaction = beginTransaction;
-module.exports.commitTransaction = commitTransaction;
-module.exports.rollbackTransaction = rollbackTransaction;
+module.exports.withTransaction = withTransaction;
 module.exports.DB_CONFIG = DB_CONFIG;
 module.exports.RETRY_CONFIG = RETRY_CONFIG;
 

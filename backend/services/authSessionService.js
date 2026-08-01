@@ -15,6 +15,7 @@
 const crypto = require("crypto");
 const db = require("../config/db");
 const { safeArray } = require("../utils/helpers");
+const { publishSessionRevoked } = require("../utils/sessionRevocationBus");
 const { REFRESH_TOKEN_TTL_MS, hashRefreshToken } = require("../utils/tokens");
 
 // ==================== CONSTANTS ====================
@@ -227,7 +228,12 @@ async function revokeSessionById(sessionId, reason) {
         [reason, sessionId]
     );
 
-    return Boolean(result && result.affectedRows > 0);
+    const wasRevoked = Boolean(result && result.affectedRows > 0);
+    if (wasRevoked) {
+        publishSessionRevoked({ sessionId, reason });
+    }
+
+    return wasRevoked;
 }
 
 /**
@@ -249,7 +255,12 @@ async function revokeSessionForUser({ userId, sessionId, reason }) {
         [reason, sessionId, userId]
     );
 
-    return Boolean(result && result.affectedRows > 0);
+    const wasRevoked = Boolean(result && result.affectedRows > 0);
+    if (wasRevoked) {
+        publishSessionRevoked({ sessionId, reason });
+    }
+
+    return wasRevoked;
 }
 
 /**
@@ -311,6 +322,8 @@ async function revokeUserSessions({ userId, exceptSessionId, reason }) {
          WHERE ${conditions.join(" AND ")}`,
         params
     );
+
+    publishSessionRevoked({ userId, exceptSessionId, reason });
 
     return result ? result.affectedRows : 0;
 }

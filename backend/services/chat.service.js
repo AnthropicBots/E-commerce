@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const { withTransaction } = require("../config/db");
 const logger = require("../utils/logger");
 const { safeArray, safeNumber, sanitizeString, safeUUID } = require("../utils/helpers");
 const NodeCache = require('node-cache');
@@ -325,33 +326,32 @@ const getConversationMessages = async (conversationId, limit = 50, offset = 0) =
 };
 
 const saveMessage = async (conversationId, senderId, senderType, message) => {
-    const connection = await db.getConnection();
     try {
         const validConvId = validateConversationId(conversationId);
         const validSenderId = validateUserId(senderId);
         const sanitizedMessage = validateMessage(message);
 
-        await connection.beginTransaction();
+        const messageId = await withTransaction(async (connection) => {
+            const [result] = await connection.query(
+                `INSERT INTO chat_messages (conversation_id, sender_id, sender_type, message, is_read, created_at)
+                 VALUES (?, ?, ?, ?, 0, NOW())`,
+                [validConvId, validSenderId, senderType, sanitizedMessage]
+            );
 
-        const [result] = await connection.query(
-            `INSERT INTO chat_messages (conversation_id, sender_id, sender_type, message, is_read, created_at)
-             VALUES (?, ?, ?, ?, 0, NOW())`,
-            [validConvId, validSenderId, senderType, sanitizedMessage]
-        );
+            await connection.query(
+                `UPDATE chat_conversations SET updated_at = NOW() WHERE id = ?`,
+                [validConvId]
+            );
 
-        await connection.query(
-            `UPDATE chat_conversations SET updated_at = NOW() WHERE id = ?`,
-            [validConvId]
-        );
+            return result.insertId;
+        });
 
-        await connection.commit();
-
-        const [newMsg] = await connection.query(
+        const [newMsg] = await db.query(
             `SELECT m.*, u.name as sender_name, u.role as sender_role 
              FROM chat_messages m 
              JOIN users u ON m.sender_id = u.id 
              WHERE m.id = ?`,
-            [result.insertId]
+            [messageId]
         );
 
         // Clear cache
@@ -361,14 +361,11 @@ const saveMessage = async (conversationId, senderId, senderType, message) => {
         
         await setConversationState(validConvId, { lastMessage: newMsg[0], updatedAt: new Date().toISOString() });
 
-        logger.info(`Message saved: ${result.insertId} in conversation ${validConvId}`);
+        logger.info(`Message saved: ${messageId} in conversation ${validConvId}`);
         return newMsg[0];
     } catch (error) {
-        await connection.rollback();
         logger.error(`Save message error: ${error.message}`);
         throw error;
-    } finally {
-        connection.release();
     }
 };
 
