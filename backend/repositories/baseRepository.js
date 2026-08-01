@@ -1,5 +1,6 @@
 // backend/repositories/baseRepository.js
 const db = require('../config/db').promise;
+const { withTransaction } = require('../config/db');
 
 /**
  * Base Repository class providing common CRUD operations
@@ -235,39 +236,24 @@ class BaseRepository {
     }
 
     /**
-     * Begin transaction
-     */
-    async beginTransaction() {
-        await this.db.query('START TRANSACTION');
-    }
-
-    /**
-     * Commit transaction
-     */
-    async commitTransaction() {
-        await this.db.query('COMMIT');
-    }
-
-    /**
-     * Rollback transaction
-     */
-    async rollbackTransaction() {
-        await this.db.query('ROLLBACK');
-    }
-
-    /**
-     * Execute in transaction
+     * Run `fn` inside a transaction, committing on return and rolling back on
+     * throw.
+     *
+     * `fn` is handed a repository bound to the transaction's own connection, so
+     * calls made through it are part of the transaction; the outer repository
+     * still talks to the pool and must not be used inside `fn`.
+     *
+     *     await orders.transaction(async (repo) => {
+     *         const order = await repo.create({ ... });
+     *         await repo.update(order.id, { ... });
+     *     });
      */
     async transaction(fn) {
-        try {
-            await this.beginTransaction();
-            const result = await fn(this);
-            await this.commitTransaction();
-            return result;
-        } catch (error) {
-            await this.rollbackTransaction();
-            throw error;
-        }
+        return withTransaction(async (connection) => {
+            const scoped = Object.create(this);
+            scoped.db = connection;
+            return fn(scoped);
+        });
     }
 
     /**
