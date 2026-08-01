@@ -1,0 +1,142 @@
+/**
+ * Critical above-the-fold CSS for the shop page (#1388).
+ * Loaded synchronously; full stylesheets (incl. shop.css) are deferred.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow-x: hidden;
+  font-family: "Spartan", system-ui, -apple-system, sans-serif;
+  background: #fff;
+  color: #222;
+}
+
+:root {
+  --primary-color: #088178;
+  --text-dark: #222;
+  --text-light: #465b52;
+  --bg-light: #e3e6f3;
+  --white: #fff;
+  --border-light: #cce7d0;
+}
+
+#navbar {
+  min-height: 70px;
+  width: 100%;
+  background: var(--bg-light);
+}
+
+/* Shop banner — LCP / first paint */
+#shop-header {
+  width: 100%;
+  min-height: 40vh;
+  height: 40vh;
+  background-color: #1f2937;
+  background-image: url("../assets/images/banner.png");
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 14px;
+}
+
+#shop-header h2,
+#shop-header p {
+  color: #fff;
+  margin: 4px 0;
+}
+
+#shop-header h2 {
+  font-size: clamp(28px, 5vw, 46px);
+  line-height: 1.15;
+}
+
+/* Controls shell */
+#shop-controls {
+  position: relative;
+  z-index: 5;
+  padding: 20px 5%;
+  min-height: 88px;
+}
+
+.shop-search__form {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) auto auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.search-box input {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 16px 12px 44px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+/* Product grid — fixed slots prevent CLS when cards hydrate */
+#product1 {
+  text-align: center;
+  padding: 24px 5%;
+}
+
+#product1 .pro-container,
+.pro-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 20px;
+  align-items: start;
+  min-height: 480px; /* reserve first row */
+}
+
+.pro {
+  width: 100%;
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 16px;
+  border: 1px solid var(--border-light);
+  border-radius: 20px;
+  background: #fff;
+  contain: layout paint;
+}
+
+.pro img,
+.product-image-wrapper {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+  display: block;
+  background: #f5f5f5;
+  border-radius: 16px;
+}
+
+.skeleton-img {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  background: #eceff1;
+  border-radius: 16px;
+}
+
+@media (max-width: 600px) {
+  #shop-header {
+    min-height: 32vh;
+    height: 32vh;
+  }
+
+  .shop-search__form {
+    grid-template-columns: 1fr;
+  }
+}

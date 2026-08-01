@@ -136,12 +136,23 @@ function createProductCard(
             }
 
             <div class="product-image-wrapper">
-                <img
+                ${
+                    typeof AppUtils !== "undefined" && AppUtils.buildProductCardImageHtml
+                        ? AppUtils.buildProductCardImageHtml(
+                              product.image,
+                              product.name || "Product image",
+                              { width: 400, height: 400, lazy: true }
+                          )
+                        : `<img
                     src="${typeof defaultImage === 'function' ? defaultImage(product.image) : (product.image || '')}"
                     alt="${typeof escapeHTML === 'function' ? escapeHTML(product.name || 'Product image') : (product.name || 'Product')}"
+                    width="400"
+                    height="400"
                     loading="lazy"
+                    decoding="async"
                     onerror="typeof handleImageError === 'function' && handleImageError(this)"
-                >
+                >`
+                }
                 ${getStockBadgeHTML(stock)}
                 ${getOutOfStockOverlayHTML(stock)}
             </div>

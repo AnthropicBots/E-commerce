@@ -62,6 +62,19 @@ const CONFIG = {
         ai_widgets: false
     },
 
+    // Image CDN + responsive card defaults (#1388)
+    // Set ENABLED=true and BASE_URL to your image CDN (Cloudinary/imgix/etc.).
+    // When disabled, srcset still emits local URLs for future-proof markup.
+    IMAGE_CDN: {
+        ENABLED: false,
+        BASE_URL: "",
+        WIDTHS: [320, 480, 640, 800],
+        CARD_WIDTH: 400,
+        CARD_HEIGHT: 400,
+        QUALITY: 75,
+        SIZES: "(max-width: 600px) 50vw, (max-width: 1024px) 33vw, 280px"
+    },
+
     // pricing rules (single source of truth for cart math)
     PRICING: {
         TAX_RATE: 0.18,

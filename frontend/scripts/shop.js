@@ -481,12 +481,22 @@ function createProductCard(
             class="pro ${outOfStockClass}"
             data-product-id="${product.id}"
         >
-            <div style="position: relative;">
-                <img
+            <div class="product-image-wrapper" style="position: relative;">
+                ${
+                    AppUtils.buildProductCardImageHtml
+                        ? AppUtils.buildProductCardImageHtml(
+                              product.image,
+                              displayName || "Product image"
+                          )
+                        : `<img
     src="${AppUtils.defaultImage(product.image)}"
     alt="${escapeHTML(displayName || 'Product image')}"
+    width="400"
+    height="400"
     loading="lazy"
->
+    decoding="async"
+>`
+                }
                 ${badgeHTML}
                 ${overlayHTML}
             </div>

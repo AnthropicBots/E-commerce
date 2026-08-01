@@ -33,53 +33,34 @@
         href="assets/images/logo.png"
     >
 
-    <!-- Icons -->
-    <link
-        rel="stylesheet"
-        href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css"
-    />
+    <!-- #1388 Critical CSS (sync) — full sheets deferred below -->
+    <link rel="stylesheet" href="styles/critical-home.css">
 
-    <!-- Styles -->
-    <link
-        rel="stylesheet"
-        href="styles/base.css"
-    >
+    <!-- Preconnect for icon CDN (non-blocking) -->
+    <link rel="preconnect" href="https://pro.fontawesome.com" crossorigin>
 
-    <link
-        rel="stylesheet"
-        href="styles/layout.css"
-    >
-
-    <link
-        rel="stylesheet"
-        href="styles/components.css"
-    >
-
-    <link
-        rel="stylesheet"
-        href="styles/hero.css"
-    >
-
-    <link
-        rel="stylesheet"
-        href="styles/product-card.css"
-    >
-
-    <link
-        rel="stylesheet"
-        href="styles/style.css"
-    >
-
-    <link 
-        rel="stylesheet" 
-        href="styles/back-to-top.css"
-    >
-    
-    <!-- Animations -->
-    <link
-        rel="stylesheet"
-        href="styles/animations.css"
-    >
+    <!-- Deferred stylesheets (#1388) -->
+    <link rel="stylesheet" href="styles/base.css" media="print" data-defer-style onload="this.media='all'">
+    <link rel="stylesheet" href="styles/layout.css" media="print" data-defer-style onload="this.media='all'">
+    <link rel="stylesheet" href="styles/components.css" media="print" data-defer-style onload="this.media='all'">
+    <link rel="stylesheet" href="styles/hero.css" media="print" data-defer-style onload="this.media='all'">
+    <link rel="stylesheet" href="styles/product-card.css" media="print" data-defer-style onload="this.media='all'">
+    <link rel="stylesheet" href="styles/style.css" media="print" data-defer-style onload="this.media='all'">
+    <link rel="stylesheet" href="styles/back-to-top.css" media="print" data-defer-style onload="this.media='all'">
+    <link rel="stylesheet" href="styles/animations.css" media="print" data-defer-style onload="this.media='all'">
+    <link rel="stylesheet" href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css" media="print" data-defer-style onload="this.media='all'">
+    <noscript>
+        <link rel="stylesheet" href="styles/base.css">
+        <link rel="stylesheet" href="styles/layout.css">
+        <link rel="stylesheet" href="styles/components.css">
+        <link rel="stylesheet" href="styles/hero.css">
+        <link rel="stylesheet" href="styles/product-card.css">
+        <link rel="stylesheet" href="styles/style.css">
+        <link rel="stylesheet" href="styles/back-to-top.css">
+        <link rel="stylesheet" href="styles/animations.css">
+        <link rel="stylesheet" href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css">
+    </noscript>
+    <script src="scripts/defer-styles.js" defer></script>
 
   </head>
 
@@ -90,10 +71,42 @@
     <!-- Hero Section -->
     <section id="hero">
         <div id="hero-slider" aria-hidden="true">
-            <img class="hero-slide" src="assets/images/hero4.png" alt="">
-            <img class="hero-slide" src="assets/images/banner.png" alt="">
-            <img class="hero-slide" src="assets/images/b7.jpg" alt="">
-            <img class="hero-slide" src="assets/images/b4.jpg" alt="">
+            <img
+                class="hero-slide"
+                src="assets/images/hero4.png"
+                alt=""
+                width="1920"
+                height="800"
+                fetchpriority="high"
+                decoding="async"
+            >
+            <img
+                class="hero-slide"
+                src="assets/images/banner.png"
+                alt=""
+                width="1920"
+                height="800"
+                loading="lazy"
+                decoding="async"
+            >
+            <img
+                class="hero-slide"
+                src="assets/images/b7.jpg"
+                alt=""
+                width="1920"
+                height="800"
+                loading="lazy"
+                decoding="async"
+            >
+            <img
+                class="hero-slide"
+                src="assets/images/b4.jpg"
+                alt=""
+                width="1920"
+                height="800"
+                loading="lazy"
+                decoding="async"
+            >
         </div>
 
         <div id="hero-content">

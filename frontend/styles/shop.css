@@ -443,9 +443,13 @@
 
 #product-container {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 24px;
-  align-items: stretch;
+  align-items: start;
+  /* #1388 — reserve space so skeleton→card swap does not shift layout */
+  min-height: 420px;
+  content-visibility: auto;
+  contain-intrinsic-size: 420px;
 }
 #product1 .pro {
   width: 100%;
@@ -455,9 +459,16 @@
   flex-direction: column;
   border-radius: 18px;
   overflow: hidden;
+  contain: layout paint;
+}
+#product1 .pro .product-image-wrapper {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  background: #f5f5f5;
 }
 #product1 .pro img {
   width: 100%;
+  height: auto;
   aspect-ratio: 1 / 1;
   object-fit: cover;
   display: block;

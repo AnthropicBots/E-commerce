@@ -750,6 +750,8 @@ const FALLBACK_PRODUCT_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 const handleImageError = (img) => {
     if (!img || img.dataset.fallbackApplied === "true") return;
     img.dataset.fallbackApplied = "true";
+    img.removeAttribute("srcset");
+    img.removeAttribute("sizes");
     img.src = FALLBACK_PRODUCT_IMAGE;
 };
 
@@ -766,6 +768,80 @@ const defaultImage = (
     )
         ? url
         : FALLBACK_PRODUCT_IMAGE;
+};
+
+/**
+ * Image CDN + responsive srcset helpers (#1388).
+ * When CONFIG.IMAGE_CDN.ENABLED, rewrites through BASE_URL with width params.
+ */
+const resolveCdnImageUrl = (src, width = null) => {
+    const base = defaultImage(src);
+    if (!base || base.startsWith("data:")) return base;
+
+    const cdn = (CONFIG && CONFIG.IMAGE_CDN) || {};
+    if (!cdn.ENABLED || !cdn.BASE_URL) {
+        return base;
+    }
+
+    try {
+        const abs =
+            base.startsWith("http://") || base.startsWith("https://")
+                ? base
+                : new URL(base, window.location.origin).href;
+        const endpoint = String(cdn.BASE_URL).replace(/\/$/, "");
+        const params = new URLSearchParams({
+            url: abs,
+            q: String(cdn.QUALITY || 75),
+            fit: "cover"
+        });
+        if (width) params.set("w", String(width));
+        return `${endpoint}?${params.toString()}`;
+    } catch (_) {
+        return base;
+    }
+};
+
+const buildProductSrcset = (src) => {
+    const cdn = (CONFIG && CONFIG.IMAGE_CDN) || {};
+    const widths = Array.isArray(cdn.WIDTHS) && cdn.WIDTHS.length
+        ? cdn.WIDTHS
+        : [320, 480, 640, 800];
+
+    return widths
+        .map((w) => `${resolveCdnImageUrl(src, w)} ${w}w`)
+        .join(", ");
+};
+
+/**
+ * Stable product-card <img> markup — width/height + lazy + srcset for CLS/LCP.
+ */
+const buildProductCardImageHtml = (src, alt = "Product", options = {}) => {
+    const cdn = (CONFIG && CONFIG.IMAGE_CDN) || {};
+    const width = options.width || cdn.CARD_WIDTH || 400;
+    const height = options.height || cdn.CARD_HEIGHT || 400;
+    const lazy = options.lazy !== false;
+    const sizes =
+        options.sizes ||
+        cdn.SIZES ||
+        "(max-width: 600px) 50vw, (max-width: 1024px) 33vw, 280px";
+    const safeAlt =
+        typeof escapeHTML === "function"
+            ? escapeHTML(alt || "Product image")
+            : String(alt || "Product").replace(/"/g, "&quot;");
+    const primary = resolveCdnImageUrl(src, width);
+    const useSrcset = Boolean(cdn.ENABLED && cdn.BASE_URL);
+    const srcset = useSrcset ? buildProductSrcset(src) : "";
+
+    return `<img
+        src="${primary}"
+        ${useSrcset ? `srcset="${srcset}" sizes="${sizes}"` : ""}
+        width="${width}"
+        height="${height}"
+        alt="${safeAlt}"
+        ${lazy ? 'loading="lazy"' : 'fetchpriority="high"'}
+        decoding="async"
+        onerror="typeof handleImageError === 'function' && handleImageError(this)"
+    >`;
 };
 
 // safe array
@@ -2085,6 +2161,9 @@ window.AppUtils = {
     whenFeatureEnabled,
     applyFeatureFlagDom,
     defaultImage,
+    resolveCdnImageUrl,
+    buildProductSrcset,
+    buildProductCardImageHtml,
     safeArray,
     safeNumber,
     safeInteger,

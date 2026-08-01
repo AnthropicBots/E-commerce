@@ -1,0 +1,155 @@
+/**
+ * Critical above-the-fold CSS for the homepage (#1388).
+ * Loaded synchronously; full stylesheets are deferred.
+ */
+
+/* Minimal reset + tokens for first paint */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow-x: hidden;
+  font-family: "Spartan", system-ui, -apple-system, sans-serif;
+  background: #fff;
+  color: #222;
+}
+
+:root {
+  --primary-color: #088178;
+  --text-dark: #222;
+  --text-light: #465b52;
+  --bg-light: #e3e6f3;
+  --white: #fff;
+  --border-light: #cce7d0;
+}
+
+/* Navbar shell (filled async) — reserve height to limit CLS */
+#navbar {
+  min-height: 70px;
+  width: 100%;
+  background: var(--bg-light);
+}
+
+/* Hero — LCP region */
+#hero {
+  position: relative;
+  isolation: isolate;
+  min-height: min(70vh, 560px);
+  width: 100%;
+  display: flex;
+  align-items: center;
+  background: #1a1a1a;
+  overflow: hidden;
+}
+
+#hero-slider {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+#hero-slider .hero-slide {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+#hero-content {
+  position: relative;
+  z-index: 1;
+  padding: 40px 5%;
+  max-width: 640px;
+  color: #fff;
+}
+
+#hero-content h4 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+#hero-content h2 {
+  margin: 0 0 8px;
+  font-size: clamp(28px, 5vw, 46px);
+  line-height: 1.15;
+  color: #fff;
+}
+
+#hero-content h1 {
+  margin: 0 0 12px;
+  font-size: clamp(32px, 6vw, 50px);
+  line-height: 1.1;
+  color: #fff;
+}
+
+#hero-content p {
+  margin: 0 0 20px;
+  max-width: 36ch;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #f3f4f6;
+}
+
+.hero-ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.hero-ctas button {
+  min-height: 44px;
+  padding: 10px 22px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.hero-ctas button.primary {
+  background: var(--primary-color);
+  color: #fff;
+}
+
+/* Feature strip / product grid shells — reserve space, no shift */
+#feature,
+#product1,
+#new-arrivals {
+  padding: 24px 5%;
+}
+
+.pro-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+/* Card aspect lock before product-card.css arrives */
+.pro {
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.product-image-wrapper,
+.pro > .product-image-wrapper,
+.skeleton-img {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  background: #f5f5f5;
+}
+
+.skeleton-wrapper {
+  min-height: 320px;
+}
