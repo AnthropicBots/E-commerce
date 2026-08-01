@@ -384,6 +384,12 @@ if (otpForm) {
             const response = await verifySignupUser(email, otp);
 
             if (response.success) {
+                // The basket built before registering now belongs to the new
+                // account, so the token that reached it as a guest is spent.
+                if (response.cartMerged) {
+                    AppUtils.clearCartToken();
+                }
+
                 AppUtils.notify("Account created successfully! Please login.", "success");
                 resetOtpTimer('resend-signup-otp-link', 'resend-signup-timer');
                 setTimeout(() => {

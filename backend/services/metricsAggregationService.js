@@ -29,6 +29,14 @@ const TIME_PERIODS = {
     CUSTOM: 'custom'
 };
 
+// A guest basket folded into an account's cart at sign-in is not a second
+// shopping session (#1427) -- it is the same basket, seen before and after the
+// shopper identified themselves. Counting both would put a cart in the
+// denominator of every cart rate for each time somebody signed in, which
+// depresses conversion and abandonment alike by an amount that has nothing to
+// do with trading.
+const EXCLUDE_MERGED_CARTS = "AND c.status <> 'merged'";
+
 // ============================================
 // METRICS AGGREGATION SERVICE
 // ============================================
@@ -81,6 +89,7 @@ class MetricsAggregationService extends EventEmitter {
                     / NULLIF(COUNT(*), 0)) * 100 as conversion_rate
             FROM carts c
             WHERE c.created_at BETWEEN ? AND ?
+              ${EXCLUDE_MERGED_CARTS}
         `;
 
         // A cart has no category of its own; the category of what is in it is
@@ -187,6 +196,7 @@ class MetricsAggregationService extends EventEmitter {
                 GROUP BY ci.cart_id
             ) v ON v.cart_id = c.id
             WHERE c.created_at BETWEEN ? AND ?
+              ${EXCLUDE_MERGED_CARTS}
         `;
 
         if (filters.category) {
