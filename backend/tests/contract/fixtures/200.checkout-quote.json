@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "breakdown": {
+    "subtotal": 999,
+    "tax": 179.82,
+    "shipping": 49,
+    "discount": 0,
+    "total": 1227.82,
+    "promoCode": null,
+    "currency": "INR"
+  },
+  "promoMessage": null
+}

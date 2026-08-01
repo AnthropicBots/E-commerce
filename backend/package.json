@@ -15,7 +15,9 @@
     "test:ci": "jest --coverage --ci --maxWorkers=2",
     "test:verbose": "jest --verbose",
     "test:only": "jest --onlyChanged",
-    "test:update": "jest --updateSnapshot"
+    "test:update": "jest --updateSnapshot",
+    "test:contract": "jest --testPathPattern=contract --coverage=false",
+    "lint:openapi": "npx --yes @stoplight/spectral-cli lint openapi/ecommerce.openapi.yaml -r openapi/.spectral.yaml"
   },
   "keywords": [],
   "author": "",
@@ -47,6 +49,7 @@
     "helmet": "^8.2.0",
     "ioredis": "^5.11.1",
     "joi": "^18.2.3",
+    "js-yaml": "^4.3.1",
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.7.4",
