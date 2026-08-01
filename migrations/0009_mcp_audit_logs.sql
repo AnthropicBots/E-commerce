@@ -1,7 +1,10 @@
 -- MCP Audit Logs Table
+--
+-- user_id is CHAR(36) to match `users.id`; declared as INT, the foreign key
+-- below could not be built and the whole file failed to apply.
 CREATE TABLE IF NOT EXISTS mcp_audit_logs (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    user_id INT NULL,
+    user_id CHAR(36) NULL,
     ip_address VARCHAR(45) NOT NULL,
     module VARCHAR(100) NOT NULL,
     function VARCHAR(100) NOT NULL,

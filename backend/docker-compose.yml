@@ -16,9 +16,10 @@ services:
       MYSQL_ROOT_HOST: '%'
     ports:
       - "${DB_PORT:-3306}:3306"
+    # No init-script mount: the schema comes from `npm run migrate` once the
+    # container is healthy. An init mount would apply SQL in directory order
+    # and leave no record of what ran.
     volumes:
-      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
-      - ./migrations:/docker-entrypoint-initdb.d/migrations:ro
       - db_data:/var/lib/mysql
       - ./backup:/backup
     command: 

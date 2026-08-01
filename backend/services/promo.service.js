@@ -152,7 +152,7 @@ const applyPromoTransaction = async (promoCode, userId, discountAmount) => {
         // Update database usage count
         await connection.query(
             `UPDATE promo_codes 
-             SET used_count = used_count + 1, 
+             SET usage_count = usage_count + 1, 
                  updated_at = NOW() 
              WHERE code = ?`,
             [promoCode]
@@ -248,7 +248,7 @@ const getPromoUsageStats = async (promoCode) => {
 const resetPromoUsage = async (promoCode) => {
     try {
         await redis.del(getPromoUsageKey(promoCode));
-        await db.query("UPDATE promo_codes SET used_count = 0 WHERE code = ?", [promoCode]);
+        await db.query("UPDATE promo_codes SET usage_count = 0 WHERE code = ?", [promoCode]);
         return { success: true };
     } catch (error) {
         console.error("Reset promo usage error:", error);

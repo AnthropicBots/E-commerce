@@ -99,13 +99,35 @@ npm install
 ---
 
 ## Database Setup
-1. Create a MySQL database.
-2. Run the schema script:
+1. Create an empty MySQL database.
+2. Apply the migrations:
 ```
 cd backend
-mysql -u <DB_USER> -p < DB_NAME < schema.sql
+npm run migrate
 ```
-3. Ensure tables: users, products, orders, order_items exist.
+3. Check the result with ```npm run migrate:status```, which lists applied and
+pending migrations without changing anything.
+
+Do not pipe SQL files into ```mysql``` by hand. Applying SQL outside the runner
+leaves no record of what ran, and the runner will then try to apply it again.
+
+### Adopting migrations on an existing database
+A database created before the migration sequence existed already has the
+baseline tables. Record the baseline as applied without re-running it, then
+migrate normally:
+```
+cd backend
+npm run migrate:baseline
+npm run migrate
+```
+
+### Adding a migration
+- Create ```migrations/<next-number>_<short_name>.sql``` — four-digit prefix,
+one number higher than the last.
+- Never edit a migration that has been applied anywhere. The runner checksums
+each file and refuses to run if an applied one changed. Add a new migration
+instead.
+- Write forward-only SQL and assume it runs exactly once.
 
 ---
 

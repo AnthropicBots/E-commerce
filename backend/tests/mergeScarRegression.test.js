@@ -284,3 +284,90 @@ describe('shared infrastructure', () => {
         expect(pkg.dependencies['socket.io']).toBeDefined();
     });
 });
+
+describe('backend/routes/performanceRoutes.js', () => {
+    const source = read('backend/routes/performanceRoutes.js');
+
+    // Two generations of this router had been merged by keeping both sides,
+    // with the seam falling inside a handler -- an unclosed object literal, an
+    // unclosed catch, and a `const` where a property was expected (#1355).
+    // server.js requires this router, so it took the boot gate down too.
+    it('parses', () => {
+        expect(() => new (require('vm').Script)(source)).not.toThrow();
+    });
+
+    it('loads and exports a router', () => {
+        const router = require('../routes/performanceRoutes');
+
+        expect(typeof router).toBe('function');
+        expect(typeof router.use).toBe('function');
+    });
+
+    // Five routes appeared twice. Duplicates are not merely redundant: the
+    // second registration shadows the first for every request, so a fixed
+    // handler can be silently overridden by the stale copy sitting below it.
+    it.each([
+        ['post', '/track'],
+        ['get', '/dashboard/:agentId'],
+        ['post', '/feedback'],
+        ['get', '/stats'],
+        ['get', '/comparison']
+    ])('declares %s %s exactly once', (method, path) => {
+        const pattern = new RegExp(
+            `router\\.${method}\\(\\s*'${path.replace(/[/:]/g, '\\$&')}'`,
+            'g'
+        );
+
+        expect((source.match(pattern) || []).length).toBe(1);
+    });
+
+    // The dropped half required '../services/agentPerformanceMonitorService'.
+    // No such module exists -- the file on disk is
+    // `agentPerfomanceMonitorService.js`, missing the `r` -- so that require
+    // threw MODULE_NOT_FOUND and every handler in that half would have called
+    // a method on `undefined`.
+    it('does not require the module that is not there', () => {
+        // Comments are stripped: the header explains *why* that half was
+        // dropped and names the module in prose, which would otherwise be a
+        // false positive.
+        const code = source.replace(/^\s*\/\/.*$/gm, '');
+
+        expect(code).not.toMatch(/agentPerformanceMonitorService/);
+        expect(code).not.toMatch(/agentPerformanceMonitor\./);
+    });
+
+    it('requires only a module that resolves', () => {
+        const requires = [...source.matchAll(/require\('(\.\.[^']+)'\)/g)].map((m) => m[1]);
+
+        expect(requires.length).toBeGreaterThan(0);
+
+        const unresolved = requires.filter((relative) => {
+            try {
+                require.resolve(path.resolve(BACKEND_DIR, 'routes', relative));
+                return false;
+            } catch (error) {
+                return true;
+            }
+        });
+
+        expect(unresolved).toEqual([]);
+    });
+
+    // Every method the surviving routes call must exist on the service they
+    // call it on, or the route is a 500 waiting for its first request.
+    it('calls only methods the service implements', () => {
+        const service = require('../services/agentPerformanceService');
+
+        for (const method of [
+            'trackPerformance',
+            'getPerformanceDashboard',
+            'getAgentAlerts',
+            'resolveAlert',
+            'submitFeedback',
+            'getModelComparison',
+            'getStatistics'
+        ]) {
+            expect(typeof service[method]).toBe('function');
+        }
+    });
+});
