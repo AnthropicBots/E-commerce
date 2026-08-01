@@ -60,17 +60,11 @@ CREATE TABLE IF NOT EXISTS agent_permission_logs (
     INDEX idx_permission (permission)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Agent Merchant Access
-CREATE TABLE IF NOT EXISTS agent_merchant_access (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    agent_id VARCHAR(100) NOT NULL,
-    merchant_id VARCHAR(100) NOT NULL,
-    access_level ENUM('view', 'edit', 'admin') DEFAULT 'view',
-    granted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_access (agent_id, merchant_id),
-    INDEX idx_agent (agent_id),
-    INDEX idx_merchant (merchant_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- `agent_merchant_access` is owned by 0015_agent_liability_framework.sql, which
+-- declares the same columns plus a foreign key to the agent registry. The copy
+-- that used to live here differed only by the missing foreign key, so with both
+-- saying IF NOT EXISTS the constraint existed or not depending on apply order.
+-- The version with the foreign key wins; nothing is redeclared here.
 
 -- Anomaly Dashboard View
 CREATE VIEW agent_anomaly_dashboard AS

@@ -32,19 +32,18 @@ CREATE TABLE IF NOT EXISTS ip_reputation (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Device Fingerprint Tracking
-CREATE TABLE IF NOT EXISTS device_fingerprints (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    fingerprint VARCHAR(255) UNIQUE NOT NULL,
-    user_agent TEXT,
-    screen_resolution VARCHAR(50),
-    timezone VARCHAR(50),
-    language VARCHAR(50),
-    first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    account_count INT DEFAULT 0,
-    INDEX idx_fingerprint (fingerprint),
-    INDEX idx_last_seen (last_seen)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- `device_fingerprints` is owned by 0013_bot_protection.sql. This file used to
+-- redeclare it with client-environment columns and without `is_suspicious`;
+-- both declarations said IF NOT EXISTS, so whichever ran first decided the
+-- shape and the disagreement never surfaced.
+--
+-- The agreed shape is the union: 0013 owns the table, the client-environment
+-- columns are added here as an explicit ALTER.
+ALTER TABLE device_fingerprints
+    ADD COLUMN screen_resolution VARCHAR(50) NULL,
+    ADD COLUMN timezone VARCHAR(50) NULL,
+    ADD COLUMN language VARCHAR(50) NULL,
+    ADD INDEX idx_device_fingerprints_last_seen (last_seen);
 
 -- Velocity Monitoring View
 CREATE VIEW velocity_monitoring AS
@@ -65,7 +64,8 @@ HAVING account_count > 2
 ORDER BY account_count DESC;
 
 -- Fraud Detection Dashboard View
-CREATE VIEW fraud_detection_dashboard AS
+-- Named for the feature it reports on; see 0010 for why.
+CREATE VIEW synthetic_identity_fraud_dashboard AS
 SELECT 
     DATE(timestamp) as date,
     COUNT(*) as total_detections,

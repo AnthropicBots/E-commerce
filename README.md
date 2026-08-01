@@ -161,10 +161,11 @@ E-commerce/
 │   │   ├── promo.service.js
 │   │   └── recommendationService.js
 │   │
-│   ├── sql/
-│   │   ├── admin_dashboard_schema.sql
-│   │   ├── chat.schema.sql
-│   │   └── promo_schema.sql
+│   ├── sql/               # feature schemas not yet folded into migrations/
+│   │   └── README.md
+│   │
+│   ├── scripts/
+│   │   └── migrate.js
 │   │
 │   ├── scripts/
 │   │   └── migrate.js
@@ -319,7 +320,7 @@ E-commerce/
 ├── README.md
 ├── SECURITY.md
 ├── TODO.md
-├── ecommerce.sql 
+├── docs/legacy/          # historical mysqldump, reference only — not applied
 ├── migrations/           # ordered schema migrations, applied by npm run migrate
 ├── package-lock.json
 ├── package.json   

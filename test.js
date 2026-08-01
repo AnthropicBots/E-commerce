@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_FILE = 'ecommerce.sql';
+const DEFAULT_FILE = 'docs/legacy/ecommerce-mysql-dump.sql';
 const DEFAULT_ENCODING = 'utf8';
 
 function getFilePath() {
@@ -55,7 +55,7 @@ Options:
   --help, -h        Show this help message
 
 Examples:
-  node test.js                          # Extract users table from ecommerce.sql
+  node test.js                          # Extract users table from the legacy dump
   node test.js migrations/0001_baseline_schema.sql   # Extract from the baseline migration
   node test.js --table=products         # Extract products table
   node test.js --list                   # List all tables in the file
