@@ -38,6 +38,7 @@ const {
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
 const { ROLES } = require("../config/policy");
 const { requireOwnership, ownerFromTable } = require("../middleware/requireOwnership");
+const uuidParam = require("../middleware/uuidParam");
 
 // Product Q&A (#1353).
 const productQA = require("../controllers/productQAController");
@@ -54,14 +55,12 @@ const ownsReview = requireOwnership(
 // --------------------------------------------------------------
 // Validate product ID
 // --------------------------------------------------------------
-router.param("id", (req, res, next, id) => {
-    const parsedId = parseInt(id, 10);
-    if (!parsedId || parsedId < 1) {
-        return res.status(400).json({ success: false, message: "Invalid product ID" });
-    }
-    req.productId = parsedId;
-    next();
-});
+//
+// `products.id` is a CHAR(36) UUID. This guard used to run the segment through
+// `parseInt`, which rejected every UUID beginning with a hex letter -- roughly
+// 37% of them -- and let the rest through on a truncated number that was never
+// the id (#1443). See middleware/uuidParam.js for the whole story.
+router.param("id", uuidParam({ resourceName: "Product", attachAs: "productId" }));
 
 // --------------------------------------------------------------
 // Routes
