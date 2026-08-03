@@ -169,6 +169,73 @@ body{
     outline-offset: 2px;
 }
 
+/*
+ * Skip link -- WCAG 2.4.1 Bypass Blocks (#1447).
+ *
+ * The header and its navigation are injected into every page, so without this
+ * a keyboard or screen reader user tabs through the logo, the search box, the
+ * currency selector, every category link, the cart and the account menu before
+ * reaching any content -- on every page load.
+ *
+ * Positioned off-screen rather than hidden with `display: none` or
+ * `visibility: hidden`: both of those remove an element from the tab order
+ * entirely, which is the one thing this link must not be.
+ */
+.skip-link{
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 10000;
+    padding: 0.75rem 1.25rem;
+    background: var(--primary-color);
+    color: #fff;
+    font-weight: 600;
+    text-decoration: none;
+    border-radius: 0 0 6px 0;
+    /* Off-screen, not gone. */
+    transform: translateY(-120%);
+    transition: transform var(--transition-fast);
+}
+
+.skip-link:focus,
+.skip-link:focus-visible{
+    transform: translateY(0);
+}
+
+/*
+ * The skip link's target. `tabindex="-1"` on <main> makes it programmatically
+ * focusable, so following the link moves focus rather than only the scroll
+ * position -- without it the next Tab press continues from the navigation the
+ * user just asked to skip, and the link does nothing useful.
+ *
+ * No outline here: this is a focus destination, not a control, and a ring
+ * around the whole page is noise. Every real control still gets one from
+ * :focus-visible above.
+ */
+#main-content:focus{
+    outline: none;
+}
+
+/*
+ * Available to a screen reader, absent from the page.
+ *
+ * Carries the <h1> on the pages whose design has no room for a visible one.
+ * The clip / clip-path pair is the standard belt and braces: `clip` for older
+ * engines, `clip-path` for current ones.
+ */
+.visually-hidden{
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
 /* media */
 img{
     max-width: 100%;

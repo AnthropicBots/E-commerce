@@ -1,9 +1,39 @@
 <!-- frontend/copywriter-demo.html -->
 <!DOCTYPE html>
-<html>
+<!-- The only page that does not use the shared shell, so the skip-link styles
+     from styles/base.css are restated below rather than pulling the whole
+     stylesheet into a standalone demo (#1447). `lang` belongs on every page
+     and this was the one file without it -- WCAG 3.1.1. -->
+<html lang="en">
 <head>
     <title>AI Product Copywriter</title>
     <style>
+        /* Off-screen until focused. Not display:none, which would take it out
+           of the tab order -- the one thing a skip link must stay in. */
+        .skip-link {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10000;
+            padding: 0.75rem 1.25rem;
+            background: #088178;
+            color: #fff;
+            font-weight: 600;
+            text-decoration: none;
+            border-radius: 0 0 6px 0;
+            transform: translateY(-120%);
+            transition: transform 0.3s ease;
+        }
+
+        .skip-link:focus,
+        .skip-link:focus-visible {
+            transform: translateY(0);
+        }
+
+        #main-content:focus {
+            outline: none;
+        }
+
         .copywriter-container {
             max-width: 800px;
             margin: 0 auto;
@@ -100,7 +130,10 @@
     </style>
 </head>
 <body>
-    <div class="copywriter-container">
+
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <main id="main-content" tabindex="-1" class="copywriter-container">
         <h1>🤖 AI Product Copywriter</h1>
         <p>Generate compelling product names and descriptions in seconds</p>
 
@@ -183,7 +216,7 @@
         </div>
 
         <div id="versionsContainer"></div>
-    </div>
+    </main>
 
     <script src="scripts/config.js"></script>
     <script src="scripts/utils.js"></script>
