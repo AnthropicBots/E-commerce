@@ -14,6 +14,11 @@ const CURRENCY = require("../config/currency");
 const { generateInvoicePdf } = require("../services/invoice.service");
 const inventoryReservationService = require("../services/inventoryReservationService");
 const stockCounter = require("../services/stockCounterService");
+// Read in the catch blocks of createOrder and createPaymentIntent, to tell an
+// unknown delivery method from a server fault. The require went missing, so
+// the branch meant to classify the error threw a ReferenceError of its own and
+// buried whatever actually went wrong (#1444).
+const shippingService = require("../services/shipping.service");
 
 const {
     safeNumber,

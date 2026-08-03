@@ -46,6 +46,10 @@ const { createOrderService, validateOrderDataService, getOrderSummaryById } = re
 const paymentService = require("../services/payment.service");
 const { generateInvoicePdf } = require("../services/invoice.service");
 const inventoryReservationService = require("../services/inventoryReservationService");
+// Ownership moved out of these handlers and onto the routes in #1425, so the
+// cases that cover it now exercise the middleware directly. It reads through
+// the same mocked config/db as everything else here.
+const { requireOwnership, ownerFromTable } = require("../middleware/requireOwnership");
 
 const {
     createOrder,
@@ -353,15 +357,50 @@ describe("cancelUserOrder", () => {
         db.getConnection.mockResolvedValue(connection);
     });
 
-    test("prevents cancelling someone else's order", async () => {
-        connection.query.mockResolvedValueOnce([[{ user_id: 99, status: "pending" }]]);
+    // Ownership left this controller in #1425 and now lives in
+    // requireOwnership, declared on the route in orderRoutes.js -- the handler
+    // says so in a comment and no longer compares ids at all. This assertion
+    // stayed pointed at the controller, so it had been failing ever since
+    // (#1444). Re-aimed at the middleware that actually holds the rule, with
+    // the same scenario, rather than deleted.
+    test("the route guard prevents cancelling someone else's order", async () => {
+        // Built exactly as orderRoutes.js builds it for the cancel route: no
+        // privileged bypass, because staff have never been able to cancel on a
+        // customer's behalf through this endpoint.
+        const guard = requireOwnership(ownerFromTable({ table: "orders" }), {
+            resourceName: "Order",
+            allowPrivileged: false
+        });
+
+        db.query.mockResolvedValueOnce([[{ ownerId: 99 }]]);
 
         const req = { params: { id: VALID_ORDER_ID }, user: { id: 1 } };
         const res = mockRes();
+        const next = jest.fn();
 
-        await cancelUserOrder(req, res);
+        await guard(req, res, next);
 
+        expect(next).not.toHaveBeenCalled();
+        // 404, not 403: a 403 confirms the id is real, which turns the id space
+        // into an enumeration oracle.
         expect(res.statusCode).toBe(404);
+    });
+
+    test("the route guard lets the owner reach the handler", async () => {
+        const guard = requireOwnership(ownerFromTable({ table: "orders" }), {
+            resourceName: "Order",
+            allowPrivileged: false
+        });
+
+        db.query.mockResolvedValueOnce([[{ ownerId: 1 }]]);
+
+        const req = { params: { id: VALID_ORDER_ID }, user: { id: 1 } };
+        const res = mockRes();
+        const next = jest.fn();
+
+        await guard(req, res, next);
+
+        expect(next).toHaveBeenCalled();
     });
 
     test("rejects cancelling an already-shipped order", async () => {
@@ -559,14 +598,43 @@ describe("downloadInvoice", () => {
         expect(res.statusCode).toBe(404);
     });
 
-    test("blocks a user from downloading someone else's invoice", async () => {
-        db.query.mockResolvedValueOnce([[{ id: VALID_ORDER_ID, user_id: 99 }]]);
+    // Same move as the cancel guard above: downloadInvoice used to compare ids
+    // and answer 403, and #1425 replaced that with requireOwnership on the
+    // route -- which answers 404 by design, so a caller cannot learn that an
+    // order id exists by being refused it. The old assertion outlived the
+    // behaviour it described (#1444).
+    test("the route guard blocks a user from downloading someone else's invoice", async () => {
+        const guard = requireOwnership(ownerFromTable({ table: "orders" }), {
+            resourceName: "Order"
+        });
+
+        db.query.mockResolvedValueOnce([[{ ownerId: 99 }]]);
+
         const req = { params: { id: VALID_ORDER_ID }, user: { id: 1, role: "user" } };
         const res = mockRes();
+        const next = jest.fn();
 
-        await downloadInvoice(req, res);
+        await guard(req, res, next);
 
-        expect(res.statusCode).toBe(403);
+        expect(next).not.toHaveBeenCalled();
+        expect(res.statusCode).toBe(404);
+    });
+
+    test("the route guard lets an admin through, unlike the cancel guard", async () => {
+        // The invoice guard keeps the privileged bypass; the cancel guard
+        // deliberately does not. Pinning both means a refactor cannot quietly
+        // level them.
+        const guard = requireOwnership(ownerFromTable({ table: "orders" }), {
+            resourceName: "Order"
+        });
+
+        const req = { params: { id: VALID_ORDER_ID }, user: { id: 1, role: "admin" } };
+        const res = mockRes();
+        const next = jest.fn();
+
+        await guard(req, res, next);
+
+        expect(next).toHaveBeenCalled();
     });
 
     test("streams a PDF for the order owner", async () => {

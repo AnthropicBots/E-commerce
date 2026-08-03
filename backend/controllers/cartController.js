@@ -11,6 +11,7 @@ const {
 } = require("../services/cart.service");
 const cartLifecycle = require("../services/cartLifecycleService");
 const guestCart = require("../services/guestCartService");
+const cartRestoreService = require("../services/cartRestoreService");
 
 // Every handler below works from the cart, not from the account (#1427). The
 // two are the same thing for a signed-in shopper and the account is still
@@ -74,6 +75,44 @@ const issuedToken = (cart) => (
 );
 
 const cartController = {
+    // Spend a restore link from a recovery message and hand back the basket.
+    //
+    // Restored verbatim in #1444: this handler and its route were dropped when
+    // cartRoutes.js was rewritten for guest carts (#1427), which left
+    // cartRestoreService, its migrations and its public-route declaration in
+    // place with nothing reaching them. Every recovery email sent since has
+    // linked to a 404.
+    //
+    // The only unauthenticated cart endpoint, and deliberately the only one:
+    // the caller is anonymous, so there is no account here to write to and this
+    // reads. The lines go into whichever basket the browser already owns, and a
+    // signed-in shopper's existing sync then persists them under their own
+    // session -- which keeps every cart *write* behind authentication, exactly
+    // as it was.
+    restoreFromLink: async (req, res) => {
+        try {
+            const token = sanitizeString(req.body?.token || req.query?.token || "");
+            const restored = await cartRestoreService.redeemRestoreToken(token);
+
+            return res.status(200).json({
+                success: true,
+                message: "Your basket is back",
+                ...restored
+            });
+        } catch (error) {
+            // Nothing about the account, the cart or the reason a token is
+            // unknown travels back: every refusal is either "not valid" or
+            // "no longer usable".
+            return res.status(error.status || 500).json({
+                success: false,
+                code: error.code || "CART_RESTORE_FAILED",
+                message: error.status
+                    ? error.message
+                    : "Could not restore this basket"
+            });
+        }
+    },
+
     // Get the current cart (joined with product data)
     getUserCart: async (req, res) => {
         try {

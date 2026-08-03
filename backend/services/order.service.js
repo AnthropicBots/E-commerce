@@ -11,6 +11,11 @@ const { validatePromo } = require("./promo.service");
 const pricing = require("./pricing.service");
 const cartLifecycle = require("./cartLifecycleService");
 const { generateOrderNumber } = require("./orderNumber.service");
+// `resolveOrderLines` and the stock deduction in `createOrder` both go through
+// this, and neither could: the require went missing, so `stockCounter` was a
+// free variable and every call threw `ReferenceError: stockCounter is not
+// defined`. That is order creation, not an edge case (#1444).
+const stockCounter = require("./stockCounterService");
 
 // Marks the one failure the client can act on, so controllers can answer with
 // the specific figures instead of a generic server error.
