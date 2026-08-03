@@ -815,56 +815,69 @@ const setActiveStationerySubcategory = (activeLink) => {
 };
 
 let megaMenuProductsCache;
+let megaMenuProductsPromise = null;
 
 const fetchMegaMenuProducts = async () => {
     if (!window.AppUtils) {
         return [];
     }
 
-    if (megaMenuProductsCache) {
+    if (Array.isArray(megaMenuProductsCache)) {
         return megaMenuProductsCache;
     }
 
-    try {
-        const requestedLimit = 200;
-        const firstPage = await AppUtils.apiRequest(
-            `/products?page=1&limit=${requestedLimit}`
-        );
-        const products = firstPage.success && Array.isArray(firstPage.products)
-            ? [...firstPage.products]
-            : [];
-        const pageLimit = Number(firstPage.limit) || products.length || 50;
-        const totalPages = Number(firstPage.totalPages) || 1;
-        const pagesToFetch = Math.min(
-            totalPages,
-            Math.ceil(requestedLimit / pageLimit)
-        );
-
-        for (let page = 2; page <= pagesToFetch; page += 1) {
-            if (products.length >= requestedLimit) {
-                break;
-            }
-
-            const data = await AppUtils.apiRequest(
-                `/products?page=${page}&limit=${requestedLimit}`
-            );
-
-            if (data.success && Array.isArray(data.products)) {
-                products.push(...data.products);
-            }
-        }
-
-        megaMenuProductsCache = products.slice(0, requestedLimit);
-    } catch (error) {
-        console.error(
-            "MEGA MENU PRODUCTS FETCH ERROR:",
-            error
-        );
-        megaMenuProductsCache = [];
+    if (megaMenuProductsPromise) {
+        return megaMenuProductsPromise;
     }
 
-    return megaMenuProductsCache;
+    megaMenuProductsPromise = (async () => {
+        try {
+            const requestedLimit = 200;
+            const firstPage = await AppUtils.apiRequest(
+                `/products?page=1&limit=${requestedLimit}`
+            );
+            const products = firstPage.success && Array.isArray(firstPage.products)
+                ? [...firstPage.products]
+                : [];
+            const pageLimit = Number(firstPage.limit) || products.length || 50;
+            const totalPages = Number(firstPage.totalPages) || 1;
+            const pagesToFetch = Math.min(
+                totalPages,
+                Math.ceil(requestedLimit / pageLimit)
+            );
+
+            for (let page = 2; page <= pagesToFetch; page += 1) {
+                if (products.length >= requestedLimit) {
+                    break;
+                }
+
+                const data = await AppUtils.apiRequest(
+                    `/products?page=${page}&limit=${requestedLimit}`
+                );
+
+                if (data.success && Array.isArray(data.products)) {
+                    products.push(...data.products);
+                }
+            }
+
+            megaMenuProductsCache = products.slice(0, requestedLimit);
+        } catch (error) {
+            console.error(
+                "MEGA MENU PRODUCTS FETCH ERROR:",
+                error
+            );
+            megaMenuProductsCache = [];
+        } finally {
+            const resolved = megaMenuProductsCache || [];
+            megaMenuProductsPromise = null;
+            return resolved;
+        }
+    })();
+
+    return megaMenuProductsPromise;
 };
+
+let fashionMenuPreviewRequestId = 0;
 
 const initializeGroceryMegaMenu = async () => {
     if (!grocerySubcategoryLinks.length || !groceryProductPreview) {
@@ -1009,48 +1022,225 @@ const ensureProductCardFactory = async () => {
     await loadScript("scripts/product-cards-home.js");
 };
 
+const getMegaMenuProductAliases = (segment) => {
+    const normalized = normalizeMenuValue(segment);
+
+    if (!normalized) {
+        return [];
+    }
+
+    const aliases = {
+        fashion: [
+            "fashion",
+            "clothing",
+            "apparel",
+            "wear",
+            "shirt",
+            "shirts",
+            "tshirt",
+            "tshirts",
+            "hoodie",
+            "hoodies",
+            "jacket",
+            "jackets",
+            "jeans",
+            "denim",
+            "dress",
+            "dresses",
+            "top",
+            "tops",
+            "traditional",
+            "kurti",
+            "women",
+            "men",
+            "kids",
+            "footwear",
+            "watch",
+            "watches",
+            "bag",
+            "bags",
+            "accessory",
+            "accessories"
+        ],
+        "men s clothing": [
+            "men",
+            "male",
+            "boy",
+            "shirt",
+            "shirts",
+            "tshirt",
+            "tshirts",
+            "hoodie",
+            "hoodies",
+            "jacket",
+            "jackets",
+            "jeans",
+            "denim",
+            "pants",
+            "trousers"
+        ],
+        "women s clothing": [
+            "women",
+            "female",
+            "girl",
+            "dress",
+            "dresses",
+            "top",
+            "tops",
+            "kurti",
+            "kurta",
+            "saree",
+            "traditional",
+            "skirt",
+            "leggings",
+            "jeans"
+        ],
+        "kids wear": [
+            "kids",
+            "kid",
+            "children",
+            "child",
+            "boys",
+            "girls",
+            "tshirt",
+            "shirts",
+            "dresses",
+            "hoodie"
+        ],
+        footwear: [
+            "footwear",
+            "shoe",
+            "shoes",
+            "sandal",
+            "sandals",
+            "sneaker",
+            "sneakers",
+            "slipper",
+            "slippers",
+            "loafer",
+            "loafers"
+        ],
+        watches: ["watch", "watches", "smartwatch", "smart watches"],
+        bags: ["bag", "bags", "backpack", "backpacks", "handbag", "handbags", "sling", "tote"],
+        accessories: ["accessory", "accessories", "belt", "belted", "sunglass", "sunglasses", "wallet", "wallets", "scarf", "scarves"],
+        electronics: ["electronics", "mobile", "mobiles", "laptop", "laptops", "tablet", "tablets", "smartwatch", "smartwatches", "headphone", "headphones", "camera", "cameras", "gaming", "console"],
+        grocery: ["grocery", "fruit", "fruits", "vegetable", "vegetables", "dairy", "milk", "snack", "snacks", "beverage", "beverages", "juice", "tea", "coffee", "cooking", "oil", "rice", "flour", "dal", "spice", "household", "cleaner", "detergent", "soap"],
+        toys: ["toys", "educational", "learning", "block", "blocks", "doll", "dolls", "rc", "remote", "vehicle", "outdoor"],
+        stationery: ["stationery", "notebook", "notebooks", "planner", "planners", "diary", "journal", "pen", "pens", "pencil", "pencils", "school", "bag", "bags", "office", "art", "paint", "sketch"],
+        "home and kitchen": ["home", "kitchen", "furniture", "cookware", "storage", "decor", "bedding", "appliance", "appliances"],
+        beauty: ["beauty", "skincare", "haircare", "makeup", "fragrance", "fragrances", "personal", "care"],
+        sports: ["sports", "cricket", "football", "gym", "equipment", "cycling", "outdoor"],
+        "pet supplies": ["pet", "pets", "dog", "cat", "food", "grooming", "toy", "toys", "accessory", "accessories"],
+        automotive: ["automotive", "car", "bike", "helmet", "helmets", "engine", "oil", "cleaning", "accessory", "accessories"]
+    };
+
+    return aliases[normalized] || [normalized];
+};
+
+const matchesMegaMenuProduct = (product, categoryLabel, subcategoryLabel) => {
+    const productValues = [
+        product?.category,
+        product?.subcategory,
+        product?.sub_category,
+        product?.subCategory,
+        product?.name,
+        product?.description,
+        ...(Array.isArray(product?.tags) ? product.tags : []),
+        ...(Array.isArray(product?.specifications) ? Object.values(product.specifications) : [])
+    ];
+
+    const normalizedProductText = productValues
+        .map((value) => normalizeMenuValue(value))
+        .filter(Boolean)
+        .join(" ");
+
+    const normalizedCategory = normalizeMenuValue(categoryLabel);
+    const normalizedSubcategory = normalizeMenuValue(subcategoryLabel);
+
+    if (!normalizedProductText) {
+        return false;
+    }
+
+    const categoryAliases = getMegaMenuProductAliases(normalizedCategory);
+    const subcategoryAliases = getMegaMenuProductAliases(normalizedSubcategory);
+
+    const isCategoryMatch = !normalizedCategory || categoryAliases.some((alias) => normalizedProductText.includes(alias));
+    const isSubcategoryMatch = !normalizedSubcategory || subcategoryAliases.some((alias) => normalizedProductText.includes(alias));
+
+    return isCategoryMatch && isSubcategoryMatch;
+};
+
+const getMegaMenuFallbackProducts = (products, categoryLabel) => {
+    const productPool = Array.isArray(products) ? products : [];
+
+    const getPopularityScore = (product) =>
+        Number(product?.num_reviews ?? product?.numReviews ?? product?.reviewCount ?? 0) +
+        Number(product?.rating ?? 0) * 10;
+
+    const getBestSellingScore = (product) =>
+        Number(product?.sales_count ?? product?.salesCount ?? product?.orderCount ?? product?.orders_count ?? 0);
+
+    const getNewestScore = (product) =>
+        Number(product?.id ?? product?.productId ?? 0);
+
+    const featured = productPool
+        .filter((product) => Number(product?.featured) === 1 || String(product?.featured) === "true")
+        .sort((a, b) => getPopularityScore(b) - getPopularityScore(a) || getBestSellingScore(b) - getBestSellingScore(a) || getNewestScore(b) - getNewestScore(a));
+
+    const popular = productPool
+        .filter((product) => getPopularityScore(product) > 0)
+        .sort((a, b) => getPopularityScore(b) - getPopularityScore(a) || getBestSellingScore(b) - getBestSellingScore(a) || getNewestScore(b) - getNewestScore(a));
+
+    const bestSelling = productPool
+        .filter((product) => getBestSellingScore(product) > 0)
+        .sort((a, b) => getBestSellingScore(b) - getBestSellingScore(a) || getPopularityScore(b) - getPopularityScore(a) || getNewestScore(b) - getNewestScore(a));
+
+    const newest = [...productPool].sort((a, b) => getNewestScore(b) - getNewestScore(a));
+
+    if (featured.length) {
+        return featured;
+    }
+
+    if (popular.length) {
+        return popular;
+    }
+
+    if (bestSelling.length) {
+        return bestSelling;
+    }
+
+    return newest;
+};
+
 const getFashionProducts = async () => {
     const products = await fetchMegaMenuProducts();
-    const fashionCategories = ["fashion", "footwear", "watches", "bags", "accessories"];
-    return products.filter((p) => fashionCategories.includes(String(p.category || "").toLowerCase()));
+    return Array.isArray(products) ? products : [];
 };
 
 const getProductsForFashionSubcategory = (fashionProducts, subcategory) => {
-    const sub = subcategory.toLowerCase();
-    return fashionProducts.filter((p) => {
-        // If product already has subcategory from API, use it first
-        const pSub = String(p.subcategory || p.sub_category || p.subCategory || "").toLowerCase();
-        if (pSub && pSub.includes(sub)) {
-            return true;
-        }
+    const normalizedSubcategory = normalizeMenuValue(subcategory);
 
-        const name = String(p.name || "").toLowerCase();
-        const desc = String(p.description || "").toLowerCase();
-        const text = `${name} ${desc}`;
+    if (!normalizedSubcategory) {
+        return [];
+    }
 
-        if (sub.includes("men's clothing") || sub === "men") {
-            return (text.includes("men") || text.includes("boy") || text.includes("shirt") || text.includes("jeans") || text.includes("hoodie")) && !text.includes("women");
-        }
-        if (sub.includes("women's clothing") || sub === "women") {
-            return text.includes("women") || text.includes("girl") || text.includes("dress") || text.includes("kurti") || text.includes("top");
-        }
-        if (sub.includes("kids")) {
-            return text.includes("kid") || text.includes("child") || text.includes("boy") || text.includes("girl") || text.includes("traditional");
-        }
-        if (sub.includes("footwear") || sub.includes("shoes") || sub.includes("sneaker")) {
-            return text.includes("shoe") || text.includes("shoes") || text.includes("sneaker") || text.includes("sneakers") || text.includes("footwear");
-        }
-        if (sub.includes("watches") || sub.includes("watch")) {
-            return text.includes("watch");
-        }
-        if (sub.includes("bags") || sub.includes("bag")) {
-            return text.includes("bag") || text.includes("handbag") || text.includes("backpack");
-        }
-        if (sub.includes("accessories")) {
-            return text.includes("accessory") || text.includes("accessories") || text.includes("sunglasses") || text.includes("belt");
-        }
-        return false;
-    });
+    const subcategoryMatches = (fashionProducts || []).filter((product) =>
+        matchesMegaMenuProduct(product, "Fashion", subcategory)
+    );
+
+    if (subcategoryMatches.length) {
+        return subcategoryMatches;
+    }
+
+    const categoryMatches = (fashionProducts || []).filter((product) =>
+        matchesMegaMenuProduct(product, "Fashion", "")
+    );
+
+    if (categoryMatches.length) {
+        return getMegaMenuFallbackProducts(categoryMatches, "Fashion");
+    }
+
+    return getMegaMenuFallbackProducts(fashionProducts, "Fashion");
 };
 
 const renderFashionMenuProducts = async (link) => {
@@ -1068,6 +1258,8 @@ const renderFashionMenuProducts = async (link) => {
         return;
     }
 
+    const requestId = ++fashionMenuPreviewRequestId;
+
     fashionProductsContainer.innerHTML =
         `
         <div class="mega-menu-skeleton" aria-busy="true" aria-label="Loading products">
@@ -1075,14 +1267,17 @@ const renderFashionMenuProducts = async (link) => {
             <div class="skeleton-card"></div>
         </div>
         `;
+    fashionProductsContainer.setAttribute("aria-busy", "true");
 
     try {
         await ensureProductCardFactory();
 
-        const products = getProductsForFashionSubcategory(
-            await getFashionProducts(),
-            subcategory
-        );
+        const baseProducts = await getFashionProducts();
+        const products = getProductsForFashionSubcategory(baseProducts, subcategory);
+
+        if (requestId !== fashionMenuPreviewRequestId) {
+            return;
+        }
 
         document
             .querySelectorAll("#mega-panel-fashion .category-menu-link, #mega-panel-fashion .fashion-category-card")
@@ -1090,39 +1285,53 @@ const renderFashionMenuProducts = async (link) => {
                 categoryLink.classList.toggle("is-preview-active", categoryLink === link);
             });
 
-        fashionProductsContainer.innerHTML = products.length
-            ? products.slice(0, 2)
-                .map((product) =>
-                    `<a class="mega-menu-product-link" href="${link.href}">
+        if (!products.length) {
+            fashionProductsContainer.innerHTML = `
+                <div class="mega-menu-empty-state">
+                    <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                    </svg>
+                    <h4 class="empty-state-heading">No products in this category yet</h4>
+                    <p class="empty-state-desc">Try another subcategory or browse the full fashion collection for more options.</p>
+                    <a href="shop.html?category=Fashion" class="empty-state-cta">Explore Fashion</a>
+                </div>
+            `;
+            return;
+        }
+
+        fashionProductsContainer.innerHTML = products
+            .slice(0, 2)
+            .map((product) => {
+                const productLink = getProductLink(product, "Fashion", subcategory);
+                return `
+                    <a class="mega-menu-product-link" href="${productLink}">
                         ${window.createProductCard(product, null, {
                             compact: true,
                             showActions: false
                         })}
-                    </a>`
-                )
-                .join("")
-            : `
-            <div class="mega-menu-empty-state">
-                <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                </svg>
-                <h4 class="empty-state-heading">No Products Found</h4>
-                <p class="empty-state-desc">We couldn't find any products in this category right now.</p>
-                <a href="shop.html" class="empty-state-cta">Shop All Products</a>
-            </div>
-            `;
+                    </a>
+                `;
+            })
+            .join("");
     } catch {
-        fashionProductsContainer.innerHTML =
-            `
+        if (requestId !== fashionMenuPreviewRequestId) {
+            return;
+        }
+
+        fashionProductsContainer.innerHTML = `
             <div class="mega-menu-empty-state">
                 <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                 </svg>
-                <h4 class="empty-state-heading">No Products Found</h4>
-                <p class="empty-state-desc">We couldn't find any products in this category right now.</p>
-                <a href="shop.html" class="empty-state-cta">Shop All Products</a>
+                <h4 class="empty-state-heading">Preview Unavailable</h4>
+                <p class="empty-state-desc">We were unable to load products for this category right now. Try again in a moment.</p>
+                <a href="shop.html?category=Fashion" class="empty-state-cta">Explore Fashion</a>
             </div>
-            `;
+        `;
+    } finally {
+        if (requestId === fashionMenuPreviewRequestId) {
+            fashionProductsContainer.removeAttribute("aria-busy");
+        }
     }
 };
 

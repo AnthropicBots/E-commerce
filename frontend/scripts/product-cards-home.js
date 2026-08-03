@@ -88,60 +88,52 @@ function createProductCard(
     product,
     wishlistIds
 ) {
+    if (!product || typeof product !== "object") {
+        return "";
+    }
+
+    const productId = product.id ?? product.productId ?? "";
     const isWishlisted = isProductWishlisted(product.id, wishlistIds);
+    const stock = Number(product.stock ?? 0);
+    const outOfStock = isOutOfStock(stock);
+    const outOfStockClass = outOfStock ? "out-of-stock" : "";
 
-    const rating =
-        Math.min(
-            5,
-            Math.max(
-                0,
-                Number(
-                    product.rating || 4
-                )
-            )
-        );
+    const rating = Math.min(
+        5,
+        Math.max(0, Number(product.rating || 4))
+    );
 
-    const stars =
-        Array.from(
-            {
-                length: 5
-            },
-            (_, index) => {
-                return `
-                    <i class="fas fa-star${
-                        index < rating
-                            ? ""
-                            : "-o"
-                    }"></i>
-                `;
-            }
-        ).join("");
+    const stars = Array.from({ length: 5 }, (_, index) => {
+        return `
+            <i class="fas fa-star${index < rating ? "" : "-o"}"></i>
+        `;
+    }).join("");
 
-            <img
-                src="${defaultImage(product.image)}"
-                alt="${safeText(product.name, "Product")}"
-                loading="lazy"
-                onerror="this.onerror=null; this.src='data:image/svg+xml;charset=UTF-8,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'200\\' height=\\'200\\' viewBox=\\'0 0 200 200\\'%3E%3Crect fill=\\'%23eee\\' width=\\'200\\' height=\\'200\\'/%3E%3Ctext fill=\\'%23999\\' font-family=\\'sans-serif\\' font-size=\\'14\\' x=\\'50%25\\' y=\\'50%25\\' text-anchor=\\'middle\\' dominant-baseline=\\'middle\\'%3ENo Image%3C/text%3E%3C/svg%3E';"
-            >
+    const imageUrl = typeof defaultImage === "function"
+        ? defaultImage(product.image)
+        : (product.image || "");
 
-    // The pre-`isProductWishlisted` version of this lookup was left in place
-    // here by a bad merge (#1341): it re-declared `wishlistIds`, which is
-    // already this function's parameter, and `isWishlisted`, already assigned
-    // above -- a SyntaxError that took the whole homepage grid offline. It also
-    // read a `wishlistSet` binding that does not exist in this scope.
+    const productName = safeText(product.name, "Product");
+    const safeBrand = safeText(product.brand || product.category, "Fashion");
+    const numericPrice = safePrice(product.price);
+    const priceLabel = typeof formatPrice === "function"
+        ? formatPrice(numericPrice)
+        : `$${numericPrice}`;
+    const escapedProductName = typeof AppUtils !== "undefined" && AppUtils.escapeHTML
+        ? AppUtils.escapeHTML(productName)
+        : productName;
+    const escapedBrand = typeof AppUtils !== "undefined" && AppUtils.escapeHTML
+        ? AppUtils.escapeHTML(safeBrand)
+        : safeBrand;
 
     return `
-        <div class="pro ${outOfStockClass} fade-in" data-id="${product.id}">
-            ${
-                product.featured
-                    ? `<span class="product-badge">Featured</span>`
-                    : ""
-            }
+        <div class="pro ${outOfStockClass} fade-in" data-id="${productId}">
+            ${product.featured ? '<span class="product-badge">Featured</span>' : ""}
 
             <div class="product-image-wrapper">
                 <img
-                    src="${typeof defaultImage === 'function' ? defaultImage(product.image) : (product.image || '')}"
-                    alt="${typeof escapeHTML === 'function' ? escapeHTML(product.name || 'Product image') : (product.name || 'Product')}"
+                    src="${imageUrl}"
+                    alt="${escapedProductName}"
                     loading="lazy"
                     onerror="typeof handleImageError === 'function' && handleImageError(this)"
                 >
@@ -150,34 +142,34 @@ function createProductCard(
             </div>
 
             <div class="des">
-                <span>${safeText(product.brand || product.category, "Fashion")}</span>
-                <h5>${safeText(product.name, "Product")}</h5>
+                <span>${escapedBrand}</span>
+                <h5>${escapedProductName}</h5>
                 <div class="star">${stars}</div>
-                <h4>${typeof formatPrice === 'function' ? formatPrice(safePrice(product.price)) : `$${safePrice(product.price)}`}</h4>
+                <h4>${priceLabel}</h4>
                 ${getLowStockTextHTML(stock)}
 
                 <div class="product-actions">
                     <button
                         type="button"
                         class="view-product-btn"
-                        data-id="${product.id}"
-                        ${outOfStock ? 'disabled' : ''}
+                        data-id="${productId}"
+                        ${outOfStock ? "disabled" : ""}
                     >
                         View
                     </button>
                     <button
                         type="button"
                         class="add-cart-btn"
-                        data-id="${product.id}"
-                        ${outOfStock ? 'disabled' : ''}
+                        data-id="${productId}"
+                        ${outOfStock ? "disabled" : ""}
                     >
                         Add Cart
                     </button>
                     <button
                         type="button"
                         class="compare-btn"
-                        data-id="${product.id}"
-                        ${outOfStock ? 'disabled' : ''}
+                        data-id="${productId}"
+                        ${outOfStock ? "disabled" : ""}
                     >
                         Compare
                     </button>
@@ -185,7 +177,7 @@ function createProductCard(
                     <button
                         type="button"
                         class="wishlist-btn secondary-action"
-                        data-id="${product.id}"
+                        data-id="${productId}"
                     >
                         <i class="${isWishlisted ? "fas" : "far"} fa-heart"></i>
                         Wishlist

@@ -1305,8 +1305,9 @@ document.addEventListener(
                 }
             });
         });
-    }
-    
+    });
+
+function clearAllFilters() {
     // Reset category
     filterButtons.forEach(btn => {
         btn.classList.remove('active-filter');
