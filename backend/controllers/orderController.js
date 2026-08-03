@@ -1263,6 +1263,11 @@ module.exports = {
     getOrderById,
     getOrderTimeline,
     getFulfilmentReport,
+    // Defined above but left out of this list, so `orderController.getRecoveryReport`
+    // was `undefined` and `router.get("/reports/recovery", …)` threw
+    // "argument handler must be a function" while orderRoutes.js was being
+    // required -- the whole server failed to boot (#1444).
+    getRecoveryReport,
     lookupGuestOrder,
     getOrderStatus,
     updateOrderStatus,

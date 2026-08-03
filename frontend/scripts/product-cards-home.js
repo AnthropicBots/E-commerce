@@ -117,18 +117,21 @@ function createProductCard(
             }
         ).join("");
 
-            <img
-                src="${defaultImage(product.image)}"
-                alt="${safeText(product.name, "Product")}"
-                loading="lazy"
-                onerror="this.onerror=null; this.src='data:image/svg+xml;charset=UTF-8,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'200\\' height=\\'200\\' viewBox=\\'0 0 200 200\\'%3E%3Crect fill=\\'%23eee\\' width=\\'200\\' height=\\'200\\'/%3E%3Ctext fill=\\'%23999\\' font-family=\\'sans-serif\\' font-size=\\'14\\' x=\\'50%25\\' y=\\'50%25\\' text-anchor=\\'middle\\' dominant-baseline=\\'middle\\'%3ENo Image%3C/text%3E%3C/svg%3E';"
-            >
-
-    // The pre-`isProductWishlisted` version of this lookup was left in place
-    // here by a bad merge (#1341): it re-declared `wishlistIds`, which is
-    // already this function's parameter, and `isWishlisted`, already assigned
-    // above -- a SyntaxError that took the whole homepage grid offline. It also
-    // read a `wishlistSet` binding that does not exist in this scope.
+    // Stock state, read once and reused by the badge, the overlay, the
+    // low-stock line and the three disabled buttons below.
+    //
+    // These three bindings, and the orphaned image tag that stood here instead
+    // of them, were the two halves of the bad merge that took the homepage
+    // grid offline (#1444). The fragment sat at statement position --
+    // outside any template literal -- so the whole file was a SyntaxError, and
+    // the declarations the template needs went with it. The product image is
+    // rendered by the `return` template below; nothing is lost by dropping the
+    // fragment.
+    const stock = Number(product.stock) || 0;
+    const outOfStock = isOutOfStock(stock);
+    // `.pro.out-of-stock` is what styles/product-card.css dims and disables --
+    // same class shop.js puts on its cards, so both grids look the same.
+    const outOfStockClass = outOfStock ? "out-of-stock" : "";
 
     return `
         <div class="pro ${outOfStockClass} fade-in" data-id="${product.id}">
