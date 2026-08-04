@@ -4,18 +4,7 @@
 
 This project includes:
 - User authentication system
-- Product browsing & filtering
-- Shopping cart & checkout flow
-- Wishlist system
-- Admin dashboard
-- Order management
-- Responsive modern UI
-- Open source contribution support
-
----
-
-# 🌐 Live Demo
-
+-
 🚀 Live Website:  
 https://e-commerce-git-main-bhuvanshs-projects.vercel.app
 
