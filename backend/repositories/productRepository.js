@@ -3,7 +3,12 @@ const BaseRepository = require('./baseRepository');
 
 class ProductRepository extends BaseRepository {
     constructor() {
-        super('products', 'id');
+        // `products.deleted_at` is filtered by every read path in the codebase
+        // and was set by nothing, because the only statement that would ever
+        // have set it was a hard `DELETE` (#1457). Declaring it here means
+        // `productService.deleteProduct()` cannot reintroduce that cascade
+        // through the repository while the controller is being careful.
+        super('products', 'id', { softDeleteColumn: 'deleted_at' });
     }
 
     /**
