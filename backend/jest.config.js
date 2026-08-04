@@ -26,8 +26,13 @@ module.exports = {
     // need. If a new ESM-only dependency is added later it will surface as
     // `SyntaxError: Unexpected token 'export'` naming the package, and belongs
     // in this list.
+    //
+    // `@exodus/bytes` is the newest arrival. It came in with jsdom, which
+    // tests/navbarSearch.test.js uses to drive the navbar combobox against a
+    // real DOM (#1458), and it surfaced in exactly the way the paragraph above
+    // predicts.
     transformIgnorePatterns: [
-        '/node_modules/(?!(uuid|@scure|@noble|otplib|@otplib|chai|color|color-string|@ungap)/)'
+        '/node_modules/(?!(uuid|@scure|@noble|otplib|@otplib|chai|color|color-string|@ungap|@exodus)/)'
     ],
 
     collectCoverage: true,

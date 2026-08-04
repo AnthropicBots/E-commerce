@@ -1516,10 +1516,78 @@ body.dark-theme #profile-dropdown button{
     width: 100%;
     background: #fff;
     border-radius: 18px;
-    overflow: hidden;
+    /* `auto` rather than `hidden`: eight results can be taller than the space
+       under the input, and `hidden` clipped the last of them with no way to
+       reach them. The max-height keeps the list off the fold. */
+    overflow-y: auto;
+    max-height: 340px;
     box-shadow:
         0 12px 30px rgba(0, 0, 0, .12);
     z-index: 1000;
+}
+
+/* Suggestion rows (#1458).
+   These used to carry their padding and border in a `style` attribute written
+   into an innerHTML template -- the same template that interpolated the product
+   name unescaped. */
+#header .suggestions-dropdown .suggestion-item {
+    padding: 10px 14px;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+    font-size: 14px;
+    color: #1a1a1a;
+    /* Names are arbitrary text and some are long. Without this a single row
+       stretches the dropdown wider than the search box it hangs off. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#header .suggestions-dropdown .suggestion-item:last-child {
+    border-bottom: none;
+}
+
+/* One highlight for both input methods. `.is-active` is set by the arrow keys
+   and by mousemove alike, so the row Enter would take is always the row that
+   looks chosen; a `:hover`-only rule leaves the two disagreeing. */
+#header .suggestions-dropdown .suggestion-item.is-active {
+    background: #f1f5f9;
+}
+
+#header .suggestions-dropdown .suggestion-empty {
+    padding: 12px 14px;
+    margin: 0;
+    font-size: 13px;
+    color: #6b7280;
+}
+
+body.dark-theme #header .suggestions-dropdown {
+    background: #1f2430;
+}
+
+body.dark-theme #header .suggestions-dropdown .suggestion-item {
+    color: #e5e7eb;
+    border-bottom-color: #2d3444;
+}
+
+body.dark-theme #header .suggestions-dropdown .suggestion-item.is-active {
+    background: #2d3444;
+}
+
+/* Reachable by a screen reader, invisible on screen.
+   shop.css already defines this, but shop.css loads on one page and the navbar
+   is on 28 -- so the live region announcing the suggestion count needs the rule
+   to travel with the component that uses it. */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 /* ===== Responsive ===== */
