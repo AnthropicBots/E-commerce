@@ -3,16 +3,7 @@
 > A modern, responsive, and feature-rich full-stack e-commerce platform built using **Node.js, Express.js, MySQL, JWT, HTML, CSS, and Vanilla JavaScript**.
 
 This project includes:
-- User authentication system
-- Product browsing & filtering
-- Shopping cart & checkout flow
-- Wishlist system
-- Admin dashboard
-- Order management
-- Responsive modern UI
-- Open source contribution support
 
----
 
 # 🌐 Live Demo
 
