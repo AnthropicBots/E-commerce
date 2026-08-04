@@ -68,7 +68,11 @@
 
     <div id="navbar"></div>
 
-    <main id="main-content">
+    <!-- `tabindex="-1"` so the skip link can actually move focus here. Without
+         it the browser scrolls to the landmark but leaves focus on the link, and
+         the next Tab goes back to the navigation the user just skipped. This is
+         the shape #1452's landmark gate checks for. -->
+    <main id="main-content" tabindex="-1">
 
         <section class="section-p1 newsletter-status-page">
 
