@@ -18,6 +18,14 @@ let priceTouched = false;
 let productObserver = null;
 const loadedProductIds = new Set();
 
+// Legacy filter-button state, read and written by setupCategoryFilters,
+// setupSearch and clearAllFilters. These were only ever assigned, never
+// declared, so each one leaked onto `window` -- harmless while the file did
+// not parse at all, and worth closing now that it does (#1444).
+let currentCategory = "all";
+let currentSearch = "";
+let showAllHoodies = false;
+
 // Local fallback sample products (used when backend returns no products)
 const fallbackProducts = [
     // T-SHIRTS (~5)
@@ -1306,7 +1314,17 @@ document.addEventListener(
             });
         });
     }
-    
+);
+
+// Clear every active filter and go back to the default catalogue view.
+//
+// The `);` above and this declaration are what a bad merge dropped (#1444):
+// the DOMContentLoaded listener was left unclosed and this function's body ran
+// straight on from it, so the file did not parse and the whole shop page --
+// search, filters, sorting, the product list -- was dead. `setupClearFilters`
+// at the bottom binds this by name, and every binding the body reads is
+// already declared above.
+function clearAllFilters() {
     // Reset category
     filterButtons.forEach(btn => {
         btn.classList.remove('active-filter');

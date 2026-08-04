@@ -934,6 +934,14 @@ components:
           items:
             $ref: "#/components/schemas/ShippingOption"
         freeShipping:
+          # `type` is required alongside `nullable`: without it a validator
+          # cannot tell what the non-null case is, and ajv refuses to compile
+          # the schema at all -- "nullable cannot be used without type". That
+          # took down every fixture in the contract suite, not only this one,
+          # because compilation happens before any payload is looked at
+          # (#1444). FreeShippingProgress is an object, so this states what
+          # was already meant.
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/FreeShippingProgress"

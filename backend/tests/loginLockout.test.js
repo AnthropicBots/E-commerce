@@ -30,11 +30,23 @@ jest.mock('../config/db', () => ({
 // deliberately runs it against an unreachable Redis, because the per-process
 // fallback that serves an outage has to enforce exactly the same policy as the
 // shared path. The Redis path is covered in loginLockoutService.test.js.
-jest.mock('../config/redis', () => ({
-    eval: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')),
-    del: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')),
-    scan: jest.fn().mockRejectedValue(new Error('ECONNREFUSED'))
-}));
+//
+// Only the three commands the fallback path touches reject; the rest of the
+// client comes from the shared double. The partial mock that used to stand here
+// had no `connect`, and services/refreshTokenService.js calls it at module
+// scope, so requiring authController died with
+// `TypeError: redis.connect is not a function` and the suite failed to run --
+// never reaching a single assertion below (#1444).
+jest.mock('../config/redis', () => {
+    const { createRedisMock } = require('./helpers/redisMock');
+    const client = createRedisMock();
+
+    client.eval = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+    client.del = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+    client.scan = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+    return client;
+});
 
 jest.mock('../config/logger', () => ({
     info: jest.fn(),

@@ -218,3 +218,46 @@ describe('envValidator url handling', () => {
         expect(validator.isURL('', { require_tld: false })).toBe(false);
     });
 });
+
+describe('orderController (#1444)', () => {
+    const fs = require('fs');
+    const path = require('path');
+
+    const controller = require('../controllers/orderController');
+    const routesSource = fs.readFileSync(
+        path.join(__dirname, '..', 'routes', 'orderRoutes.js'),
+        'utf8'
+    );
+
+    /**
+     * Every `orderController.<name>` the router reaches for.
+     *
+     * Derived from the source rather than hard-coded, so a handler added to a
+     * route tomorrow is covered without anyone remembering to list it here.
+     */
+    const referenced = Array.from(
+        new Set(
+            Array.from(routesSource.matchAll(/orderController\.(\w+)/g), (m) => m[1])
+        )
+    ).sort();
+
+    test('the router references at least the handlers we know about', () => {
+        // A guard on the regex itself: if it silently stopped matching, every
+        // assertion below would pass over an empty list.
+        expect(referenced).toContain('createOrder');
+        expect(referenced).toContain('getRecoveryReport');
+        expect(referenced.length).toBeGreaterThan(10);
+    });
+
+    // getRecoveryReport was defined in the controller but missing from
+    // module.exports, so it resolved to `undefined` and Express threw
+    // "argument handler must be a function" while orderRoutes.js was still
+    // being required. The server did not boot at all.
+    test.each(referenced)('exports %s as a function', (name) => {
+        expect(typeof controller[name]).toBe('function');
+    });
+
+    test('orderRoutes mounts without throwing', () => {
+        expect(() => require('../routes/orderRoutes')).not.toThrow();
+    });
+});
