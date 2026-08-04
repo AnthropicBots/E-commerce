@@ -30,7 +30,7 @@ workflows:
       require_linked_issue: true
       require_tests: false
     ai_review:
-      enabled: false
+      enabled: true
 
   # ── Auto-assign reviewers (new feature — OFF for now, flip to true later) ──
   reviewer_assignment:
