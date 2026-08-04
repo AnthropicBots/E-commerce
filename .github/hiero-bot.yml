@@ -31,6 +31,9 @@ workflows:
       require_tests: false
     ai_review:
       enabled: true
+      model: "meta/llama-3.3-70b-instruct"
+      max_comments: 5
+      focus_areas: [security, logic]
 
   # ── Auto-assign reviewers (new feature — OFF for now, flip to true later) ──
   reviewer_assignment:
