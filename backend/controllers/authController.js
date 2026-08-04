@@ -5,7 +5,25 @@
 
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
+// Four imports this file uses but never declared. Not part of #1455, but the
+// reset path below calls two of them, so it could not be tested without them:
+//
+//   jwt                 -- generateAccessToken:106 calls jwt.sign
+//   revokeUserSessions  -- resetPassword, deactivate and delete-account all
+//   REVOKE_REASON          call these when invalidating sessions
+//   logger              -- used by the new suppression log below
+//
+// Each was a `ReferenceError: <name> is not defined` at the point of use. They
+// are inside handlers rather than at module scope, so the file loads fine, the
+// syntax gate passes and the boot check passes -- it only fails when someone
+// actually signs in or resets a password. See the PR description.
+const jwt = require("jsonwebtoken");
 const db = require("../config/db");
+const logger = require("../config/logger");
+const {
+    revokeUserSessions,
+    REVOKE_REASON
+} = require("../services/authSessionService");
 const { sanitizeString, safeArray } = require("../utils/helpers");
 const { getClearCookieOptions } = require("../config/cookieConfig");
 const { PERMISSIONS, hasPermission } = require("../config/policy");
@@ -14,6 +32,10 @@ const agentIdentityService = require("../services/agentIdentityService");
 // Lockout state lives in Redis so it survives a restart and is observed by
 // every instance; the policy it enforces is unchanged.
 const loginLockoutService = require("../services/loginLockoutService");
+// The per-address "send me a code" budget, moved out of a module-scope Map for
+// the same reasons (#1455). This is the anti-mail-bomb limit; the per-caller
+// limit is the route middleware in middleware/rateLimiter.js.
+const otpRequestLimiter = require("../services/otpRequestLimiter");
 // A basket built before signing in belongs to the account afterwards (#1427).
 const { mergeGuestCartOnSignIn } = require("../services/cartMergeService");
 
@@ -27,9 +49,20 @@ const { encrypt, decrypt } = require('../utils/encryption');
 
 // ==================== CONSTANTS ====================
 const OTP_EXPIRY_MINUTES = parseInt(process.env.OTP_EXPIRY_MINUTES) || 10;
-const OTP_RATE_LIMIT_WINDOW = 5 * 60 * 1000; // 5 minutes
-const OTP_RATE_LIMIT_MAX = 3; // Max 3 OTP requests per window
 const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+// The one sentence /forgot-password says, whatever it finds behind the address.
+//
+// Three branches used to answer here with three different (status, success,
+// message) triples -- unknown address, unverified account, verified account --
+// which is an account-existence oracle for anyone who can send a POST (#1455).
+// Every path now ends on this exact response, so the reply carries no
+// information about the account. It is a constant rather than three string
+// literals specifically so the three call sites cannot drift apart again.
+const FORGOT_PASSWORD_RESPONSE = Object.freeze({
+    success: true,
+    message: "If that address has an account, a reset code is on its way to it."
+});
 const {
     MAX_LOGIN_ATTEMPTS,
     LOGIN_LOCKOUT_DURATION,
@@ -41,24 +74,19 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const strongPasswordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/;
 const otpRegex = /^\d{6}$/;
 
-// ==================== RATE LIMITING ====================
-const otpRateLimiter = new Map();
-
 // ==================== PENDING SIGNUPS CACHE ====================
 const pendingSignups = new Map();
 
-// Clean up expired pending signups every 5 minutes
+// Clean up expired pending signups every 5 minutes.
+//
+// This used to sweep the OTP rate limiter's Map too. That Map is gone --
+// services/otpRequestLimiter.js keeps the counters in Redis now, where they
+// expire on their own and are shared between instances (#1455).
 setInterval(() => {
     const now = Date.now();
     for (const [email, data] of pendingSignups.entries()) {
         if (now > data.expiresAt) {
             pendingSignups.delete(email);
-        }
-    }
-    // Clean up expired rate limiter entries
-    for (const [key, data] of otpRateLimiter.entries()) {
-        if (now > data.resetTime) {
-            otpRateLimiter.delete(key);
         }
     }
 }, CLEANUP_INTERVAL);
@@ -128,27 +156,20 @@ function sendAuthResponse(res, { message, accessToken, refreshToken, user, famil
     });
 }
 
-function isOTPRateLimited(email) {
-    const now = Date.now();
-    const key = `otp_${email}`;
-    const record = otpRateLimiter.get(key);
-    
-    if (!record) {
-        otpRateLimiter.set(key, { count: 1, resetTime: now + OTP_RATE_LIMIT_WINDOW });
-        return false;
-    }
-    
-    if (now > record.resetTime) {
-        otpRateLimiter.set(key, { count: 1, resetTime: now + OTP_RATE_LIMIT_WINDOW });
-        return false;
-    }
-    
-    if (record.count >= OTP_RATE_LIMIT_MAX) {
-        return true;
-    }
-    
-    record.count++;
-    return false;
+/**
+ * Take one request from the per-address code-sending budget.
+ *
+ * Thin wrapper over the service so the two callers read the same way. The
+ * counters used to be a module-scope `Map` here: a restart cleared them, two
+ * instances each kept their own, and the map grew one entry per address asked
+ * about until a five-minute sweep ran (#1455).
+ *
+ * @param {string} email
+ * @returns {Promise<boolean>} true when the budget is spent.
+ */
+async function isOTPRateLimited(email) {
+    const { allowed } = await otpRequestLimiter.consume(email);
+    return !allowed;
 }
 
 const {
@@ -180,10 +201,10 @@ const signup = async (req, res) => {
         }
 
         // Rate limiting
-        if (isOTPRateLimited(cleanEmail)) {
-            return res.status(429).json({ 
-                success: false, 
-                message: "Too many OTP requests. Please wait 5 minutes." 
+        if (await isOTPRateLimited(cleanEmail)) {
+            return res.status(429).json({
+                success: false,
+                message: "Too many OTP requests. Please wait 5 minutes."
             });
         }
 
@@ -441,50 +462,87 @@ const logout = async (req, res) => {
     }
 };
 // ==================== 5. FORGOT PASSWORD ====================
+/**
+ * Start a password reset.
+ *
+ * Every outcome ends on FORGOT_PASSWORD_RESPONSE. That is the whole point of
+ * this handler (#1455): it previously answered
+ *
+ *   unknown address     -> 200 "If the email is registered, an OTP has been sent."
+ *   unverified account  -> 400 "Please verify your email first ..."
+ *   verified account    -> 200 "OTP sent to your email"
+ *
+ * so three POSTs recovered two bits of state about any address a caller cared
+ * to name. The branching still happens -- it just happens silently, on this
+ * side, and the caller cannot see which branch ran.
+ *
+ * Four things follow from that and are easy to undo by accident, so they are
+ * spelled out here:
+ *
+ *   1. A malformed address gets the same response too. "That is not an email"
+ *      is genuinely caller-side information rather than account information, so
+ *      returning 400 would be defensible -- but it costs nothing to be uniform
+ *      and the client validates the format anyway.
+ *
+ *   2. An exhausted per-address budget also gets it. A 429 keyed on the
+ *      *subject* would say "somebody asked about this address recently", which
+ *      is exactly the kind of fact this handler exists to withhold. The
+ *      per-caller 429 from forgotPasswordLimiter is fine and still applies --
+ *      it describes the caller, not the account.
+ *
+ *   3. A failure from Appwrite is logged and swallowed. A 500 on send-failure
+ *      but a 200 on unknown-address is a slower version of the same oracle,
+ *      since only a real address reaches the send at all.
+ *
+ *   4. Unverified accounts are sent the code rather than refused. Redeeming a
+ *      code mailed to an address *is* proof of control of that address, so
+ *      there is nothing for the old gate to protect -- and it permanently
+ *      stranded anyone who signed up, never clicked, and later forgot the
+ *      password, since reset is the only way back in. resetPassword sets
+ *      is_verified on the way through.
+ */
 const forgotPassword = async (req, res) => {
+    const respond = () => res.status(200).json(FORGOT_PASSWORD_RESPONSE);
+
     try {
         const { email } = req.body;
         const cleanEmail = sanitizeString(email).toLowerCase();
 
         if (!emailRegex.test(cleanEmail)) {
-            return res.status(400).json({ success: false, message: "Invalid email format" });
+            return respond();
         }
 
-        // Rate limiting
-        if (isOTPRateLimited(cleanEmail)) {
-            return res.status(429).json({ 
-                success: false, 
-                message: "Too many OTP requests. Please wait 5 minutes." 
-            });
+        // Anti-mail-bomb, per address. Consumed before the lookup so the number
+        // of database queries an address attracts does not track its existence.
+        if (await isOTPRateLimited(cleanEmail)) {
+            logger.warn(
+                'Password reset code suppressed: per-address budget exhausted'
+            );
+            return respond();
         }
 
-        const [users] = await db.query(`SELECT id, is_verified AS email_verified FROM users WHERE email = ? LIMIT 1`, [cleanEmail]);
+        const [users] = await db.query(
+            `SELECT id, is_verified AS email_verified FROM users WHERE email = ? LIMIT 1`,
+            [cleanEmail]
+        );
+
         if (!safeArray(users).length) {
-            // Security: Don't reveal if email exists
-            return res.status(200).json({ 
-                success: true, 
-                message: "If the email is registered, an OTP has been sent." 
-            });
+            return respond();
         }
 
-        const user = users[0];
-        if (!user.email_verified) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Please verify your email first before requesting password reset." 
-            });
+        try {
+            await appwriteAccount.createEmailToken(ID.unique(), cleanEmail);
+        } catch (sendError) {
+            // Logged, not surfaced -- see (3) above.
+            console.error("FORGOT PASSWORD SEND ERROR:", sendError);
         }
 
-        // Send OTP via Appwrite
-        await appwriteAccount.createEmailToken(ID.unique(), cleanEmail);
-        
-        return res.status(200).json({
-            success: true,
-            message: "OTP sent to your email"
-        });
+        return respond();
     } catch (error) {
         console.error("FORGOT PASSWORD ERROR:", error);
-        return res.status(500).json({ success: false, message: "Failed to send reset OTP" });
+        // Even an unexpected failure answers the same way. Anything else and
+        // the error itself becomes the signal.
+        return respond();
     }
 };
 
@@ -534,9 +592,27 @@ const resetPassword = async (req, res) => {
             console.warn("Failed to update password in Appwrite:", pwErr.message);
         }
 
-        // Update password in MySQL
+        // Update password in MySQL.
+        //
+        // `is_verified` is set in the same statement. The code that got the
+        // caller here was mailed to this address and they read it, which is the
+        // entire content of "this address is verified" -- so an account that
+        // completes a reset has verified itself by definition.
+        //
+        // That is also what makes it safe for forgotPassword to have stopped
+        // refusing unverified accounts (#1455): before, such an account was
+        // told to verify first, could not, and was locked out for good, because
+        // reset is the only way back in for someone who has lost the password.
         const hashedPassword = await bcrypt.hash(newPassword, 10);
-        await db.query(`UPDATE users SET password = ? WHERE email = ?`, [hashedPassword, appwriteUser.email]);
+        await db.query(
+            `UPDATE users SET password = ?, is_verified = 1 WHERE email = ?`,
+            [hashedPassword, appwriteUser.email]
+        );
+
+        // The address has demonstrably reached its owner, so the anti-mail-bomb
+        // budget has done its job; hand it back rather than making a legitimate
+        // second attempt wait out the window.
+        await otpRequestLimiter.release(appwriteUser.email);
 
         // A reset is the path someone takes when they may have lost control of
         // the account, so every existing session goes -- there is no session to
