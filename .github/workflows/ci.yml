@@ -53,6 +53,12 @@ jobs:
       - name: Check the sitemap covers every public page
         run: node scripts/generate-sitemap.js --check
 
+      # Structural accessibility only -- a skip link, one main landmark, one h1
+      # per page. Not a substitute for an audit; it is the subset that has a
+      # yes/no answer, so a new page cannot ship without the basics (#1447).
+      - name: Check every page has a skip link, a main landmark and an h1
+        run: node scripts/check-a11y-landmarks.js
+
   backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
