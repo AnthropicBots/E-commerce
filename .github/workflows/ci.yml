@@ -45,6 +45,14 @@ jobs:
       - name: Check every tracked .js file parses
         run: node scripts/check-syntax.js
 
+      # Also dependency-free. A page added without regenerating the sitemap is
+      # simply never indexed, which is invisible until someone goes looking for
+      # it in a search engine six months later (#1446). Compares the page set,
+      # not <lastmod> -- see the note in the generator for why that field is
+      # excluded.
+      - name: Check the sitemap covers every public page
+        run: node scripts/generate-sitemap.js --check
+
   backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
