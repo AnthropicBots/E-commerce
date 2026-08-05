@@ -117,20 +117,7 @@ E-commerce/
 │   │   ├── rateLimiter.js
 │   │   └── rbacMiddleware.js
 │   │
-│   ├── models/
-│   │   ├── Order.js
-│   │   ├── Pincode.js
-│   │   ├── Product.js
-│   │   └── User.js
-│   │
-│   ├── routes/
-│   │   ├── adminRoutes.js
-│   │   ├── authRoutes.js
-│   │   ├── cartRoutes.js
-│   │   ├── chatRoutes.js
-│   │   ├── index.js
-│   │   ├── orderRoutes.js
-│   │   ├── pincodeRoutes.js
+│  
 │   │   ├── productRoutes.js
 │   │   ├── promoRoutes.js
 │   │   ├── recommendationRoutes.js
