@@ -6,14 +6,6 @@ workflows:
   onboarding:
     e
 
-  # ── Pull Request quality gates ──────────────────────────────
-  pull_request:W
-    enabled: true
-    auto_label: true
-    stale_pr_days: 30
-    auto_close_stale: false
-    reviewer_recommendation: true
-    quality_gates:
       require_dco: false
       require_linked_issue: true
       require_tests: false
