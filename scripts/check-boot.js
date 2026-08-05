@@ -3,13 +3,7 @@
 // scripts/check-boot.js
 //
 // Boot gate for the backend. Addresses #1341.
-//
-// The parse gate in scripts/check-syntax.js catches files that do not compile.
-// It cannot catch the next layer of breakage, which is what actually kept the
-// server down:
-//
-//   * `app.use(verifyIdentityClaims)` sitting sixteen lines above
-//     `const app = express()` -- parses fine, throws
+//hrows
 //     `ReferenceError: Cannot access 'app' before initialization` at require.
 //   * `require('@socket.io/redis-adapter')` for a package that was never added
 //     to package.json -- parses fine, throws MODULE_NOT_FOUND on a clean
