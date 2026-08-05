@@ -538,6 +538,59 @@ http://127.0.0.1:5500
 
 ---
 
+## 📡 API Endpoints Reference
+
+The backend API is organized into feature-based route groups. Below is a quick overview of the major endpoint categories.
+
+| Category | Base Path | Purpose |
+|----------|-----------|---------|
+| Authentication | `/auth` | User registration, login, logout, password management, and authentication status. |
+| Products | `/products` | Product listing, search, details, reviews, and product management. |
+| Orders | `/orders` | Order creation, tracking, history, invoices, and order management. |
+| Cart | `/cart` | Add, update, remove, restore, and manage shopping cart items. |
+| Wishlist | `/wishlist` | Manage user wishlists, sharing, and wishlist analytics. |
+| Wishlist Notifications | `/wishlist-notify` | Notification preferences and wishlist alert management. |
+| Recommendations | `/recommendations` | Product recommendations and user interaction tracking. |
+| Checkout | `/checkout` | Checkout workflow, quotes, and order verification. |
+| Promotions | `/promos` | Promo code validation and promotional offers. |
+| Refunds | `/refunds` | Refund requests and refund management. |
+| Addresses | `/addresses` | User address book management. |
+| Pincode | `/pincode` | Delivery availability lookup using postal codes. |
+| Subscriptions | `/subscriptions` | Subscribe, pause, resume, and cancel subscriptions. |
+| Chat | `/chat` | Customer support conversations and messaging. |
+| Admin | `/admin` | Administrative operations and management endpoints. |
+| Contact | `/contact` | Contact form submission and customer inquiries. |
+| Interactions | `/interactions` | Record user interactions for analytics and recommendations. |
+| Courier Webhooks | `/courier-webhooks` | Receive webhook events from courier partners. |
+
+### Route Source Files
+
+The primary route definitions are located under `backend/routes/`:
+
+- `index.js`
+- `authRoutes.js`
+- `productRoutes.js`
+- `orderRoutes.js`
+- `cartRoutes.js`
+- `wishlistRoutes.js`
+- `wishlistNotifyRoutes.js`
+- `recommendationRoutes.js`
+- `checkoutRoutes.js`
+- `promoRoutes.js`
+- `refundRoutes.js`
+- `addressRoutes.js`
+- `subscriptionRoutes.js`
+- `pincodeRoutes.js`
+- `chatRoutes.js`
+- `adminRoutes.js`
+- `contactRoutes.js`
+- `interactionRoutes.js`
+- `courierWebhookRoutes.js`
+
+> **Note:** The project supports API versioning (`/v1`, `/v2`, and `/v3`). All versions currently share the same route definitions through a common router while allowing future version-specific customization.
+
+---
+
 # 🔧 Common Setup Issues
 
 ## MySQL Access Denied
