@@ -56,6 +56,12 @@ const GUEST_ORDER_LOOKUP_MAX =
     parseInt(process.env.RATE_LIMIT_GUEST_ORDER_LOOKUP_MAX, 10)
     || 10;
 
+// Five messages a quarter of an hour. Nobody with something to say needs a
+// sixth; anybody filling the table does.
+const CONTACT_FORM_MAX =
+    parseInt(process.env.RATE_LIMIT_CONTACT_FORM_MAX, 10)
+    || 5;
+
 // ==================== CUSTOM KEY GENERATOR ====================
 // A limit is only as good as the identity it counts against, so the identity is
 // picked deliberately here.
@@ -236,6 +242,19 @@ const guestOrderLookupLimiter = createLimiter({
     logPrefix: "Guest order lookup rate limit exceeded"
 });
 
+// ==================== CONTACT FORM LIMITER ====================
+//
+// Unauthenticated, and it writes a row per request. Its own namespace so it
+// neither eats nor is eaten by the credential limiters -- someone who has just
+// failed a login is exactly the person about to use the contact form.
+const contactFormLimiter = createLimiter({
+    name: "contact-form",
+    windowMs: DEFAULT_WINDOW_MS,
+    max: CONTACT_FORM_MAX,
+    message: `Too many messages sent. Please try again after ${DEFAULT_WINDOW_MS / 60000} minutes.`,
+    logPrefix: "Contact form rate limit exceeded"
+});
+
 // ==================== SUSPICIOUS IP RATE LIMITER ====================
 const suspiciousIpKeyGenerator = (req) => {
     const address = req.ip || req.socket?.remoteAddress;
@@ -268,6 +287,7 @@ module.exports = {
     resetPasswordLimiter,
     otpRequestLimiter,
     guestOrderLookupLimiter,
+    contactFormLimiter,
     suspiciousIpLimiter,
     customKeyGenerator,
     onLimitReached

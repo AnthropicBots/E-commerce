@@ -4,9 +4,13 @@
 // RECOMMENDATIONS CONFIGURATION
 // ============================================
 
+// Paths are relative to CONFIG.API_BASE, which already ends in "/api" --
+// so they must NOT start with it. These two did, and resolved to
+// /api/api/recommendations: every recommendation request and every interaction
+// this module posted was a 404 (#1445).
 const RECOMMENDATIONS_CONFIG = {
-    apiEndpoint: '/api/recommendations',
-    interactionEndpoint: '/api/recommendations/interaction',
+    apiEndpoint: '/recommendations',
+    interactionEndpoint: '/recommendations/interaction',
     defaultLimit: 8,
     displayLimit: 10,
     cacheKey: 'recommendations',
@@ -443,18 +447,22 @@ const Recommendations = (() => {
             const wishlist = window.AppUtils?.getWishlist() || [];
             const isInWishlist = wishlist.some(item => String(item.id) === String(productId));
             
+            // Same "/api" doubling as the config above, plus a path that was
+            // never a route: wishlistRoutes registers the add as POST
+            // /wishlist/add, not POST /wishlist. Both silently 404'd, and the
+            // toast said the wishlist had changed either way (#1445).
             if (isInWishlist) {
                 // Remove from wishlist
-                await window.AppUtils.apiRequest(`/api/wishlist/${productId}`, {
+                await window.AppUtils.apiRequest(`/wishlist/${productId}`, {
                     method: 'DELETE'
                 });
                 showToast('❌ Removed from wishlist', 'info');
             } else {
                 // Record interaction
                 await postInteraction(productId, 'wishlist_add');
-                
+
                 // Add to wishlist
-                await window.AppUtils.apiRequest('/api/wishlist', {
+                await window.AppUtils.apiRequest('/wishlist/add', {
                     method: 'POST',
                     body: JSON.stringify({ productId })
                 });
