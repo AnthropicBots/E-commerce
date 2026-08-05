@@ -7,7 +7,7 @@ workflows:
     e
 
   # ── Pull Request quality gates ──────────────────────────────
-  pull_request:
+  pull_request:W
     enabled: true
     auto_label: true
     stale_pr_days: 30
