@@ -5,11 +5,6 @@
 This project includes:
 
 
-# 🌐 Live Demofasrdhgafsetgerwt
-
-🚀 Live Website:  
-https://e-commerce-git-main-bhuvanshs-projects.vercel.app
-
 ---
 
 # 📌 Features
