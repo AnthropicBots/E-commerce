@@ -4,19 +4,7 @@ workflows:
 
   # ── Onboarding ────────────────────────────────────────────
   onboarding:
-    enabled: true
-    check_human_contributors: true
-    require_signed_cla: false
-    minimum_account_age_days: 0
-    minimum_public_contributions: 0
-    auto_assign_mentor: false
-    mentor_assignment_strategy: round-robin
-    welcome_message: |
-      Welcome to our E-commerce project! 🎉
-      Thanks for contributing. Please read CONTRIBUTING.md before getting started.
-    onboarding_checklist:
-      - Read CONTRIBUTING.md
-      - Sign your commits (DCO)
+    e
 
   # ── Pull Request quality gates ──────────────────────────────
   pull_request:
