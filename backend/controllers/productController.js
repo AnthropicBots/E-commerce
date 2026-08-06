@@ -2,6 +2,17 @@ const db = require("../config/db");
 const productService = require("../services/productService");
 const stockCounter = require("../services/stockCounterService");
 
+// One definition of "a shopper may see this", shared by every public query
+// below. Retyping the condition at each call site is exactly how `status` came
+// to be read by nothing at all, and how the autocomplete query came to skip
+// `deleted_at` as well (#1456).
+const {
+    DEFAULT_PRODUCT_STATUS,
+    PRODUCT_STATUSES,
+    normalizeProductStatus,
+    publicProductCondition
+} = require("../constants/productVisibility");
+
 // helper functions
 const {
     safeNumber,
@@ -188,8 +199,13 @@ const getProducts = async (req, res) => {
         const orderByClause =
             SORT_CLAUSES[sanitizeString(req.query.sort)] || DEFAULT_SORT_CLAUSE;
 
-        const filterConditions = ["p.deleted_at IS NULL"];
-        const filterParams = [];
+        // Was `["p.deleted_at IS NULL"]`, which let every `draft`, `inactive`
+        // and `archived` product onto the shop page -- and since createProduct
+        // never wrote the column, that meant every product ever created through
+        // the API (#1456).
+        const visibility = publicProductCondition("p");
+        const filterConditions = [visibility.sql];
+        const filterParams = [...visibility.params];
 
         // category filter (case/format-insensitive)
         if (req.query.category) {
@@ -406,6 +422,11 @@ const getSingleProduct = async (req, res) => {
             });
     }
 
+    // Same rule as the list. A product hidden from the listing but reachable at
+    // its own URL is not hidden -- the URL is in the sitemap, in search results
+    // and in anyone's history (#1456).
+    const detailVisibility = publicProductCondition("p");
+
     try {
         // Stampede-safe cache (XFetch + singleflight) — #1262
         const product = await productService.withProductCache(
@@ -425,9 +446,9 @@ const getSingleProduct = async (req, res) => {
                         p.num_reviews
                     FROM products p
                     LEFT JOIN categories c ON p.category_id = c.id
-                    WHERE p.id = ? AND p.deleted_at IS NULL
+                    WHERE p.id = ? AND ${detailVisibility.sql}
                 `;
-                const [results] = await db.query(query, [id]);
+                const [results] = await db.query(query, [id, ...detailVisibility.params]);
                 return results[0] || null;
             },
             { tags: [`product:${id}`, 'products'] }
@@ -463,8 +484,31 @@ const createProduct = async (req, res) => {
         image,
         category,
         stock,
-        featured
+        featured,
+        status
     } = req.body;
+
+    // The INSERT never listed `status`, so every product created through this
+    // endpoint fell to the column's `DEFAULT 'draft'` -- and then appeared on
+    // the shop page anyway, because nothing read the column (#1456). The two
+    // mistakes cancelled out, which is why nobody noticed.
+    //
+    // Unsupplied means DEFAULT_PRODUCT_STATUS ('active'): this endpoint is
+    // admin-only and its callers have always expected the product to be on sale
+    // afterwards. Supplied-but-not-in-the-enum is a 400 rather than a silent
+    // fallback, because it is a typo in a caller and swallowing it here would
+    // put the product in a state its author did not choose.
+    const requestedStatus =
+        status === undefined || status === null || status === ''
+            ? DEFAULT_PRODUCT_STATUS
+            : normalizeProductStatus(status);
+
+    if (requestedStatus === null) {
+        return res.status(400).json({
+            success: false,
+            message: `status must be one of: ${PRODUCT_STATUSES.join(", ")}`
+        });
+    }
 
     // basic validation
     if (!name || price === undefined) {
@@ -509,10 +553,10 @@ const createProduct = async (req, res) => {
 
         const query = `
             INSERT INTO products
-            (id, name, description, price, image, category_id, stock, featured)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (id, name, description, price, image, category_id, stock, featured, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
-        
+
         await db.query(
             query,
             [
@@ -530,7 +574,8 @@ const createProduct = async (req, res) => {
                     || featured === 1
                     || featured === "1"
                     ? 1
-                    : 0
+                    : 0,
+                requestedStatus
             ]
         );
 
@@ -539,7 +584,10 @@ const createProduct = async (req, res) => {
         res.status(201).json({
             success: true,
             message: "Product created successfully",
-            productId: productId
+            productId: productId,
+            // Echoed so a caller that did not pass one can see what it got
+            // rather than having to know the default.
+            status: requestedStatus
         });
     } catch (error) {
         console.error(error);
@@ -565,7 +613,8 @@ const updateProduct = async (req, res) => {
         image,
         category,
         stock,
-        featured
+        featured,
+        status
     } = req.body;
 
     if (!id) {
@@ -575,6 +624,22 @@ const updateProduct = async (req, res) => {
                 message:
                     "Invalid product ID"
             });
+    }
+
+    // Publishing and withdrawing have to be possible through this endpoint, or
+    // the column is still unreachable by any caller and the read filters added
+    // in #1456 have no counterpart on the write side. Omitting `status` leaves
+    // it alone -- an admin renaming a product must not accidentally publish it.
+    const nextStatus =
+        status === undefined || status === null || status === ''
+            ? null
+            : normalizeProductStatus(status);
+
+    if (status !== undefined && status !== null && status !== '' && nextStatus === null) {
+        return res.status(400).json({
+            success: false,
+            message: `status must be one of: ${PRODUCT_STATUSES.join(", ")}`
+        });
     }
 
     // basic validation
@@ -635,7 +700,8 @@ const updateProduct = async (req, res) => {
                 image = ?,
                 category_id = COALESCE(?, category_id),
                 ${stockAssignment},
-                featured = ?
+                featured = ?,
+                status = COALESCE(?, status)
             WHERE id = ? AND deleted_at IS NULL
         `;
 
@@ -653,6 +719,7 @@ const updateProduct = async (req, res) => {
                     || featured === "1"
                     ? 1
                     : 0,
+                nextStatus,
                 id
             ]
         );
@@ -733,9 +800,21 @@ const getProductSuggestions = async (req, res) => {
     // Sanitize: trim, limit length, escape special LIKE characters
     const sanitized = keyword.trim().slice(0, 100).replace(/[%_\\]/g, String.raw`\$&`);
     const searchTerm = `%${sanitized}%`;
-    const query = `SELECT id, name FROM products WHERE name LIKE ? LIMIT 10`;
+
+    // This query used to filter on neither `deleted_at` nor `status` -- the one
+    // read in the file that skipped both, and the one whose results are links
+    // to `getSingleProduct`, which enforces them. So the dropdown offered
+    // deleted products and clicking one landed on a 404 (#1456).
+    const visibility = publicProductCondition("");
+
+    const query = `
+        SELECT id, name
+        FROM products
+        WHERE name LIKE ? AND ${visibility.sql}
+        LIMIT 10
+    `;
     try {
-        const [results] = await db.query(query, [searchTerm]);
+        const [results] = await db.query(query, [searchTerm, ...visibility.params]);
         res.json(results);
     } catch (err) {
         console.error("Suggestions error:", err);
