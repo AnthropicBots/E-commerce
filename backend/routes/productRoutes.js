@@ -11,6 +11,7 @@ const {
     createProduct,
     updateProduct,
     deleteProduct,
+    restoreProduct,
     getProductSuggestions,
     getCategoryTree,
     invalidateCategoryTreeCache
@@ -149,6 +150,16 @@ router.get("/:id", getSingleProduct);
 router.post("/", authMiddleware, authorizeRoles(ROLES.ADMIN), validateCreateProduct, createProduct);
 router.put("/:id", authMiddleware, authorizeRoles(ROLES.ADMIN), validateUpdateProduct, updateProduct);
 router.delete("/:id", authMiddleware, authorizeRoles(ROLES.ADMIN), deleteProduct);
+
+// Undo for the above. A soft delete an admin cannot reverse is, from outside,
+// the hard delete it replaced (#1457). Registered after `/:id` so it cannot
+// shadow it, and admin-only for the same reason the delete is.
+router.post(
+    "/:id/restore",
+    authMiddleware,
+    authorizeRoles(ROLES.ADMIN),
+    restoreProduct
+);
 
 // Fallback
 router.use((req, res) => {

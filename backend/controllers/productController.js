@@ -747,7 +747,36 @@ const updateProduct = async (req, res) => {
     }
 };
 
-// Delete product
+// ---------- Delete product ----------
+//
+// A soft delete. It used to be `DELETE FROM products WHERE id = ?`, which is
+// not a delete of one row -- fourteen tables cascade off `products(id)` and two
+// more are set to NULL (#1457):
+//
+//   CASCADE     reviews, wishlist_items, cart_items, product_variants,
+//               inventory_transactions, inventory_alerts, inventory_locks,
+//               user_interactions, recently_viewed, product_views,
+//               stock_alert_subscriptions, product_questions (+ answers,
+//               votes), price_drop_baselines, price_drop_notification_log
+//
+//   SET NULL    order_items.product_id, refund_requests.product_id
+//
+// So withdrawing one product from sale erased every review written about it,
+// removed it from every customer's wishlist, dropped it out of carts that were
+// open at that moment, threw away the stock ledger, and cut the link between
+// historical orders and the catalogue -- which is what reorder, "review your
+// purchase", returns and per-product sales reporting are all built on.
+// `order_items` denormalises name and price so invoices still render, but
+// `product_id` is the only way back to the product and it is gone.
+//
+// None of it recoverable, from one admin click, with no confirmation beyond the
+// role check on the route.
+//
+// The schema was always built for the other thing: `products.deleted_at`
+// exists, has its own index, is part of `idx_active_products`, and every read
+// path in the codebase already filters on it. The only statement that would
+// ever set it was this one, and it threw the row away instead. This is not
+// "add soft deletes" -- it is finishing the one that is already there.
 const deleteProduct = async (req, res) => {
     const id =
         safeUUID(
@@ -763,7 +792,20 @@ const deleteProduct = async (req, res) => {
             });
     }
 
-    const query = "DELETE FROM products WHERE id = ?";
+    // `AND deleted_at IS NULL` so deleting an already-deleted product is a 404
+    // rather than a second cheerful success that moves `deleted_at` forward and
+    // loses when it actually happened.
+    //
+    // `status` moves to 'archived' in the same statement, so the two visibility
+    // columns cannot disagree. #1461 adds ARCHIVED_PRODUCT_STATUS in
+    // constants/productVisibility.js; whichever of the two lands second should
+    // swap this literal for it.
+    const query = `
+        UPDATE products
+           SET deleted_at = NOW(),
+               status = 'archived'
+         WHERE id = ? AND deleted_at IS NULL
+    `;
 
     try {
         const [result] = await db.query(query, [id]);
@@ -775,11 +817,126 @@ const deleteProduct = async (req, res) => {
             });
         }
 
+        // Two things genuinely should go, because they are live state rather
+        // than history and keeping them would be worse than losing them:
+        //
+        //   inventory_locks  -- a hold on stock for a product nobody can buy.
+        //                       Left alone it sits there until its own expiry,
+        //                       reserving stock against a withdrawn product.
+        //
+        //   cart_items       -- a line a shopper cannot check out. Leaving it
+        //                       means a basket that fails at payment with no
+        //                       explanation; removing it at least fails early.
+        //
+        // Everything else -- reviews, orders, wishlists, Q&A, the stock ledger,
+        // the interaction history -- is a record of something that happened and
+        // stays. Failures here are logged rather than surfaced: the product is
+        // already withdrawn, which is what the caller asked for, and reporting
+        // a 500 would invite a retry that cannot un-withdraw it.
+        await releaseLiveStateForProduct(id);
+
         await productService.invalidateProductCaches(id);
 
         res.status(200).json({
             success: true,
             message: "Product deleted successfully"
+        });
+    } catch (error) {
+        console.error(error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Server error"
+        });
+    }
+};
+
+/**
+ * Drop the live state pointing at a product that has just been withdrawn.
+ *
+ * Deliberately not a transaction with the delete itself. The withdrawal is the
+ * operation the caller asked for and it has already succeeded; if clearing a
+ * cart line fails, rolling the withdrawal back would leave a product on sale
+ * that an admin has decided should not be, which is the worse of the two
+ * outcomes. Both statements are idempotent, so a retry costs nothing.
+ *
+ * @param {string} id Product id, already validated.
+ * @returns {Promise<void>}
+ */
+async function releaseLiveStateForProduct(id) {
+    for (const [description, statement] of [
+        ["inventory locks", "DELETE FROM inventory_locks WHERE product_id = ?"],
+        ["cart lines", "DELETE FROM cart_items WHERE product_id = ?"]
+    ]) {
+        try {
+            await db.query(statement, [id]);
+        } catch (error) {
+            console.error(
+                `Failed to release ${description} for withdrawn product ${id}:`,
+                error
+            );
+        }
+    }
+}
+
+// ---------- Restore a withdrawn product ----------
+//
+// The counterpart to the soft delete. Without it "soft" is a claim nobody can
+// check: the row is still there, but no caller can bring it back, so from the
+// outside it is the same as the hard delete it replaced.
+//
+// It comes back as a `draft`, not as `active`. An admin restoring a product is
+// undoing a mistake, and the next thing they want is to look at it before
+// customers do -- silently putting it back on sale is a second surprise on top
+// of the first. Publishing is a separate, deliberate act (`PUT` with
+// `status: "active"`, see #1461).
+//
+// The cart lines and inventory locks dropped on the way out are not restored.
+// They were live state belonging to sessions that have moved on; recreating
+// them would put lines back into baskets whose owners never asked for them.
+const restoreProduct = async (req, res) => {
+    const id =
+        safeUUID(
+            req.params.id
+        );
+
+    if (!id) {
+        return res.status(400)
+            .json({
+                success: false,
+                message:
+                    "Invalid product ID"
+            });
+    }
+
+    // `AND deleted_at IS NOT NULL` so restoring a product that was never
+    // deleted is a 404 rather than a silent no-op that reports success --
+    // and, more importantly, so it cannot quietly reset a live product's
+    // status to draft.
+    const query = `
+        UPDATE products
+           SET deleted_at = NULL,
+               status = 'draft'
+         WHERE id = ? AND deleted_at IS NOT NULL
+    `;
+
+    try {
+        const [result] = await db.query(query, [id]);
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "No deleted product with that ID"
+            });
+        }
+
+        await productService.invalidateProductCaches(id);
+
+        res.status(200).json({
+            success: true,
+            message:
+                "Product restored as a draft. Set its status to active to put it back on sale.",
+            status: "draft"
         });
     } catch (error) {
         console.error(error);
@@ -879,6 +1036,7 @@ module.exports = {
     createProduct,
     updateProduct,
     deleteProduct,
+    restoreProduct,
     getProductSuggestions,
     getCategoryTree,
     invalidateCategoryTreeCache
