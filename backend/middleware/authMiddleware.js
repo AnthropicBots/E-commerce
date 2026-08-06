@@ -56,7 +56,25 @@ async function authMiddleware(req, res, next) {
     }
 
     // Security check: SQL injection attempt
-    if (/'\s*OR\s*'/i.test(token) || /--/.test(token)) {
+    //
+    // `|| /--/.test(token)` used to be part of this, and it rejected roughly
+    // one legitimate token in a hundred (#1444).
+    //
+    // A JWT is base64url, and base64url's alphabet is A-Z a-z 0-9 plus `-` and
+    // `_`. Two adjacent hyphens are ordinary token content, not a SQL comment:
+    // across a ~200-character token the odds of the pair turning up somewhere
+    // are just under 1%. Those requests were answered "Authorization header
+    // required" -- as though no token had been sent at all -- so the shopper
+    // saw a sign-out that no amount of retrying reproduced, on a token that was
+    // perfectly valid and would work again the moment it was reissued.
+    //
+    // The quote-OR pattern stays: `'` is not in the base64url alphabet, so it
+    // cannot match a well-formed token and only fires on something that was
+    // never a JWT to begin with.
+    //
+    // Neither pattern is what makes this safe in any case. The token is a
+    // signed credential verified below, and it is never interpolated into SQL.
+    if (/'\s*OR\s*'/i.test(token)) {
         return res.status(401).json({
             success: false,
             message: 'Authorization header required'

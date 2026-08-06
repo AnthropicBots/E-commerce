@@ -26,6 +26,22 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_jwt_secret_at_least_32_
 process.env.PORT = process.env.PORT || '5099';
 process.env.FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5500';
 
+// Requiring ../server builds the whole module graph, and part of that graph
+// reaches for Redis: services/refreshTokenService.js calls redis.connect() at
+// module scope, which defeats the lazyConnect config/redis sets under Jest.
+// With no server listening, ioredis exhausted its retries part-way through a
+// request and the probe below failed with MaxRetriesPerRequestError instead of
+// an HTTP status -- an environment failure wearing the costume of a routing
+// one (#1444).
+//
+// This suite is about wiring: does requiring the server produce an app with
+// these routers mounted. Whether Redis is up is not part of that question, so
+// it is taken out of the picture.
+jest.mock('../config/redis', () => {
+    const { createRedisMock } = require('./helpers/redisMock');
+    return createRedisMock();
+});
+
 const fs = require('fs');
 const path = require('path');
 const request = require('supertest');

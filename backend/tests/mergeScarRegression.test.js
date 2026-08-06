@@ -10,6 +10,10 @@
 
 const fs = require('fs');
 const path = require('path');
+// Frontend scripts are classic <script> files, not modules, so the only way to
+// exercise one from Jest is to compile it into a sandbox with the globals the
+// page would have supplied.
+const vm = require('vm');
 
 const BACKEND_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(BACKEND_DIR, '..');
@@ -188,6 +192,106 @@ describe('frontend/scripts/product-cards-home.js', () => {
 
     it('resolves the wishlist through the shared helper', () => {
         expect(source).toMatch(/const isWishlisted = isProductWishlisted\(product\.id, wishlistIds\)/);
+    });
+
+    // #1444. The same function was broken a second time: an `<img …>` fragment
+    // was left at statement position -- outside any template literal -- and the
+    // stock bindings the return template reads went missing with it. The
+    // fragment is a SyntaxError; the missing bindings would have been a
+    // ReferenceError on the first card had it ever run.
+    it('has no HTML fragment outside a template literal', () => {
+        // The card renders one image, and it belongs inside the return
+        // template. A second `<img` in this function is the orphan again.
+        expect(countMatches(source, /<img\b/g)).toBe(1);
+
+        const cardTemplate = source.indexOf('return `\n        <div class="pro ');
+        expect(cardTemplate).toBeGreaterThan(-1);
+        expect(source.indexOf('<img')).toBeGreaterThan(cardTemplate);
+    });
+
+    it('declares the stock bindings its card template reads', () => {
+        expect(source).toMatch(/^\s+const stock = Number\(product\.stock\) \|\| 0;$/m);
+        expect(source).toMatch(/^\s+const outOfStock = isOutOfStock\(stock\);$/m);
+        expect(source).toMatch(/^\s+const outOfStockClass = outOfStock \? "out-of-stock" : "";$/m);
+    });
+
+    // The class shop.js puts on its own cards, and the one
+    // styles/product-card.css dims. A card marked with anything else looks
+    // in-stock however empty the shelf is.
+    it('marks sold-out cards with the class the stylesheet targets', () => {
+        const css = read('frontend/styles/product-card.css');
+        expect(css).toMatch(/\.pro\.out-of-stock\b/);
+    });
+
+    // Evaluating the file proves what a regex cannot: that every binding the
+    // template reads actually resolves. The module is a classic <script>, so it
+    // is run in a sandbox with the globals index.html would have provided.
+    it('renders a card without reaching for an undeclared binding', () => {
+        const sandbox = {
+            document: { getElementById: () => null },
+            window: {},
+            console,
+            formatPrice: (value) => `₹${value}`,
+            defaultImage: (value) => value || '',
+            escapeHTML: (value) => String(value == null ? '' : value),
+            handleImageError: () => {},
+            AppUtils: undefined
+        };
+        sandbox.globalThis = sandbox;
+
+        vm.createContext(sandbox);
+        new vm.Script(source, { filename: 'product-cards-home.js' }).runInContext(sandbox);
+
+        const inStock = sandbox.createProductCard(
+            { id: 'p1', name: 'Tee', price: 19.99, stock: 12, image: '/t.jpg' },
+            new Set()
+        );
+        expect(inStock).toContain('data-id="p1"');
+        expect(inStock).toContain('In Stock');
+        expect(inStock).not.toContain('class="pro out-of-stock');
+
+        const soldOut = sandbox.createProductCard(
+            { id: 'p2', name: 'Cap', price: 9.99, stock: 0, image: '/c.jpg' },
+            new Set()
+        );
+        expect(soldOut).toContain('pro out-of-stock');
+        expect(soldOut).toContain('Sold Out');
+        expect(soldOut).toContain('disabled');
+    });
+});
+
+describe('frontend/scripts/shop.js', () => {
+    const source = read('frontend/scripts/shop.js');
+
+    // #1444. The DOMContentLoaded listener was left unclosed and the body of
+    // `clearAllFilters` ran straight on from it, so the file did not parse and
+    // the entire shop page was dead.
+    it('declares clearAllFilters exactly once', () => {
+        expect(countMatches(source, /^function clearAllFilters\(\) \{$/gm)).toBe(1);
+    });
+
+    it('closes the DOMContentLoaded listener before the next declaration', () => {
+        const listener = source.indexOf('document.addEventListener(\n    "DOMContentLoaded"');
+        expect(listener).toBeGreaterThan(-1);
+
+        const declaration = source.indexOf('function clearAllFilters() {');
+        expect(declaration).toBeGreaterThan(listener);
+
+        // `}\n);` -- the closing of the arrow function and of the call it is an
+        // argument to. Dropping the `);` is what merged the two together.
+        expect(source.slice(listener, declaration)).toMatch(/\}\s*\);\s*$/m);
+    });
+
+    // setupClearFilters binds the handler by name; a rename on one side only
+    // would leave the button wired to nothing.
+    it('binds the clear-filters button to that function', () => {
+        expect(source).toMatch(/clearFiltersBtn\.addEventListener\('click', clearAllFilters\)/);
+    });
+
+    it('declares the filter state it assigns, rather than leaking it onto window', () => {
+        for (const name of ['currentCategory', 'currentSearch', 'showAllHoodies']) {
+            expect(source).toMatch(new RegExp(`^let ${name} = `, 'm'));
+        }
     });
 });
 
