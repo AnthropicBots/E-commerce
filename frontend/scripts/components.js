@@ -213,61 +213,11 @@ navLinks.forEach(link => {
         link.setAttribute('aria-current', 'page');
     }
 });
-// ===== NAVBAR SEARCH =====
-    const navSearchInput = document.getElementById("searchInput");
-    if (navSearchInput) {
-        navSearchInput.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") {
-                const query = navSearchInput.value.trim();
-                if (query) {
-                    window.location.href = `shop.html?search=${encodeURIComponent(query)}`;
-                }
-            }
-        });
+    // ===== NAVBAR SEARCH =====
+    // Widget lives at module scope (see initNavbarSearch below); called here
+    // because it needs the navbar markup, which has just been injected.
+    initNavbarSearch();
 
-        navSearchInput.addEventListener("input", () => {
-            const query = navSearchInput.value.trim();
-            const dropdown = document.getElementById("suggestionsDropdown");
-            if (!dropdown) return;
-
-            if (!query) {
-                dropdown.style.display = "none";
-                dropdown.innerHTML = "";
-                return;
-            }
-
-            const allProducts = window.allProducts || [];
-            const matches = allProducts
-                .filter(p => p.name?.toLowerCase().includes(query.toLowerCase()))
-                .slice(0, 5);
-
-            if (!matches.length) {
-                dropdown.style.display = "none";
-                return;
-            }
-
-            dropdown.innerHTML = matches.map(p => `
-                <div class="suggestion-item" style="padding:8px;cursor:pointer;border-bottom:1px solid #eee;">
-                    ${p.name}
-                </div>
-            `).join("");
-
-            dropdown.style.display = "block";
-
-            dropdown.querySelectorAll(".suggestion-item").forEach((item, i) => {
-                item.addEventListener("click", () => {
-                    window.location.href = `shop.html?search=${encodeURIComponent(matches[i].name)}`;
-                });
-            });
-        });
-
-        document.addEventListener("click", (e) => {
-            if (!e.target.closest(".search-container")) {
-                const dropdown = document.getElementById("suggestionsDropdown");
-                if (dropdown) dropdown.style.display = "none";
-            }
-        });
-    }
 
 const categoryMenuItem = document.querySelector(".category-menu-item");
 const categoryMenuToggle = document.getElementById("category-menu-toggle");
@@ -1339,6 +1289,330 @@ if (user && profileDropdown) {
     profileDropdown.setAttribute("data-loggedin", "true");
 }
 
+
+// ===== NAVBAR SEARCH =====
+//
+// The navbar ships on 28 of the 29 pages, so whatever this widget does, it does
+// almost everywhere. What it used to do (#1458):
+//
+//   1. `dropdown.innerHTML = ... ${p.name} ...` -- the product name straight
+//      into innerHTML, unescaped. Names are stored raw (`sanitizeString` on the
+//      backend is a `.trim()`), so anything that can create or rename a product
+//      had script execution against every shopper who typed into this box.
+//
+//   2. Bare `<div>`s with click listeners. No role, no tabindex, no aria, no
+//      keydown handler -- arrow keys did nothing, the list was unreachable
+//      without a pointer, and nothing announced that it had opened.
+//
+//   3. It filtered `window.allProducts`, a global that only `index.html`
+//      populates (script.js only calls `fetchAllProducts()` when
+//      `#featured-products` or `#new-arrivals-container` is on the page). On the
+//      other 27 pages the array was undefined and typing did nothing at all. On
+//      the one page where it worked, the fetch is `/products?limit=50`, so it
+//      only ever searched the first fifty rows in the catalogue.
+//
+// It is a combobox now, backed by `/products/search-suggestions`, which has
+// existed and gone uncalled since #165.
+
+/** How long to wait after the last keystroke before asking the server. */
+const SEARCH_SUGGEST_DEBOUNCE_MS = 250;
+
+/** Shortest query worth a round trip. */
+const SEARCH_SUGGEST_MIN_LENGTH = 2;
+
+function initNavbarSearch() {
+    const input = document.getElementById("searchInput");
+    const dropdown = document.getElementById("suggestionsDropdown");
+
+    if (!input || !dropdown) {
+        return;
+    }
+
+    // The markup ships as a plain `<div>`; the roles are applied here rather
+    // than in navbar.html so that a browser with JavaScript disabled is not
+    // told about a listbox that will never have options in it.
+    // Keeps the existing id: `#header .suggestions-dropdown` styles it and
+    // `aria-controls` needs something to point at, and there is no reason for
+    // those to be two different handles on one element.
+    const listboxId = dropdown.id || "suggestionsDropdown";
+    dropdown.id = listboxId;
+    dropdown.setAttribute("role", "listbox");
+    dropdown.setAttribute("aria-label", "Product suggestions");
+
+    input.setAttribute("role", "combobox");
+    input.setAttribute("aria-autocomplete", "list");
+    input.setAttribute("aria-expanded", "false");
+    input.setAttribute("aria-controls", listboxId);
+    input.setAttribute("aria-haspopup", "listbox");
+
+    // A screen reader gets no notification from a div appearing, so the result
+    // count is announced separately. Polite rather than assertive: it must not
+    // interrupt the letters the user is still typing.
+    const status = document.createElement("p");
+    status.className = "visually-hidden";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    dropdown.parentNode.appendChild(status);
+
+    let suggestions = [];
+    let activeIndex = -1;
+    let debounceTimer = null;
+    // Monotonic request counter. A response is only rendered if it is still the
+    // newest one asked for, so a slow reply for "sh" cannot land on top of a
+    // fast reply for "shirt" and put stale rows under a newer query.
+    //
+    // A counter rather than an AbortController because `AppUtils.apiRequest`
+    // creates its own controller for its timeout and overwrites `signal` in the
+    // fetch options (utils.js:598), so a signal passed in from here is ignored.
+    // The request is not cancelled -- its result is discarded on arrival.
+    let requestSequence = 0;
+
+    const optionId = (index) => `navbarSearchOption${index}`;
+
+    const closeList = () => {
+        dropdown.style.display = "none";
+        dropdown.innerHTML = "";
+        input.setAttribute("aria-expanded", "false");
+        input.removeAttribute("aria-activedescendant");
+        suggestions = [];
+        activeIndex = -1;
+    };
+
+    const setActive = (index) => {
+        const options = Array.from(dropdown.querySelectorAll('[role="option"]'));
+        if (!options.length) {
+            return;
+        }
+
+        // Wrap, so ArrowUp from the top lands on the bottom entry.
+        activeIndex = (index + options.length) % options.length;
+
+        options.forEach((option, i) => {
+            const isActive = i === activeIndex;
+            option.classList.toggle("is-active", isActive);
+            option.setAttribute("aria-selected", isActive ? "true" : "false");
+        });
+
+        // Focus stays in the input throughout -- that is what makes it a
+        // combobox rather than a menu. `aria-activedescendant` is how the
+        // active option is communicated without moving focus.
+        input.setAttribute("aria-activedescendant", optionId(activeIndex));
+        options[activeIndex].scrollIntoView({ block: "nearest" });
+    };
+
+    const goToProduct = (product) => {
+        if (!product || !product.id) {
+            return;
+        }
+        // To the product, not to a search for its name. Sending someone who
+        // picked a specific product to a results page to pick it again was the
+        // old behaviour and it never made sense.
+        window.location.href = `product.html?id=${encodeURIComponent(product.id)}`;
+    };
+
+    const renderList = (items, query) => {
+        suggestions = items;
+        activeIndex = -1;
+
+        if (!items.length) {
+            // Say so rather than closing silently. "Nothing happened" is
+            // indistinguishable from "the feature is broken", which is what the
+            // previous version looked like on 27 of 28 pages.
+            dropdown.innerHTML =
+                `<p class="suggestion-empty">No products match “${AppUtils.escapeHTML(query)}”</p>`;
+            dropdown.style.display = "block";
+            input.setAttribute("aria-expanded", "true");
+            input.removeAttribute("aria-activedescendant");
+            status.textContent = "No matching products";
+            return;
+        }
+
+        dropdown.innerHTML = items
+            .map((product, index) => `
+                <div
+                    class="suggestion-item"
+                    role="option"
+                    id="${optionId(index)}"
+                    aria-selected="false"
+                    data-index="${index}"
+                >${AppUtils.escapeHTML(product.name || "Product")}</div>
+            `)
+            .join("");
+
+        dropdown.style.display = "block";
+        input.setAttribute("aria-expanded", "true");
+        input.removeAttribute("aria-activedescendant");
+        status.textContent =
+            `${items.length} product${items.length === 1 ? "" : "s"} found. `
+            + "Use the up and down arrow keys to review them.";
+    };
+
+    const fetchSuggestions = async (query) => {
+        const sequence = ++requestSequence;
+
+        try {
+            const response = await AppUtils.apiRequest(
+                `/products/search-suggestions?q=${encodeURIComponent(query)}`
+            );
+
+            // Superseded while in flight: the user has typed since, so this
+            // answer is for a query that is no longer on screen.
+            if (sequence !== requestSequence) {
+                return;
+            }
+
+            // This endpoint answers with a bare array rather than the usual
+            // `{ success, ... }` envelope, so both shapes are accepted -- the
+            // widget should not break if the endpoint is ever standardised.
+            const items = Array.isArray(response)
+                ? response
+                : AppUtils.safeArray(response && response.products);
+
+            renderList(items.slice(0, 8), query);
+        } catch (error) {
+            if (sequence !== requestSequence) {
+                return;
+            }
+            // A failed lookup closes the list rather than leaving a stale one
+            // on screen. Nothing is shown to the shopper: the input still
+            // works -- Enter searches the shop page -- so there is nothing for
+            // them to do about it.
+            console.error("Search suggestions failed:", error);
+            closeList();
+        }
+    };
+
+    input.addEventListener("input", () => {
+        const query = input.value.trim();
+
+        clearTimeout(debounceTimer);
+
+        if (query.length < SEARCH_SUGGEST_MIN_LENGTH) {
+            // Bump the counter so a reply still in flight for a longer query
+            // cannot reopen the list the user has just emptied.
+            requestSequence++;
+            closeList();
+            return;
+        }
+
+        debounceTimer = setTimeout(
+            () => fetchSuggestions(query),
+            SEARCH_SUGGEST_DEBOUNCE_MS
+        );
+    });
+
+    input.addEventListener("keydown", (event) => {
+        const isOpen = input.getAttribute("aria-expanded") === "true";
+
+        switch (event.key) {
+            case "ArrowDown":
+                if (isOpen && suggestions.length) {
+                    event.preventDefault();
+                    setActive(activeIndex + 1);
+                }
+                break;
+
+            case "ArrowUp":
+                if (isOpen && suggestions.length) {
+                    event.preventDefault();
+                    // From "nothing highlighted", up goes to the last option.
+                    // `setActive(activeIndex - 1)` would compute -2 there, and
+                    // -2 modulo a 3-item list is 1 -- the middle row, which is
+                    // neither end and looks arbitrary.
+                    setActive(
+                        activeIndex <= 0
+                            ? suggestions.length - 1
+                            : activeIndex - 1
+                    );
+                }
+                break;
+
+            case "Home":
+                if (isOpen && suggestions.length) {
+                    event.preventDefault();
+                    setActive(0);
+                }
+                break;
+
+            case "End":
+                if (isOpen && suggestions.length) {
+                    event.preventDefault();
+                    setActive(suggestions.length - 1);
+                }
+                break;
+
+            case "Enter": {
+                // With an option highlighted, Enter takes that option. With
+                // none, it falls through to the full search it always did --
+                // typing a query and pressing Enter must not stop working
+                // because a dropdown happens to be open.
+                if (isOpen && activeIndex >= 0) {
+                    event.preventDefault();
+                    goToProduct(suggestions[activeIndex]);
+                    return;
+                }
+
+                const query = input.value.trim();
+                if (query) {
+                    window.location.href =
+                        `shop.html?search=${encodeURIComponent(query)}`;
+                }
+                break;
+            }
+
+            case "Escape":
+                if (isOpen) {
+                    // Stop it reaching anything else that closes on Escape --
+                    // the first press belongs to the list.
+                    event.stopPropagation();
+                    closeList();
+                }
+                break;
+
+            case "Tab":
+                // Moving on: the list must not stay open over the next control.
+                closeList();
+                break;
+
+            default:
+                break;
+        }
+    });
+
+    // Delegated, so it survives the list being re-rendered on every keystroke.
+    dropdown.addEventListener("click", (event) => {
+        const option = event.target.closest('[role="option"]');
+        if (!option) {
+            return;
+        }
+        goToProduct(suggestions[Number(option.dataset.index)]);
+    });
+
+    // Hovering moves the highlight, so pointer and keyboard cannot end up
+    // disagreeing about which option Enter would take.
+    dropdown.addEventListener("mousemove", (event) => {
+        const option = event.target.closest('[role="option"]');
+        if (option) {
+            setActive(Number(option.dataset.index));
+        }
+    });
+
+    document.addEventListener("click", (event) => {
+        if (!event.target.closest(".search-container")) {
+            closeList();
+        }
+    });
+
+    input.addEventListener("blur", () => {
+        // Deferred: a click on an option fires blur before it fires click, so
+        // closing immediately would remove the option before it is chosen.
+        setTimeout(closeList, 150);
+    });
+}
+
+// Exposed so the widget can be exercised directly by tests and, if it is ever
+// wanted, re-initialised after a navbar re-render.
+window.initNavbarSearch = initNavbarSearch;
 
 // init
 document.addEventListener("DOMContentLoaded", () => {
