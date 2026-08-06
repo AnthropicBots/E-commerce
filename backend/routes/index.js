@@ -17,6 +17,7 @@ const courierWebhookRoutes = require("./courierWebhookRoutes");
 const refundRoutes = require("./refundRoutes");
 const addressRoutes = require("./addressRoutes");
 const wishlistNotifyRoutes = require("./wishlistNotifyRoutes");
+const newsletterRoutes = require("./newsletterRoutes");
 
 router.use("/products", productRoutes);
 router.use("/auth", authRoutes);
@@ -35,5 +36,8 @@ router.use("/courier-webhooks", courierWebhookRoutes);
 router.use("/refunds", refundRoutes);
 // Saved address book (#1347).
 router.use("/addresses", addressRoutes);
+// Newsletter sign-up. The form has been on eight pages since long before
+// anything served this path (#1459).
+router.use("/newsletter", newsletterRoutes);
 
 module.exports = router;

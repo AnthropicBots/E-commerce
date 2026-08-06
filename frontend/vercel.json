@@ -13,15 +13,6 @@
   
   "headers": [
     {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "x-robots-tag",
-          "value": "index, follow"
-        }
-      ]
-    },
-    {
       "source": "/admin.html",
       "headers": [
         {
@@ -86,6 +77,24 @@
     },
     {
       "source": "/wishlist.html",
+      "headers": [
+        {
+          "key": "x-robots-tag",
+          "value": "noindex, nofollow"
+        }
+      ]
+    },
+    {
+      "source": "/404.html",
+      "headers": [
+        {
+          "key": "x-robots-tag",
+          "value": "noindex, nofollow"
+        }
+      ]
+    },
+    {
+      "source": "/copywriter-demo.html",
       "headers": [
         {
           "key": "x-robots-tag",

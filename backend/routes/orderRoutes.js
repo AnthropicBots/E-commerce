@@ -7,9 +7,10 @@ const cartIdentity = require("../middleware/cartIdentity");
 const { authorizeRoles } = require("../middleware/rbacMiddleware");
 const { ROLES } = require("../config/policy");
 const { requireOwnership, ownerFromTable } = require("../middleware/requireOwnership");
+const uuidParam = require("../middleware/uuidParam");
 const { guestOrderLookupLimiter } = require("../middleware/rateLimiter");
 const orderController = require("../controllers/orderController");
-const { safeArray, safeNumber, sanitizeString } = require("../utils/helpers");
+const { safeArray, safeNumber, sanitizeString, safeUUID } = require("../utils/helpers");
 
 // ============================================
 // CONSTANTS
@@ -40,17 +41,6 @@ const ownsOrderStrictly = requireOwnership(ownerFromTable({ table: "orders" }), 
 // ============================================
 // VALIDATION FUNCTIONS
 // ============================================
-
-/**
- * Validate order ID
- */
-function validateOrderId(id) {
-    const parsedId = parseInt(id, 10);
-    if (!parsedId || parsedId < 1) {
-        throw new Error('Invalid order ID');
-    }
-    return parsedId;
-}
 
 /**
  * Validate items array
@@ -210,6 +200,10 @@ function validateDate(dateStr) {
 
 /**
  * Validate order IDs for bulk operations
+ *
+ * Nothing wires this up yet, but it carried the same `parseInt` defect as the
+ * `:id` guard did (#1443) and would have taken it with it the moment a bulk
+ * route was added. `orders.id` is a UUID here as everywhere else.
  */
 function validateOrderIds(orderIds) {
     const errors = [];
@@ -220,8 +214,7 @@ function validateOrderIds(orderIds) {
     }
 
     for (let i = 0; i < orderIds.length; i++) {
-        const id = parseInt(orderIds[i], 10);
-        if (isNaN(id) || id < 1) {
+        if (!safeUUID(orderIds[i])) {
             errors.push(`Order ID at index ${i} is invalid`);
         }
     }
@@ -237,17 +230,13 @@ function validateOrderIds(orderIds) {
 // ============================================
 
 // Validate order ID parameter
-router.param("id", (req, res, next, id) => {
-    try {
-        req.orderId = validateOrderId(id);
-        next();
-    } catch (error) {
-        return res.status(400).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
+//
+// `orders.id` is a CHAR(36) UUID. This guard used to run the segment through
+// `parseInt`, so an order whose id began with a hex letter answered 400 on
+// every one of the routes below -- the timeline, the invoice, the summary and
+// cancellation included -- while the rest passed on a truncated number that
+// was never the id (#1443). See middleware/uuidParam.js.
+router.param("id", uuidParam({ resourceName: "Order", attachAs: "orderId" }));
 
 // Order API status
 router.get("/status/check", (req, res) => {

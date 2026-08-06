@@ -18,6 +18,14 @@ let priceTouched = false;
 let productObserver = null;
 const loadedProductIds = new Set();
 
+// Legacy filter-button state, read and written by setupCategoryFilters,
+// setupSearch and clearAllFilters. These were only ever assigned, never
+// declared, so each one leaked onto `window` -- harmless while the file did
+// not parse at all, and worth closing now that it does (#1444).
+let currentCategory = "all";
+let currentSearch = "";
+let showAllHoodies = false;
+
 // Local fallback sample products (used when backend returns no products)
 const fallbackProducts = [
     // T-SHIRTS (~5)
