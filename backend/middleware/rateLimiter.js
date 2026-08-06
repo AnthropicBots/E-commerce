@@ -56,6 +56,12 @@ const GUEST_ORDER_LOOKUP_MAX =
     parseInt(process.env.RATE_LIMIT_GUEST_ORDER_LOOKUP_MAX, 10)
     || 10;
 
+// Five messages a quarter of an hour. Nobody with something to say needs a
+// sixth; anybody filling the table does.
+const CONTACT_FORM_MAX =
+    parseInt(process.env.RATE_LIMIT_CONTACT_FORM_MAX, 10)
+    || 5;
+
 const NEWSLETTER_MAX =
     parseInt(process.env.RATE_LIMIT_NEWSLETTER_MAX, 10)
     || 10;

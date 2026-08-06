@@ -17,6 +17,8 @@ const courierWebhookRoutes = require("./courierWebhookRoutes");
 const refundRoutes = require("./refundRoutes");
 const addressRoutes = require("./addressRoutes");
 const wishlistNotifyRoutes = require("./wishlistNotifyRoutes");
+const contactRoutes = require("./contactRoutes");
+const interactionRoutes = require("./interactionRoutes");
 const newsletterRoutes = require("./newsletterRoutes");
 
 router.use("/products", productRoutes);
@@ -36,6 +38,12 @@ router.use("/courier-webhooks", courierWebhookRoutes);
 router.use("/refunds", refundRoutes);
 // Saved address book (#1347).
 router.use("/addresses", addressRoutes);
+// Two paths the frontend has always called and nothing has ever served
+// (#1445). The mount names are the ones already in the requests -- singular
+// "contact", plural "interactions" -- because the callers are the contract
+// here, not the other way round.
+router.use("/contact", contactRoutes);
+router.use("/interactions", interactionRoutes);
 // Newsletter sign-up. The form has been on eight pages since long before
 // anything served this path (#1459).
 router.use("/newsletter", newsletterRoutes);
