@@ -589,6 +589,36 @@ The primary route definitions are located under `backend/routes/`:
 
 > **Note:** The project supports API versioning (`/v1`, `/v2`, and `/v3`). All versions currently share the same route definitions through a common router while allowing future version-specific customization.
 
+### 🔐 Authentication & Authorization
+
+Most protected API endpoints require a valid JWT access token.
+
+Include the token in the request headers:
+
+```http
+Authorization: Bearer <your_jwt_token>
+```
+
+Administrative endpoints require both authentication and the appropriate admin role or permissions.
+
+### 📝 Example API Request
+
+#### Login
+
+**Request**
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "your_password"
+}
+```
+
+> **Response:** On successful authentication, the server returns a JSON response containing authentication details (such as access tokens and/or user information). The exact response structure depends on the API version and implementation.
+
 ---
 
 # 🔧 Common Setup Issues
