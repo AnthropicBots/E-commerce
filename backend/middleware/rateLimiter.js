@@ -56,11 +56,13 @@ const GUEST_ORDER_LOOKUP_MAX =
     parseInt(process.env.RATE_LIMIT_GUEST_ORDER_LOOKUP_MAX, 10)
     || 10;
 
-// Five messages a quarter of an hour. Nobody with something to say needs a
-// sixth; anybody filling the table does.
-const CONTACT_FORM_MAX =
-    parseInt(process.env.RATE_LIMIT_CONTACT_FORM_MAX, 10)
-    || 5;
+const NEWSLETTER_MAX =
+    parseInt(process.env.RATE_LIMIT_NEWSLETTER_MAX, 10)
+    || 10;
+
+const NEWSLETTER_WINDOW_MS =
+    parseInt(process.env.RATE_LIMIT_NEWSLETTER_WINDOW_MS, 10)
+    || 60 * 60 * 1000; // 1 hour
 
 // ==================== CUSTOM KEY GENERATOR ====================
 // A limit is only as good as the identity it counts against, so the identity is
@@ -225,6 +227,27 @@ const otpRequestLimiter = createLimiter({
     logPrefix: "OTP request rate limit exceeded"
 });
 
+// ==================== NEWSLETTER LIMITER ====================
+// Unauthenticated, public, and it causes mail to be sent to an address the
+// caller names -- so it is usable to mail-bomb somebody else, or to burn the
+// sending domain's reputation on volume nobody asked for (#1459).
+//
+// The service already refuses to re-send to an address that is confirmed, which
+// caps what any one victim can be made to receive. This bounds the other axis:
+// how many distinct addresses a single caller can involve.
+//
+// More generous than the credential limiters, because the failure modes are not
+// comparable. Someone signing up from a shared office connection minutes after
+// a colleague did the same is an ordinary thing to happen, and turning them
+// away for a quarter of an hour costs more than the abuse it prevents.
+const newsletterLimiter = createLimiter({
+    name: "newsletter",
+    windowMs: NEWSLETTER_WINDOW_MS,
+    max: NEWSLETTER_MAX,
+    message: `Too many newsletter requests. Please try again after ${NEWSLETTER_WINDOW_MS / 60000} minutes.`,
+    logPrefix: "Newsletter rate limit exceeded"
+});
+
 // ==================== GUEST ORDER LOOKUP LIMITER ====================
 // Not an auth endpoint, but the same abuse: an unauthenticated caller
 // submitting a credential pair and being told whether it was right. Left with
@@ -286,6 +309,7 @@ module.exports = {
     otpVerifyLimiter,
     resetPasswordLimiter,
     otpRequestLimiter,
+    newsletterLimiter,
     guestOrderLookupLimiter,
     contactFormLimiter,
     suspiciousIpLimiter,
