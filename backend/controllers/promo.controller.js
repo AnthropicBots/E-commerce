@@ -1,5 +1,11 @@
 
-const { validatePromo, calculateDiscount, getPromoByCode, applyPromoTransaction } = require("../services/promo.service");
+const {
+    validatePromo,
+    calculateDiscount,
+    getPromoByCode,
+    applyPromoTransaction,
+    checkEligibilityForRow
+} = require("../services/promo.service");
 const cartLifecycle = require("../services/cartLifecycleService");
 const { safeNumber, sanitizeString } = require("../utils/helpers");
 const { PERMISSIONS, hasPermission } = require("../config/policy");
@@ -250,6 +256,22 @@ const validatePromoCode = async (req, res) => {
             });
         }
 
+        // Per-user eligibility (#1475). Advisory -- applyPromoTransaction runs
+        // the authoritative version under the promo row lock -- but this is the
+        // call that lets the shopper find out at the cart rather than at the
+        // moment they try to pay.
+        //
+        // `promo` may have come from promoCache, which is keyed on the code
+        // alone and so is shared across users. That is fine: nothing cached
+        // here is per-user; the usage count is read fresh below.
+        const eligibility = await checkEligibilityForRow(promo, userId);
+        if (!eligibility.eligible) {
+            return res.status(400).json({
+                success: false,
+                message: eligibility.reason
+            });
+        }
+
         // Calculate discount
         const discount = calculateDiscount(promo, cartTotal);
         const maxAllowedDiscount = calculateMaxDiscount(
@@ -344,7 +366,11 @@ const validateMultiplePromos = async (req, res) => {
                     continue;
                 }
 
-                const validation = await validatePromo(normalizedCode, total);
+                // `userId` is passed so a code the caller is not eligible for
+                // comes back as an invalid entry with a reason, alongside the
+                // codes that did validate, rather than as a blanket failure
+                // (#1475).
+                const validation = await validatePromo(normalizedCode, total, userId);
                 if (!validation.valid) {
                     promoResults.push({ promoCode: code, valid: false, message: validation.message });
                     continue;
@@ -481,8 +507,12 @@ const applyMultiplePromos = async (req, res) => {
                     continue;
                 }
 
-                // Validate promo against current remaining total
-                const validation = await validatePromo(promo.code, remainingTotal);
+                // Validate promo against current remaining total. Passing
+                // `userId` turns "not eligible" into a per-code result here
+                // instead of an exception out of applyPromoTransaction below,
+                // which would abandon the codes that were still to be applied
+                // (#1475).
+                const validation = await validatePromo(promo.code, remainingTotal, userId);
                 if (!validation.valid) {
                     results.push({
                         promoCode: promo.code,
