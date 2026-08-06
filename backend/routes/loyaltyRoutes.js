@@ -160,4 +160,34 @@ router.post('/admin/adjust', authMiddleware, adminMiddleware, async (req, res) =
     }
 });
 
+/**
+ * POST /api/loyalty/admin/reverse
+ * Admin-only. Take back the points awarded for an order that was cancelled or
+ * returned. Body: { userId, orderId, reason? }.
+ *
+ * Separate from /admin/adjust rather than folded into it (#1476). An adjustment
+ * carries no order id, so a correction made through it cannot be tied back to
+ * the order that caused it and a second refund on the same order looks exactly
+ * like the first. This one is keyed on the order and is idempotent because of
+ * it -- calling it twice claws back once.
+ */
+router.post('/admin/reverse', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const { userId, orderId, reason } = req.body;
+
+        if (userId === undefined || userId === null) {
+            return res.status(400).json({ success: false, error: 'userId is required' });
+        }
+        if (orderId === undefined || orderId === null || orderId === '') {
+            return res.status(400).json({ success: false, error: 'orderId is required' });
+        }
+
+        const result = await loyaltyService.reverse(userId, { orderId, reason });
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error('Reverse loyalty points error:', error);
+        res.status(400).json({ success: false, error: error.message || 'Failed to reverse points' });
+    }
+});
+
 module.exports = router;

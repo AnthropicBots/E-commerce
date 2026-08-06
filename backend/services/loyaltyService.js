@@ -118,13 +118,58 @@ class LoyaltyService extends EventEmitter {
      * the account's CURRENT tier multiplier, then balance/lifetime are updated,
      * the tier is recomputed against the new lifetime total, and an `earn` ledger
      * row is appended — all in one transaction.
+     *
+     * Idempotent per order (#1476). This is driven by an `{ async: true }`
+     * ORDER_CREATED subscriber — fire-and-forget, errors swallowed by design —
+     * so the publisher does not know whether a handler ran, and anything that
+     * republishes the event calls this again. Before, that credited again: a
+     * retry after a transient failure, a backfill over historical orders, or two
+     * app instances both subscribed all paid out twice, in points that are
+     * spendable at REDEEM_RATE.
+     *
+     * A prior credit for the same `orderId` is returned as-is rather than
+     * written a second time, and `uniq_loyalty_award_per_order` (migration 0045)
+     * is the backstop for two callers getting past that check at once.
+     *
+     * An award with no `orderId` has nothing to key on and is not deduplicated.
      */
     async award(userId, { orderId = null, amount = 0, reason = 'order' } = {}, connection = null) {
+        // `redeem` and `adjust` both validate their input and both refuse to
+        // drive a balance negative. `award` did neither, which made it the one
+        // way to get a negative balance into loyalty_accounts: a negative
+        // `amount` produced negative base points and subtracted from the
+        // balance *and* from the lifetime total, recorded as an `earn`.
+        const orderAmount = Number(amount);
+
+        if (!Number.isFinite(orderAmount) || orderAmount < 0) {
+            throw new Error(
+                `Invalid award amount: ${amount}. The order amount must be a non-negative number.`
+            );
+        }
+
         return this._withTransaction(connection, async (conn) => {
             const account = await this._getOrCreateAccountTx(conn, userId);
 
+            // Under the account lock `_getOrCreateAccountTx` just took, so a
+            // concurrent award for the same order waits here instead of reading
+            // "nothing credited yet" alongside us.
+            if (orderId !== null && orderId !== undefined) {
+                const existing = await this._findAwardForOrderTx(conn, userId, orderId);
+
+                if (existing) {
+                    return {
+                        pointsEarned: existing.points,
+                        balance: account.points_balance,
+                        lifetimePoints: account.lifetime_points,
+                        tier: account.tier,
+                        tierUpgraded: false,
+                        alreadyAwarded: true
+                    };
+                }
+            }
+
             const currentTier = this.computeTier(account.lifetime_points);
-            const basePoints = Math.floor(Number(amount) * EARN_RATE);
+            const basePoints = Math.floor(orderAmount * EARN_RATE);
             const earnedPoints = Math.floor(basePoints * currentTier.multiplier);
 
             const newBalance = account.points_balance + earnedPoints;
@@ -146,7 +191,7 @@ class LoyaltyService extends EventEmitter {
                 balanceAfter: newBalance,
                 reason,
                 metadata: {
-                    amount: Number(amount),
+                    amount: orderAmount,
                     basePoints,
                     multiplier: currentTier.multiplier,
                     tierAtEarn: currentTier.name
@@ -158,7 +203,8 @@ class LoyaltyService extends EventEmitter {
                 balance: newBalance,
                 lifetimePoints: newLifetime,
                 tier: newTier.name,
-                tierUpgraded: newTier.name !== currentTier.name
+                tierUpgraded: newTier.name !== currentTier.name,
+                alreadyAwarded: false
             };
             this.emit('loyalty.earned', { userId, ...result });
             return result;
@@ -210,6 +256,113 @@ class LoyaltyService extends EventEmitter {
                 balance: newBalance
             };
             this.emit('loyalty.redeemed', { userId, ...result });
+            return result;
+        });
+    }
+
+    /**
+     * Take back the points awarded for an order that was cancelled or returned.
+     *
+     * There was no way to do this (#1476). `refundController.approveRequest`
+     * already exists and already restocks inventory, but the points paid out for
+     * the order stayed. `adjust()` could be used by hand, except that it takes no
+     * `orderId` — so the correction could not be tied back to the order that
+     * caused it, and a second refund on the same order was indistinguishable
+     * from the first.
+     *
+     * Written as an `adjust` row carrying the order id, which makes it
+     * idempotent through the same unique key that protects the award: a second
+     * call for an order already reversed returns the first result rather than
+     * clawing back twice.
+     *
+     * Lifetime points come down too, and the tier with them. Leaving lifetime
+     * alone would let a customer keep a tier bought with an order they returned,
+     * and the ladder is the whole reason lifetime is tracked separately.
+     *
+     * The balance is clamped at zero rather than going negative. The points may
+     * already have been spent, and an unsettleable debt over a refund the
+     * customer is entitled to is a worse answer than absorbing the difference —
+     * what was actually clawed back is on the returned result and in the ledger
+     * row's metadata, so the shortfall is visible rather than silent.
+     *
+     * @param {string|number} userId
+     * @param {{orderId: string|number, reason?: string}} options
+     * @param {object} [connection]
+     */
+    async reverse(userId, { orderId, reason = 'order reversed' } = {}, connection = null) {
+        if (orderId === null || orderId === undefined) {
+            throw new Error('Cannot reverse loyalty points without an orderId.');
+        }
+
+        return this._withTransaction(connection, async (conn) => {
+            const account = await this._getOrCreateAccountTx(conn, userId);
+
+            const alreadyReversed = await this._findReversalForOrderTx(conn, userId, orderId);
+
+            if (alreadyReversed) {
+                return {
+                    pointsReversed: Math.abs(alreadyReversed.points),
+                    balance: account.points_balance,
+                    lifetimePoints: account.lifetime_points,
+                    tier: account.tier,
+                    alreadyReversed: true
+                };
+            }
+
+            const award = await this._findAwardForOrderTx(conn, userId, orderId);
+
+            // Nothing was ever credited for this order — a cancellation before
+            // the award landed, or an order that predates the program. Not an
+            // error: the caller wanted the points gone and they are.
+            if (!award) {
+                return {
+                    pointsReversed: 0,
+                    balance: account.points_balance,
+                    lifetimePoints: account.lifetime_points,
+                    tier: account.tier,
+                    alreadyReversed: false
+                };
+            }
+
+            const awarded = Number(award.points) || 0;
+            const newBalance = Math.max(account.points_balance - awarded, 0);
+            const newLifetime = Math.max(account.lifetime_points - awarded, 0);
+            const newTier = this.computeTier(newLifetime);
+            const clawedBack = account.points_balance - newBalance;
+
+            await conn.query(
+                `UPDATE loyalty_accounts
+                    SET points_balance = ?, lifetime_points = ?, tier = ?, updated_at = NOW()
+                  WHERE user_id = ?`,
+                [newBalance, newLifetime, newTier.name, userId]
+            );
+
+            await this._appendLedgerRow(conn, {
+                userId,
+                orderId,
+                type: 'adjust',
+                points: -awarded,
+                balanceAfter: newBalance,
+                reason,
+                metadata: {
+                    reversalOf: award.id,
+                    pointsAwarded: awarded,
+                    pointsClawedBack: clawedBack,
+                    shortfall: awarded - clawedBack,
+                    tierBefore: account.tier
+                }
+            });
+
+            const result = {
+                pointsReversed: awarded,
+                pointsClawedBack: clawedBack,
+                balance: newBalance,
+                lifetimePoints: newLifetime,
+                tier: newTier.name,
+                tierDowngraded: newTier.name !== account.tier,
+                alreadyReversed: false
+            };
+            this.emit('loyalty.reversed', { userId, orderId, ...result });
             return result;
         });
     }
@@ -413,6 +566,45 @@ class LoyaltyService extends EventEmitter {
             [userId]
         );
         return created[0];
+    }
+
+    /**
+     * The `earn` row for this order, if one has already been written.
+     *
+     * Runs on the transaction's connection so it is read under the account lock
+     * `_getOrCreateAccountTx` takes. Read outside it, two concurrent awards for
+     * the same order both see nothing and both credit.
+     *
+     * `LIMIT 1` with the lowest id: the unique key makes a second row
+     * impossible from here on, but rows predating migration 0045 may still be
+     * paired, and the earliest is the one the order actually earned.
+     */
+    async _findAwardForOrderTx(conn, userId, orderId) {
+        const [rows] = await conn.query(
+            `SELECT id, points, balance_after, created_at
+               FROM loyalty_transactions
+              WHERE user_id = ? AND order_id = ? AND type = 'earn'
+              ORDER BY id ASC
+              LIMIT 1`,
+            [userId, orderId]
+        );
+        return rows && rows.length > 0 ? rows[0] : null;
+    }
+
+    /**
+     * The reversal row for this order, if the points have already been taken
+     * back. Same locking argument as `_findAwardForOrderTx`.
+     */
+    async _findReversalForOrderTx(conn, userId, orderId) {
+        const [rows] = await conn.query(
+            `SELECT id, points, balance_after, created_at
+               FROM loyalty_transactions
+              WHERE user_id = ? AND order_id = ? AND type = 'adjust'
+              ORDER BY id ASC
+              LIMIT 1`,
+            [userId, orderId]
+        );
+        return rows && rows.length > 0 ? rows[0] : null;
     }
 
     async _appendLedgerRow(conn, { userId, orderId, type, points, balanceAfter, reason, metadata }) {
