@@ -110,3 +110,12 @@ jobs:
       - name: Require server.js
         working-directory: backend
         run: node ../scripts/check-boot.js
+
+      # The step above covers a module exactly when something on the require
+      # path from server.js reaches it. A module nothing currently imports is
+      # checked by nothing -- it parses, so the syntax gate passes it, and it is
+      # unreachable, so the boot gate never loads it. This imports all of them
+      # (#1474).
+      - name: Require every backend module
+        working-directory: backend
+        run: node ../scripts/check-modules.js
