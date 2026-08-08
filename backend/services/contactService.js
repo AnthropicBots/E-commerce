@@ -368,9 +368,27 @@ async function updateStatus(id, status, adminId) {
         throw new ContactError('Authentication required', 401, 'UNAUTHENTICATED');
     }
 
+    // Existence is established by reading the row, not by the UPDATE's
+    // affectedRows.
+    //
+    // mysql2 is not connected with CLIENT_FOUND_ROWS, so `affectedRows` on an
+    // UPDATE counts rows *changed*, not rows matched. Setting a message to the
+    // status it already holds changes nothing, so affectedRows is 0 -- and
+    // treating that as "no such message" answers 404 for a message the caller
+    // is looking straight at. Marking an already-resolved thread resolved is a
+    // thing support does by reflex, so this is not a corner case.
+    const [existing] = await db.query(
+        'SELECT id FROM contact_messages WHERE id = ? LIMIT 1',
+        [messageId]
+    );
+
+    if (!safeArray(existing).length) {
+        throw new ContactError('Message not found', 404, 'MESSAGE_NOT_FOUND');
+    }
+
     const closing = CLOSED_STATUSES.includes(next);
 
-    const [result] = await db.query(
+    await db.query(
         `UPDATE contact_messages
             SET status = ?,
                 responded_at = ${closing ? 'COALESCE(responded_at, NOW())' : 'NULL'},
@@ -378,10 +396,6 @@ async function updateStatus(id, status, adminId) {
           WHERE id = ?`,
         closing ? [next, actor, messageId] : [next, messageId]
     );
-
-    if (result.affectedRows === 0) {
-        throw new ContactError('Message not found', 404, 'MESSAGE_NOT_FOUND');
-    }
 
     return getMessage(messageId);
 }

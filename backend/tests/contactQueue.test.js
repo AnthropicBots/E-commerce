@@ -229,19 +229,24 @@ describe('getMessage', () => {
 // ---------------------------------------------------------------------------
 
 describe('updateStatus', () => {
+    // Existence check, UPDATE, then the getMessage read-back and its history.
     function mockUpdate(row = messageRow({ status: 'resolved' })) {
         db.query
+            .mockResolvedValueOnce([[{ id: row.id }]])
             .mockResolvedValueOnce([{ affectedRows: 1 }])
             .mockResolvedValueOnce([[row]])
             .mockResolvedValueOnce([[]]);
     }
+
+    /** The UPDATE, which is the second statement now. */
+    const updateCall = () => db.query.mock.calls[1];
 
     test('stamps responded_at and responded_by when a message is closed', async () => {
         mockUpdate();
 
         await contactService.updateStatus(3, 'resolved', ADMIN);
 
-        const [sql, params] = db.query.mock.calls[0];
+        const [sql, params] = updateCall();
 
         // These two columns have existed since migration 0042 with no writer
         // at all. This transition is the only thing that can fill them.
@@ -255,7 +260,7 @@ describe('updateStatus', () => {
 
         await contactService.updateStatus(3, 'spam', ADMIN);
 
-        const [sql] = db.query.mock.calls[0];
+        const [sql] = updateCall();
 
         expect(sql).toMatch(/responded_by = \?/);
     });
@@ -266,7 +271,7 @@ describe('updateStatus', () => {
         await contactService.updateStatus(3, 'resolved', ADMIN);
 
         // COALESCE, not NOW(): the first answer is when it was answered.
-        expect(db.query.mock.calls[0][0]).toMatch(/COALESCE\(responded_at, NOW\(\)\)/);
+        expect(updateCall()[0]).toMatch(/COALESCE\(responded_at, NOW\(\)\)/);
     });
 
     test('re-opening clears the responder', async () => {
@@ -274,7 +279,7 @@ describe('updateStatus', () => {
 
         await contactService.updateStatus(3, 'in_progress', ADMIN);
 
-        const [sql, params] = db.query.mock.calls[0];
+        const [sql, params] = updateCall();
 
         // A message that is in progress again has not been answered, and a
         // stale responder on it would say it had.
@@ -299,7 +304,7 @@ describe('updateStatus', () => {
 
         await contactService.updateStatus(3, 'RESOLVED', ADMIN);
 
-        expect(db.query.mock.calls[0][1][0]).toBe('resolved');
+        expect(updateCall()[1][0]).toBe('resolved');
     });
 
     test('refuses without an acting admin', async () => {
@@ -308,12 +313,33 @@ describe('updateStatus', () => {
         ).rejects.toMatchObject({ status: 401 });
     });
 
-    test('404s when the update matches nothing', async () => {
-        db.query.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    test('404s when there is no such message', async () => {
+        db.query.mockResolvedValueOnce([[]]);
 
         await expect(
             contactService.updateStatus(999, 'resolved', ADMIN)
         ).rejects.toMatchObject({ status: 404 });
+
+        // And does not attempt the UPDATE.
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+
+    test('setting the status it already holds is not a 404', async () => {
+        // Existence is established by reading the row, not by the UPDATE's
+        // affectedRows. mysql2 is not connected with CLIENT_FOUND_ROWS, so
+        // affectedRows counts rows *changed* -- re-resolving an already
+        // resolved thread changes nothing and reports 0, which read as "no
+        // such message" for a message the caller is looking straight at.
+        // Support does that by reflex, so it is not a corner case.
+        db.query
+            .mockResolvedValueOnce([[{ id: 3 }]])
+            .mockResolvedValueOnce([{ affectedRows: 0 }])
+            .mockResolvedValueOnce([[messageRow({ status: 'resolved' })]])
+            .mockResolvedValueOnce([[]]);
+
+        const result = await contactService.updateStatus(3, 'resolved', ADMIN);
+
+        expect(result.status).toBe('resolved');
     });
 });
 

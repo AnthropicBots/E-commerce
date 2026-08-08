@@ -143,6 +143,20 @@ describe('GET /api/admin/contact-messages', () => {
         });
     });
 
+    test('an unrecognised status filter comes back as a 400, not a 500', async () => {
+        // The service refuses it before the query, with the list of what is
+        // accepted, rather than letting the column reject it in strict mode
+        // with a message nobody can act on.
+        contactService.listMessages.mockRejectedValue(
+            new ContactError('status must be one of: …', 400, 'INVALID_STATUS')
+        );
+
+        const res = await request(app).get('/api/admin/contact-messages?status=pending');
+
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe('INVALID_STATUS');
+    });
+
     test('is refused to a signed-in shopper', async () => {
         mockUser = SHOPPER;
 
