@@ -12,10 +12,14 @@
 // module loads offline without a live MySQL.
 //
 // Requiring ../server has bootstrap side effects that keep the event loop
-// alive: server.listen() and a daily setInterval renewal cron. The tests all
-// run supertest against the exported `app` (no live listener needed), so they
-// complete on their own -- but the leaked handles mean this suite must run
-// with jest's `--forceExit` to let the process terminate.
+// alive, chiefly server.listen(). It used to also arm a daily setInterval
+// renewal cron at module scope, outside the `NODE_ENV !== "test"` guard the
+// other background jobs sit behind and with no unref; that is scheduled in
+// bootstrap() with the rest now and is a no-op under test (#1494). The tests
+// all run supertest against the exported `app` (no live listener needed), so
+// they complete on their own -- but the remaining leaked handles mean this
+// suite must still run with jest's `--forceExit` to let the process
+// terminate.
 process.env.NODE_ENV = 'test';
 process.env.DB_HOST = process.env.DB_HOST || 'localhost';
 process.env.DB_PORT = process.env.DB_PORT || '3306';
