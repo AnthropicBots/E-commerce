@@ -531,6 +531,51 @@
   }
 
   /**
+   * The reasons a review may be reported.
+   *
+   * Fetched from the server, which owns the list, and cached for the page.
+   * This used to be a hardcoded string inside the prompt below, which is
+   * exactly the drift `GET /products/reviews/moderation/reasons` exists to
+   * prevent — it was unreachable until #1493, so the copy was the only option.
+   *
+   * The hardcoded list stays as the fallback and nothing more: a shopper who
+   * wants to report a review should not be stopped by one failed request.
+   */
+  const FALLBACK_REPORT_REASONS = [
+    "spam",
+    "offensive",
+    "off_topic",
+    "fake",
+    "personal_info",
+    "other",
+  ];
+
+  let reportReasonsCache = null;
+
+  async function getReportReasons() {
+    if (reportReasonsCache) return reportReasonsCache;
+
+    try {
+      const response = await AppUtils.apiRequest(
+        "/products/reviews/moderation/reasons",
+      );
+
+      const reasons = AppUtils.safeArray(response?.reasons)
+        .map((reason) =>
+          typeof reason === "string" ? reason : reason?.value || reason?.id,
+        )
+        .filter(Boolean);
+
+      reportReasonsCache = reasons.length ? reasons : FALLBACK_REPORT_REASONS;
+    } catch (error) {
+      console.error("REVIEW REPORT REASONS ERROR:", error);
+      reportReasonsCache = FALLBACK_REPORT_REASONS;
+    }
+
+    return reportReasonsCache;
+  }
+
+  /**
    * Report a review.
    *
    * The confirmation names what reporting does — sends it to a moderator —
@@ -540,11 +585,13 @@
   async function reportReview(reviewId) {
     if (!AppUtils.requireAuth()) return;
 
+    const reasons = await getReportReasons();
+
     const reason = window.prompt(
       "Why are you reporting this review?\n\n" +
-        "spam, offensive, off_topic, fake, personal_info, or other\n\n" +
+        `${reasons.join(", ")}\n\n` +
         "It will be sent to a moderator to look at.",
-      "spam",
+      reasons[0],
     );
 
     if (reason === null) return;
