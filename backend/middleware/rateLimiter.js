@@ -70,6 +70,17 @@ const NEWSLETTER_WINDOW_MS =
     parseInt(process.env.RATE_LIMIT_NEWSLETTER_WINDOW_MS, 10)
     || 60 * 60 * 1000; // 1 hour
 
+// Twenty pincode checks a minute. That is the budget the hand-rolled Map in
+// pincodeController carried (#1496) and there is no reason to change the
+// number while moving where it is counted.
+const PINCODE_LOOKUP_MAX =
+    parseInt(process.env.RATE_LIMIT_PINCODE_MAX, 10)
+    || 20;
+
+const PINCODE_WINDOW_MS =
+    parseInt(process.env.RATE_LIMIT_PINCODE_WINDOW_MS, 10)
+    || 60 * 1000; // 1 minute
+
 // ==================== CUSTOM KEY GENERATOR ====================
 // A limit is only as good as the identity it counts against, so the identity is
 // picked deliberately here.
@@ -284,6 +295,28 @@ const contactFormLimiter = createLimiter({
     logPrefix: "Contact form rate limit exceeded"
 });
 
+// ==================== PINCODE LOOKUP LIMITER ====================
+//
+// pincodeController used to count these itself, in a module-level `Map` that
+// inserted one entry per client address and never removed one (#1496). Entries
+// were pruned within a key on the next request from that key, but a key
+// visited once stayed for the lifetime of the process -- an unbounded map,
+// keyed by attacker-supplied source addresses, on an endpoint reachable from
+// the open internet and behind no authentication.
+//
+// Counting it here instead also fixes two things the hand-rolled version got
+// wrong for free: the counters are shared across instances rather than
+// per-process, and the key comes from `customKeyGenerator`, which respects the
+// explicitly configured `trust proxy` instead of reading `req.connection
+// .remoteAddress` (deprecated since Node 13) behind a load balancer.
+const pincodeLookupLimiter = createLimiter({
+    name: "pincode-lookup",
+    windowMs: PINCODE_WINDOW_MS,
+    max: PINCODE_LOOKUP_MAX,
+    message: "Too many pincode checks. Please try again in a minute.",
+    logPrefix: "Pincode lookup rate limit exceeded"
+});
+
 // ==================== SUSPICIOUS IP RATE LIMITER ====================
 const suspiciousIpKeyGenerator = (req) => {
     const address = req.ip || req.socket?.remoteAddress;
@@ -318,6 +351,7 @@ module.exports = {
     newsletterLimiter,
     guestOrderLookupLimiter,
     contactFormLimiter,
+    pincodeLookupLimiter,
     suspiciousIpLimiter,
     customKeyGenerator,
     onLimitReached

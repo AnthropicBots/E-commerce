@@ -79,6 +79,10 @@ const EXPORTED_LIMITERS = [
     ["newsletterLimiter", "newsletter"],
     ["guestOrderLookupLimiter", "guest-order-lookup"],
     ["contactFormLimiter", "contact-form"],
+    // Unauthenticated lookups over serviceable_pincodes. Counted here rather
+    // than in a module-level Map inside pincodeController, which grew one
+    // entry per client address and never dropped one (#1496).
+    ["pincodeLookupLimiter", "pincode-lookup"],
     ["suspiciousIpLimiter", "suspicious-ip"]
 ];
 
