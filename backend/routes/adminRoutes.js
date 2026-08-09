@@ -19,6 +19,15 @@ const {
 const authMiddleware = require("../middleware/authMiddleware");
 const { adminMiddleware } = require("../middleware/rbacMiddleware");
 const { adminLimiter } = require("../middleware/authLimiter");
+const {
+    validateUpdateUserStatus,
+    validateBulkUpdateUserStatus,
+    validateUpdateUserRole,
+    validateBulkUpdateUserRole,
+    validateDeleteUser,
+    validateVerifyUserEmail
+} = require("../validators/adminValidator");
+
 
 // Apply admin rate limiter
 router.use(adminLimiter);
@@ -33,18 +42,17 @@ router.get("/dashboard", getDashboardStats);
 // ==================== USER MANAGEMENT ====================
 router.get("/users", getUsers);
 
-router.patch("/users/:id/status", updateUserStatus);
+router.patch("/users/:id/status", validateUpdateUserStatus, updateUserStatus);
 
-router.post("/users/bulk-status", bulkUpdateUserStatus);
+router.post("/users/bulk-status", validateBulkUpdateUserStatus, bulkUpdateUserStatus);
 
-router.put("/users/:id/role", updateUserRole);
+router.put("/users/:id/role", validateUpdateUserRole, updateUserRole);
 
+router.put("/users/bulk/role", validateBulkUpdateUserRole, bulkUpdateUserRole);
 
-router.put("/users/bulk/role", bulkUpdateUserRole);
+router.delete("/users/:id", validateDeleteUser, deleteUser);
 
-router.delete("/users/:id", deleteUser);
-
-router.post("/users/verify-email", verifyUserEmail);
+router.post("/users/verify-email", validateVerifyUserEmail, verifyUserEmail);
 
 // ==================== ADMIN LOGS ====================
 router.get("/logs", getAdminLogs);
