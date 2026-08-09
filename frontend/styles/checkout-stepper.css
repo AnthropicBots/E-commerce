@@ -1,0 +1,160 @@
+/* ==========================================================================
+   Checkout Progress Stepper
+   Shared across cart.html -> checkout.html -> success.html
+   Steps: Cart -> Details -> Payment -> Confirmation
+   ========================================================================== */
+
+.checkout-stepper {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    max-width: 720px;
+    margin: 24px auto 8px;
+    padding: 0 20px;
+    list-style: none;
+}
+
+.checkout-stepper__step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1 1 0;
+    position: relative;
+    text-align: center;
+}
+
+/* connecting line between steps */
+.checkout-stepper__step:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 17px;
+    left: calc(50% + 22px);
+    right: calc(-50% + 22px);
+    height: 2px;
+    background: var(--border-color, #e1e1e1);
+    z-index: 0;
+    transition: background var(--transition-fast, 0.3s ease);
+}
+
+.checkout-stepper__step.is-completed:not(:last-child)::after {
+    background: var(--primary-color, #088178);
+}
+
+.checkout-stepper__circle {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--white, #fff);
+    border: 2px solid var(--border-color, #e1e1e1);
+    color: var(--text-light, #465b52);
+    font-size: 14px;
+    font-weight: 700;
+    position: relative;
+    z-index: 1;
+    transition: all var(--transition-fast, 0.3s ease);
+}
+
+.checkout-stepper__circle i {
+    font-size: 13px;
+}
+
+.checkout-stepper__label {
+    margin-top: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-light, #465b52);
+    transition: color var(--transition-fast, 0.3s ease);
+}
+
+/* Active step */
+.checkout-stepper__step.is-active .checkout-stepper__circle {
+    border-color: var(--primary-color, #088178);
+    background: var(--primary-color, #088178);
+    color: #fff;
+    box-shadow: 0 0 0 4px rgba(8, 129, 120, 0.15);
+}
+
+.checkout-stepper__step.is-active .checkout-stepper__label {
+    color: var(--primary-color, #088178);
+    font-weight: 700;
+}
+
+/* Completed step */
+.checkout-stepper__step.is-completed .checkout-stepper__circle {
+    border-color: var(--primary-color, #088178);
+    background: var(--primary-color, #088178);
+    color: #fff;
+}
+
+.checkout-stepper__step.is-completed .checkout-stepper__label {
+    color: var(--primary-color, #088178);
+}
+
+/* Upcoming (future) step stays muted/greyed out — default state above already covers it */
+
+/* Mobile: shrink labels, tighten spacing */
+@media (max-width: 576px) {
+    .checkout-stepper {
+        margin: 16px auto 4px;
+        padding: 0 10px;
+    }
+
+    .checkout-stepper__circle {
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+        font-size: 12px;
+    }
+
+    .checkout-stepper__step:not(:last-child)::after {
+        top: 14px;
+        left: calc(50% + 18px);
+        right: calc(-50% + 18px);
+    }
+
+    .checkout-stepper__label {
+        margin-top: 6px;
+        font-size: 10.5px;
+    }
+}
+
+/* Dark theme */
+body.dark-theme .checkout-stepper__circle {
+    background: #2a2a2a;
+    border-color: #444;
+    color: #d1d1d1;
+}
+
+body.dark-theme .checkout-stepper__label {
+    color: #d1d1d1;
+}
+
+body.dark-theme .checkout-stepper__step:not(:last-child)::after {
+    background: #444;
+}
+
+body.dark-theme .checkout-stepper__step.is-completed:not(:last-child)::after,
+body.dark-theme .checkout-stepper__step.is-completed .checkout-stepper__circle,
+body.dark-theme .checkout-stepper__step.is-active .checkout-stepper__circle {
+    background: var(--primary-color, #088178);
+    border-color: var(--primary-color, #088178);
+    color: #fff;
+}
+
+body.dark-theme .checkout-stepper__step.is-active .checkout-stepper__label,
+body.dark-theme .checkout-stepper__step.is-completed .checkout-stepper__label {
+    color: var(--primary-color, #088178);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    .checkout-stepper__circle,
+    .checkout-stepper__label,
+    .checkout-stepper__step::after {
+        transition: none;
+    }
+}
