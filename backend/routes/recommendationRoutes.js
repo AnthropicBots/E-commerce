@@ -27,23 +27,32 @@ router.post("/interaction", recordInteraction);
 router.get("/", async (req, res) => {
   try {
     const userId = req.user.id;
-    const { strategy = 'hybrid', limit = 10 } = req.query;
+    const { strategy = 'hybrid', limit } = req.query;
 
     // Create strategy instance
     const strategyInstance = RecommendationStrategyFactory.createStrategy(strategy);
-    
-    // Get recommendations
-    const recommendations = await strategyInstance.getRecommendations(userId, parseInt(limit));
 
-    // Return response matching existing format
+    // Get recommendations. The limit is clamped inside the strategy now,
+    // rather than going from the query string into a LIMIT clause.
+    const recommendations = await strategyInstance.getRecommendations(userId, limit);
+
+    // `data` is the list.
+    //
+    // It was an object wrapping the list, and the only caller reads
+    // `response.data.length` (frontend/scripts/recommendations.js:366) -- so
+    // every response, including a good one, fell through to "Explore more
+    // products to get personalized recommendations!". Which strategy ran is
+    // still reported, beside the list instead of around it, which is also the
+    // { success, message, data } envelope AGENTS.md specifies.
     res.json({
       success: true,
-      data: {
+      message: 'Recommendations fetched successfully',
+      data: recommendations,
+      meta: {
         userId,
         strategy: strategyInstance.name,
-        strategyType: strategy,
-        count: recommendations.length,
-        recommendations
+        strategyType: strategyInstance.type,
+        count: recommendations.length
       }
     });
   } catch (error) {
