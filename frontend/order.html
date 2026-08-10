@@ -218,11 +218,36 @@
                     <div id="order-items-container"></div>
                 </div>
 
-                <!-- Back Button -->
-                <div style="text-align: center; margin-top: 24px;">
-                    <a href="dashboard.html#orders" class="btn btn-secondary" style="padding: 10px 24px; border: 2px solid #ddd; border-radius: 8px; text-decoration: none; color: #333; display: inline-block;">
-                        <i class="fas fa-arrow-left"></i> Back to Orders
+                <!-- Order Actions: Back | Print | Download Invoice -->
+                <div class="order-actions" id="order-actions">
+                    <a
+                        href="dashboard.html#orders"
+                        class="order-action-btn order-action-btn--ghost"
+                        aria-label="Back to Orders"
+                    >
+                        <i class="fas fa-arrow-left" aria-hidden="true"></i>
+                        Back to Orders
                     </a>
+
+                    <button
+                        id="print-order-btn"
+                        class="order-action-btn order-action-btn--ghost"
+                        type="button"
+                        aria-label="Print this order"
+                    >
+                        <i class="fas fa-print" aria-hidden="true"></i>
+                        Print Order
+                    </button>
+
+                    <button
+                        id="download-invoice-btn"
+                        class="order-action-btn order-action-btn--primary"
+                        type="button"
+                        aria-label="Download invoice as PDF"
+                    >
+                        <i class="fas fa-download" aria-hidden="true"></i>
+                        Download Invoice
+                    </button>
                 </div>
             </div>
 

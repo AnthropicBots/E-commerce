@@ -134,7 +134,185 @@ async function fetchOrderStatus() {
     }
 }
 
-// Delivery Canvas Tracker Instance
+// ─── Render helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Populate the order detail view with the data returned by /orders/:id/status.
+ * Called after a successful fetch, and again on every Socket.IO status-update
+ * event so the page stays current without a reload.
+ */
+function renderOrderDetails(order) {
+    if (!order) return;
+
+    // Keep currentOrder in sync for other helpers that may read it.
+    currentOrder = order;
+
+    // Swap loading → detail view.
+    if (elements.loadingState) elements.loadingState.style.display = 'none';
+    if (elements.errorState)   elements.errorState.style.display   = 'none';
+    if (elements.orderDetails) elements.orderDetails.style.display = 'block';
+
+    // ── Header ────────────────────────────────────────────────────────────────
+    if (elements.orderId) {
+        elements.orderId.textContent = `Order #${escapeHTML(order.order_number || order.id || '')}`;
+    }
+    if (elements.orderDate) {
+        elements.orderDate.textContent = formatDate(order.created_at);
+    }
+
+    // ── Status badge ──────────────────────────────────────────────────────────
+    if (elements.statusBadge) {
+        const status = (order.status || 'pending').toLowerCase();
+        const label  = status.charAt(0).toUpperCase() + status.slice(1);
+        elements.statusBadge.textContent = label;
+        elements.statusBadge.dataset.status = status;
+    }
+
+    // ── Delivery info ─────────────────────────────────────────────────────────
+    if (elements.estimatedDelivery) {
+        const raw = order.estimated_delivery || order.estimated_delivery_from;
+        elements.estimatedDelivery.textContent = raw ? formatDate(raw) : 'N/A';
+    }
+
+    const deliveryMethodEl = document.getElementById('delivery-method');
+    if (deliveryMethodEl && order.shipping_method) {
+        deliveryMethodEl.textContent = order.shipping_method;
+    }
+
+    if (elements.trackingNumber) {
+        elements.trackingNumber.textContent = order.tracking_number || 'Not yet assigned';
+    }
+
+    // ── Tracking ladder ───────────────────────────────────────────────────────
+    updateTrackingSteps(order.status);
+
+    // ── Animated delivery canvas ──────────────────────────────────────────────
+    if (!deliveryCanvasTracker) {
+        deliveryCanvasTracker = new DeliveryRouteCanvas('delivery-tracking-canvas');
+    }
+    deliveryCanvasTracker.setStatus(order.status);
+
+    // ── Items list ────────────────────────────────────────────────────────────
+    renderOrderItems(order.items || []);
+
+    // ── Wire action buttons (guard against double-binding on re-render) ───────
+    const downloadBtn = document.getElementById('download-invoice-btn');
+    if (downloadBtn && !downloadBtn.dataset.bound) {
+        downloadBtn.dataset.bound = '1';
+        downloadBtn.addEventListener('click', handleDownloadInvoice);
+    }
+
+    const printBtn = document.getElementById('print-order-btn');
+    if (printBtn && !printBtn.dataset.bound) {
+        printBtn.dataset.bound = '1';
+        printBtn.addEventListener('click', () => window.print());
+    }
+}
+
+/**
+ * Illuminate the tracking-step circles that correspond to the order's
+ * current status and every stage that precedes it.
+ */
+function updateTrackingSteps(status) {
+    const statusOrder = ['pending', 'processing', 'shipped', 'delivered'];
+    const idx = statusOrder.indexOf((status || 'pending').toLowerCase());
+
+    // pending-step is always active (already has the class in the HTML).
+    if (elements.processingStep) {
+        elements.processingStep.classList.toggle('active-step', idx >= 1);
+    }
+    if (elements.shippedStep) {
+        elements.shippedStep.classList.toggle('active-step', idx >= 2);
+    }
+    if (elements.deliveredStep) {
+        elements.deliveredStep.classList.toggle('active-step', idx >= 3);
+    }
+}
+
+/**
+ * Render the list of items inside #order-items-container.
+ */
+function renderOrderItems(items) {
+    if (!elements.orderItemsContainer) return;
+
+    if (!items.length) {
+        elements.orderItemsContainer.innerHTML = '<p style="color:#888;">No items found for this order.</p>';
+        return;
+    }
+
+    elements.orderItemsContainer.innerHTML = items.map(item => {
+        const name      = escapeHTML(item.name || 'Product');
+        const qty       = Number(item.qty)   || 1;
+        const price     = parseFloat(item.price) || 0;
+        const lineTotal = price * qty;
+        const imgSrc    = escapeHTML(item.img || item.image || 'assets/images/placeholder.png');
+
+        return `
+            <div class="order-item">
+                <div class="order-item-left">
+                    <img src="${imgSrc}" alt="${name}" loading="lazy" width="70">
+                    <div>
+                        <h4>${name}</h4>
+                        <p style="color:#888; font-size:0.9rem;">Qty: ${qty}</p>
+                    </div>
+                </div>
+                <div class="order-item-right">
+                    <p style="font-weight:600;">${AppUtils.formatPrice(lineTotal)}</p>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+/**
+ * Fetch the PDF invoice for the current order from the backend and
+ * trigger a browser file download — no new tab, no popup.
+ *
+ * GET /api/orders/:id/invoice  →  application/pdf
+ */
+async function handleDownloadInvoice() {
+    const btn = document.getElementById('download-invoice-btn');
+
+    // Loading state
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Generating…';
+    }
+
+    try {
+        const token = localStorage.getItem('token');
+        const res   = await fetch(`${CONFIG.API_BASE}/orders/${orderId}/invoice`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (!res.ok) {
+            const errBody = await res.json().catch(() => ({}));
+            throw new Error(errBody.message || `Server responded ${res.status}`);
+        }
+
+        const blob    = await res.blob();
+        const url     = URL.createObjectURL(blob);
+        const anchor  = document.createElement('a');
+        anchor.href     = url;
+        anchor.download = `invoice-${orderId}.pdf`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+
+        AppUtils.notify('Invoice downloaded successfully', 'success');
+    } catch (error) {
+        console.error('Invoice download error:', error);
+        AppUtils.notify(error.message || 'Failed to download invoice', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-download" aria-hidden="true"></i> Download Invoice';
+        }
+    }
+}
+
+
 let deliveryCanvasTracker = null;
 
 class DeliveryRouteCanvas {
