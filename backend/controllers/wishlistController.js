@@ -10,6 +10,25 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const PAGE_SIZE = 10;
 const SHARE_TOKEN_LENGTH = 32;
 
+// Ceiling on how many entries the in-process cache below may hold. A cap
+// rather than a working limit: one entry per user per page per page size, in a
+// Map nothing else bounds, is a slow leak keyed by request parameters.
+const MAX_CACHE_ENTRIES = 1000;
+
+/**
+ * A product a shopper may still be shown.
+ *
+ * `products` carries both flags and they mean different things: `is_active = 0`
+ * is a product withdrawn from sale, `deleted_at` is the soft delete the rest of
+ * the catalogue reads honour (#1457). A wishlist that ignores them keeps
+ * offering something the shop has taken down, at a price and a stock figure
+ * that stopped being maintained the day it was withdrawn.
+ *
+ * Written once and applied by every read below, because the reason it was
+ * missing from six of them is that each one had to remember it separately.
+ */
+const LIVE_PRODUCT = "p.is_active = 1 AND p.deleted_at IS NULL";
+
 // ==================== CACHE ====================
 const cache = new Map();
 
@@ -31,10 +50,46 @@ function getFromCache(userId, page, limit) {
 function setCache(userId, page, limit, data) {
     const key = getCacheKey(userId, page, limit);
 
+    // An entry is only ever read again by the same user asking for the same
+    // page, so an entry for a page nobody revisits is never touched again --
+    // and nothing removed it. `getFromCache` treats an expired entry as a miss
+    // and leaves it in the Map, so the Map only ever grew.
+    pruneCache();
+
     cache.set(key, {
         data,
         timestamp: Date.now()
     });
+}
+
+/**
+ * Drop expired entries, and the oldest ones if the cap is still exceeded.
+ *
+ * Called on write rather than on a timer: a timer keeps the event loop alive
+ * and has to be cleaned up in tests, and entries only appear on a write.
+ */
+function pruneCache() {
+    const now = Date.now();
+
+    for (const [key, entry] of cache) {
+        if (now - entry.timestamp >= CACHE_TTL) {
+            cache.delete(key);
+        }
+    }
+
+    if (cache.size < MAX_CACHE_ENTRIES) {
+        return;
+    }
+
+    // Map iterates in insertion order, so the front is the oldest.
+    const excess = cache.size - MAX_CACHE_ENTRIES + 1;
+    let dropped = 0;
+
+    for (const key of cache.keys()) {
+        if (dropped >= excess) break;
+        cache.delete(key);
+        dropped += 1;
+    }
 }
 
 function invalidateCache(userId) {
@@ -46,6 +101,46 @@ function invalidateCache(userId) {
         }
     }
     logger.debug(`Cache invalidated for user: ${userId}`);
+}
+
+// ==================== CSV ====================
+
+/**
+ * Characters that make a spreadsheet treat a cell as a formula rather than as
+ * text. A leading tab or carriage return counts because both are stripped
+ * before the first meaningful character is looked at.
+ */
+const CSV_FORMULA_PREFIXES = ['=', '+', '-', '@', '\t', '\r'];
+
+/**
+ * Neutralise a value that a spreadsheet would otherwise execute.
+ *
+ * Product names and descriptions come from whoever listed the product, and the
+ * export is a file a shopper opens locally. `=HYPERLINK(...)` in a product
+ * name is a working attack on the person who exported their own wishlist.
+ * Prefixing with an apostrophe is the standard escape and is not displayed.
+ *
+ * @param {any} value
+ * @returns {any}
+ */
+function csvSafeValue(value) {
+    if (typeof value !== 'string') return value;
+
+    return CSV_FORMULA_PREFIXES.includes(value[0]) ? `'${value}` : value;
+}
+
+/**
+ * @param {Object} row
+ * @returns {Object} the same row with every string value made safe
+ */
+function csvSafeRow(row) {
+    const safe = {};
+
+    for (const [key, value] of Object.entries(row || {})) {
+        safe[key] = csvSafeValue(value);
+    }
+
+    return safe;
 }
 
 // ==================== VALIDATION ====================
@@ -93,30 +188,43 @@ const wishlistController = {
                 });
             }
 
-            // Get total count
-            const [countResult] = await promisePool.query(
-                'SELECT COUNT(*) as total FROM wishlist_items WHERE user_id = ?',
-                [userId]
-            );
+            // Counted over the same join and the same filter as the list
+            // below. Counting the rows in `wishlist_items` while listing the
+            // rows that join to a live product gives a total that is larger
+            // than what can be shown, so the last page of a wishlist holding
+            // withdrawn products came back empty with `hasNextPage` true.
+            const [countResult] = await promisePool.query(`
+                SELECT COUNT(*) as total
+                FROM wishlist_items w
+                JOIN products p ON w.product_id = p.id
+                WHERE w.user_id = ? AND ${LIVE_PRODUCT}
+            `, [userId]);
             const total = countResult[0]?.total || 0;
 
             // Get paginated wishlist items with product details
+            //
+            // `p.num_reviews AS review_count`, not `p.review_count`. There is
+            // no `review_count` column on `products` -- the count of reviews
+            // lives in `num_reviews`, which is what `reviewController`
+            // maintains -- so this query failed on every request with
+            // `ER_BAD_FIELD_ERROR: Unknown column 'p.review_count'`. The alias
+            // keeps the field clients already read.
             const [rows] = await promisePool.query(`
-                SELECT 
-                    p.id, 
-                    p.name, 
-                    p.price, 
-                    p.image, 
-                    p.brand, 
+                SELECT
+                    p.id,
+                    p.name,
+                    p.price,
+                    p.image,
+                    p.brand,
                     p.stock,
                     p.description,
                     p.category_id,
                     p.rating,
-                    p.review_count,
+                    p.num_reviews AS review_count,
                     w.created_at as added_at
                 FROM wishlist_items w
                 JOIN products p ON w.product_id = p.id
-                WHERE w.user_id = ?
+                WHERE w.user_id = ? AND ${LIVE_PRODUCT}
                 ORDER BY w.created_at DESC
                 LIMIT ? OFFSET ?
             `, [userId, limit, offset]);
@@ -198,7 +306,8 @@ const wishlistController = {
             }
 
             const [products] = await promisePool.query(
-                "SELECT id, name, price, stock FROM products WHERE id = ? AND is_active = 1",
+                `SELECT p.id, p.name, p.price, p.stock FROM products p
+                 WHERE p.id = ? AND ${LIVE_PRODUCT}`,
                 [validation.id]
             );
 
@@ -341,7 +450,7 @@ const wishlistController = {
             for (const productId of uniqueProductIds) {
                 // Check if product exists and is active
                 const [product] = await connection.query(
-                    'SELECT id FROM products WHERE id = ? AND is_active = 1',
+                    `SELECT p.id FROM products p WHERE p.id = ? AND ${LIVE_PRODUCT}`,
                     [productId]
                 );
 
@@ -479,10 +588,14 @@ const wishlistController = {
         try {
             const userId = req.user.id;
 
-            const [result] = await promisePool.query(
-                'SELECT COUNT(*) as count FROM wishlist_items WHERE user_id = ?',
-                [userId]
-            );
+            // The badge in the header and the list on the page are the same
+            // claim, so they are counted the same way.
+            const [result] = await promisePool.query(`
+                SELECT COUNT(*) as count
+                FROM wishlist_items w
+                JOIN products p ON w.product_id = p.id
+                WHERE w.user_id = ? AND ${LIVE_PRODUCT}
+            `, [userId]);
             const count = result[0]?.count || 0;
 
             return res.status(200).json({
@@ -571,7 +684,8 @@ const wishlistController = {
 
                 // Keep only products that still exist and are active
                 const [products] = await connection.query(
-                    `SELECT id FROM products WHERE id IN (${ids.map(() => "?").join(",")}) AND is_active = 1`,
+                    `SELECT p.id FROM products p
+                     WHERE p.id IN (${ids.map(() => "?").join(",")}) AND ${LIVE_PRODUCT}`,
                     ids
                 );
 
@@ -674,7 +788,7 @@ const wishlistController = {
                         AVG(p.price) as avg_price
                  FROM wishlist_items w
                  JOIN products p ON w.product_id = p.id
-                 WHERE w.user_id = ?`,
+                 WHERE w.user_id = ? AND ${LIVE_PRODUCT}`,
                 [userId]
             );
 
@@ -693,7 +807,7 @@ const wishlistController = {
                  FROM wishlist_items w
                  JOIN products p ON w.product_id = p.id
                  JOIN categories c ON p.category_id = c.id
-                 WHERE w.user_id = ?
+                 WHERE w.user_id = ? AND ${LIVE_PRODUCT}
                  GROUP BY c.id
                  ORDER BY count DESC`,
                 [userId]
@@ -790,12 +904,20 @@ const wishlistController = {
 
             const userId = share[0].user_id;
 
-            // Get wishlist items
+            // Named columns, not `w.*`.
+            //
+            // `wishlist_items` holds `user_id`, so `w.*` published the account
+            // id of whoever made the link to anybody holding it -- and the
+            // link is public by design, shared into a chat or a mail thread
+            // and forwarded on from there. Nothing about the owner is anyone
+            // else's business; the products are what was shared.
             const [items] = await promisePool.query(
-                `SELECT w.*, p.name, p.price, p.image, p.brand, p.description, p.category_id
+                `SELECT p.id AS product_id, p.name, p.price, p.image, p.brand,
+                        p.description, p.category_id, p.stock,
+                        w.created_at AS added_at
                  FROM wishlist_items w
                  JOIN products p ON w.product_id = p.id
-                 WHERE w.user_id = ?
+                 WHERE w.user_id = ? AND ${LIVE_PRODUCT}
                  ORDER BY w.created_at DESC`,
                 [userId]
             );
@@ -825,28 +947,26 @@ const wishlistController = {
 
             // Get all wishlist items
             const [items] = await promisePool.query(
-                `SELECT w.product_id, p.name, p.price, p.image, p.brand, 
+                `SELECT w.product_id, p.name, p.price, p.image, p.brand,
                         p.description, p.category_id, w.created_at as added_date
                  FROM wishlist_items w
                  JOIN products p ON w.product_id = p.id
-                 WHERE w.user_id = ?
+                 WHERE w.user_id = ? AND ${LIVE_PRODUCT}
                  ORDER BY w.created_at DESC`,
                 [userId]
             );
-
-            if (!items.length) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Wishlist is empty'
-                });
-            }
 
             if (format === 'csv') {
                 try {
                     const { Parser } = require('json2csv');
                     const fields = ['product_id', 'name', 'price', 'brand', 'description', 'added_date'];
                     const json2csvParser = new Parser({ fields });
-                    const csv = json2csvParser.parse(items);
+                    // Escaped before the file is written, because a product
+                    // name is seller-supplied text and a spreadsheet reads a
+                    // cell starting with `=` as a formula rather than as a
+                    // name. Quoting alone does not stop that -- Excel strips
+                    // the quotes and evaluates what is inside.
+                    const csv = json2csvParser.parse(items.map(csvSafeRow));
 
                     res.setHeader('Content-Type', 'text/csv');
                     res.setHeader('Content-Disposition', `attachment; filename=wishlist_${Date.now()}.csv`);

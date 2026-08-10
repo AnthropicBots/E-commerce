@@ -194,6 +194,28 @@ async function addToCartFromWishlist(index) {
 // INIT
 // ========================================
 
+// GET /api/wishlist answers `{ success, data: { items, total, page, ... } }`.
+// This page read `response.wishlist`, which the endpoint has never sent, so
+// even a successful fetch was discarded and the page rendered whatever
+// localStorage happened to hold. `dashboard-wishlist.js` reads the same absent
+// field.
+//
+// `data.items` is what the API sends; the other two shapes are accepted so a
+// deployment running an older backend keeps working rather than silently
+// showing a stale list.
+function readWishlistItems(response) {
+    if (!response || response.success !== true) {
+        return null;
+    }
+
+    const items =
+        (response.data && response.data.items)
+        || response.wishlist
+        || response.items;
+
+    return Array.isArray(items) ? items : null;
+}
+
 async function initWishlist() {
     const token = AppUtils.getToken();
     if (token) {
@@ -202,8 +224,13 @@ async function initWishlist() {
         }
         try {
             const response = await AppUtils.apiRequest("/wishlist");
-            if (response.success && response.wishlist) {
-                wishlist = response.wishlist;
+            const items = readWishlistItems(response);
+
+            // null means the request failed or answered in a shape this page
+            // does not understand; the stored wishlist stays as it is rather
+            // than being replaced with nothing.
+            if (items) {
+                wishlist = items;
                 AppUtils.saveWishlist(wishlist);
             }
         } catch (error) {
