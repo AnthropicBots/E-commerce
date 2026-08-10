@@ -52,6 +52,14 @@
     <priority>0.8</priority>
   </url>
   <url>
+<<<<<<< Updated upstream
+=======
+    <loc>https://e-commerce-git-main-bhuvanshs-projects.vercel.app/newsletter.html</loc>
+    <lastmod>2026-08-06</lastmod>
+    <priority>0.5</priority>
+  </url>
+  <url>
+>>>>>>> Stashed changes
     <loc>https://e-commerce-git-main-bhuvanshs-projects.vercel.app/privacy.html</loc>
     <lastmod>2026-07-18</lastmod>
     <priority>0.5</priority>
