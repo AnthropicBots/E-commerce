@@ -7,7 +7,11 @@
   <!-- Search Autocomplete Container -->
   <div class="search-container" style="position: relative; margin-right: 16px">
     <i class="fas fa-search search-icon" aria-hidden="true"></i>
-    <input type="text" id="searchInput" placeholder="Search products..." autocomplete="off" class="search-input" />
+    <!-- aria-label because the only name this control had was its placeholder,
+         and a placeholder is not an accessible name: it disappears the moment
+         anything is typed and is not reliably announced. A combobox without a
+         name is read out as an unlabelled edit field (#1458). -->
+    <input type="text" id="searchInput" placeholder="Search products..." aria-label="Search products" autocomplete="off" class="search-input" />
     <div id="suggestionsDropdown" class="suggestions-dropdown" style="display: none"></div>
   </div>
 

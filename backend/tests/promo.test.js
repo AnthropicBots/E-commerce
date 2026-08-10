@@ -297,8 +297,8 @@ describe("calculateDiscount", () => {
 });
 
 describe("applyPromoTransaction", () => {
-    it("locks the row, increments the counter, writes the log and commits", async () => {
-        const promo = activePromo({ usage_limit: 10 });
+    it("locks the row, writes the log, commits, then refreshes the counter", async () => {
+        const promo = activePromo({ usage_limit: 10, usage_count: 3 });
         const connection = fakeConnection([promo]);
         useTransaction(connection);
 
@@ -311,7 +311,10 @@ describe("applyPromoTransaction", () => {
             expect.stringContaining("FOR UPDATE"),
             ["TEST100"]
         );
-        expect(redis.incr).toHaveBeenCalledTimes(1);
+        // The counter is written after the commit, from the value that was
+        // committed -- never incremented inside the transaction (#1475).
+        expect(redis.incr).not.toHaveBeenCalled();
+        expect(redis.set).toHaveBeenCalledWith("promo:usage:TEST100", "4");
         expect(connection.query).toHaveBeenCalledWith(
             expect.stringContaining("usage_count = usage_count + 1"),
             ["TEST100"]
@@ -348,21 +351,56 @@ describe("applyPromoTransaction", () => {
         ).rejects.toThrow("has expired");
 
         expect(redis.incr).not.toHaveBeenCalled();
+        expect(redis.set).not.toHaveBeenCalled();
         expect(connection.rollback).toHaveBeenCalledTimes(1);
     });
 
-    it("gives the counter back when the increment overshoots the limit", async () => {
-        const connection = fakeConnection([activePromo({ usage_limit: 1, usage_count: 0 })]);
+    it("refuses a promo whose committed usage_count has reached the limit", async () => {
+        // The limit is tested against `usage_count` on the locked row, not
+        // against the Redis cache: the lock is what makes the durable counter
+        // safe to read, and a cached number may already have moved under
+        // another transaction (#1475).
+        const connection = fakeConnection([activePromo({ usage_limit: 1, usage_count: 1 })]);
         useTransaction(connection);
-        redis.incr.mockResolvedValueOnce(2);
 
         await expect(
             promoService.applyPromoTransaction("TEST100", "user123", 50)
         ).rejects.toThrow("usage limit reached");
 
-        expect(redis.decr).toHaveBeenCalledTimes(1);
         expect(connection.rollback).toHaveBeenCalledTimes(1);
         expect(connection.commit).not.toHaveBeenCalled();
+    });
+
+    it("leaves the counter alone when the transaction rolls back", async () => {
+        // The bug this replaced: the increment happened inside the transaction
+        // and was compensated on exactly one failure path, so any other failure
+        // -- a deadlock, a constraint violation, a dropped connection -- rolled
+        // the database back and left Redis one higher, permanently, because
+        // getUsedCount prefers Redis over usage_count.
+        const connection = fakeConnection([activePromo({ usage_limit: 10 })]);
+        connection.commit.mockRejectedValueOnce(new Error("deadlock"));
+        useTransaction(connection);
+
+        await expect(
+            promoService.applyPromoTransaction("TEST100", "user123", 50)
+        ).rejects.toThrow("deadlock");
+
+        expect(redis.incr).not.toHaveBeenCalled();
+        expect(redis.set).not.toHaveBeenCalled();
+    });
+
+    it("still succeeds when refreshing the counter fails", async () => {
+        // The durable count is committed by then; Redis is a cache in front of
+        // it and getUsedCount falls back to usage_count when it is missing.
+        const connection = fakeConnection([activePromo({ usage_limit: 10 })]);
+        useTransaction(connection);
+        redis.set.mockRejectedValueOnce(new Error("Redis is down"));
+
+        await expect(
+            promoService.applyPromoTransaction("TEST100", "user123", 50)
+        ).resolves.toBe(true);
+
+        expect(connection.commit).toHaveBeenCalledTimes(1);
     });
 
     it("releases the connection even when the commit itself fails", async () => {
@@ -397,6 +435,14 @@ describe("checkPromoEligibility", () => {
         expect(result.reason).toContain("not available for your account");
     });
 
+    it("accepts a user named in the eligibility list", async () => {
+        stubPromoRow(activePromo({ user_eligibility: JSON.stringify(["u1", "u2"]) }));
+
+        await expect(
+            promoService.checkPromoEligibility("TEST100", "u1")
+        ).resolves.toEqual({ eligible: true });
+    });
+
     it("rejects a user who has hit their per-user limit", async () => {
         stubPromoRow(activePromo({ per_user_limit: 1 }));
         db.query.mockResolvedValueOnce([[{ count: 1 }]]);
@@ -416,6 +462,75 @@ describe("checkPromoEligibility", () => {
         ).resolves.toEqual({ eligible: true });
     });
 
+    it("accepts a user still under a per-user limit above one", async () => {
+        stubPromoRow(activePromo({ per_user_limit: 3 }));
+        db.query.mockResolvedValueOnce([[{ count: 2 }]]);
+
+        await expect(
+            promoService.checkPromoEligibility("TEST100", "u1")
+        ).resolves.toEqual({ eligible: true });
+    });
+
+    it("treats per_user_limit = 0 as blocked, not unlimited", async () => {
+        // `CHECK (per_user_limit >= 0)` makes zero legal, and it reads as
+        // "nobody may use this". The guard used to be a truthiness test, which
+        // folded zero into unlimited -- the exact opposite (#1475).
+        stubPromoRow(activePromo({ per_user_limit: 0 }));
+
+        const result = await promoService.checkPromoEligibility("TEST100", "u1");
+
+        expect(result.eligible).toBe(false);
+    });
+
+    it("treats a NULL per_user_limit as unlimited", async () => {
+        stubPromoRow(activePromo({ per_user_limit: null }));
+
+        await expect(
+            promoService.checkPromoEligibility("TEST100", "u1")
+        ).resolves.toEqual({ eligible: true });
+
+        // No count is taken: there is no limit to compare one against.
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+
+    it("treats an empty eligibility list as open to everybody", async () => {
+        stubPromoRow(activePromo({ user_eligibility: "[]" }));
+
+        await expect(
+            promoService.checkPromoEligibility("TEST100", "u1")
+        ).resolves.toEqual({ eligible: true });
+    });
+
+    it("ignores an unparsable eligibility list rather than failing the code", async () => {
+        // A bad column should not take down validation for a code that is
+        // otherwise fine; the remaining checks still apply.
+        stubPromoRow(activePromo({ user_eligibility: "{not json" }));
+
+        await expect(
+            promoService.checkPromoEligibility("TEST100", "u1")
+        ).resolves.toEqual({ eligible: true });
+    });
+
+    it("asks a guest to sign in when the promo carries a per-user rule", async () => {
+        // Controllers hand every anonymous caller the literal string "guest",
+        // so counting per-user usage against it would let the first guest
+        // exhaust the allowance for all of them.
+        stubPromoRow(activePromo({ per_user_limit: 1 }));
+
+        const result = await promoService.checkPromoEligibility("TEST100", "guest");
+
+        expect(result.eligible).toBe(false);
+        expect(result.reason).toContain("Sign in");
+    });
+
+    it("lets a guest use a promo with no per-user rule", async () => {
+        stubPromoRow(activePromo({ per_user_limit: null, user_eligibility: null }));
+
+        await expect(
+            promoService.checkPromoEligibility("TEST100", "guest")
+        ).resolves.toEqual({ eligible: true });
+    });
+
     it("reports a lookup failure rather than throwing at the caller", async () => {
         db.query.mockRejectedValueOnce(new Error("DB connection failed"));
 
@@ -424,6 +539,121 @@ describe("checkPromoEligibility", () => {
         expect(result.eligible).toBe(false);
         expect(result.reason).toBe("Failed to check eligibility");
     });
+});
+
+describe("per-user limits are enforced where it counts", () => {
+    // The bug in #1475 was not that the rules were wrong. It was that the only
+    // function containing them was never called from any write path, so both
+    // columns were inert. These assert the wiring, which is the part that was
+    // missing.
+
+    it("validatePromo consults eligibility when given a userId", async () => {
+        stubPromoRow(activePromo({ per_user_limit: 1 }));
+        db.query.mockResolvedValueOnce([[{ count: 1 }]]);
+
+        const result = await promoService.validatePromo("TEST100", 500, "u1");
+
+        expect(result.valid).toBe(false);
+        expect(result.message).toContain("maximum number of times");
+    });
+
+    it("validatePromo without a userId still validates everything else", async () => {
+        // Backwards compatible: the third argument is optional, and its absence
+        // means "no user to check", not "check nobody". The authoritative check
+        // is the one under the row lock.
+        stubPromoRow(activePromo({ per_user_limit: 1 }));
+
+        const result = await promoService.validatePromo("TEST100", 500);
+
+        expect(result.valid).toBe(true);
+    });
+
+    it("applyPromoTransaction refuses a user who has exhausted the code", async () => {
+        const connection = fakeConnection([activePromo({ per_user_limit: 1 })]);
+        useTransaction(connection);
+
+        // Row lock first, then the per-user count on that same connection.
+        connection.query
+            .mockResolvedValueOnce([[activePromo({ per_user_limit: 1 })]])
+            .mockResolvedValueOnce([[{ count: 1 }]]);
+
+        await expect(
+            promoService.applyPromoTransaction("TEST100", "u1", 50)
+        ).rejects.toThrow("not available for user");
+
+        expect(connection.rollback).toHaveBeenCalledTimes(1);
+        expect(connection.commit).not.toHaveBeenCalled();
+        // Nothing was written: no usage row, no counter.
+        expect(connection.query).not.toHaveBeenCalledWith(
+            expect.stringContaining("INSERT INTO promo_usage_logs"),
+            expect.anything()
+        );
+        expect(redis.set).not.toHaveBeenCalled();
+    });
+
+    it("applyPromoTransaction counts usage on its own connection, not the pool", async () => {
+        // Taken outside the transaction, two concurrent redemptions of a
+        // one-per-customer code both read "0 so far" and both proceed. The
+        // count has to happen under the lock this transaction already holds.
+        const connection = fakeConnection([activePromo({ per_user_limit: 2 })]);
+        useTransaction(connection);
+
+        connection.query
+            .mockResolvedValueOnce([[activePromo({ per_user_limit: 2 })]])
+            .mockResolvedValueOnce([[{ count: 0 }]])
+            .mockResolvedValue([[], { affectedRows: 1 }]);
+
+        await expect(
+            promoService.applyPromoTransaction("TEST100", "u1", 50)
+        ).resolves.toBe(true);
+
+        expect(connection.query).toHaveBeenCalledWith(
+            expect.stringContaining("FROM promo_usage_logs"),
+            ["TEST100", "u1"]
+        );
+        // Never on the pool -- that connection is outside the transaction.
+        expect(db.query).not.toHaveBeenCalledWith(
+            expect.stringContaining("FROM promo_usage_logs"),
+            expect.anything()
+        );
+    });
+});
+
+describe("parsePerUserLimit", () => {
+    it.each([
+        [null, null],
+        [undefined, null],
+        ["", null],
+        [0, 0],
+        ["0", 0],
+        [1, 1],
+        ["3", 3],
+        [-1, null],
+        ["nonsense", null]
+    ])("maps %p to %p", (input, expected) => {
+        expect(promoService.parsePerUserLimit(input)).toBe(expected);
+    });
+});
+
+describe("parseEligibleUsers", () => {
+    it("parses a JSON array of ids", () => {
+        expect(promoService.parseEligibleUsers('["a","b"]')).toEqual(["a", "b"]);
+    });
+
+    it("accepts an array that has already been parsed", () => {
+        expect(promoService.parseEligibleUsers(["a"])).toEqual(["a"]);
+    });
+
+    it("coerces ids to strings so a numeric column still matches", () => {
+        expect(promoService.parseEligibleUsers("[1,2]")).toEqual(["1", "2"]);
+    });
+
+    it.each([[null], [undefined], [""], ["[]"], ["{not json"], ['"a string"']])(
+        "returns null for %p",
+        (input) => {
+            expect(promoService.parseEligibleUsers(input)).toBeNull();
+        }
+    );
 });
 
 describe("getPromoUsageKey", () => {

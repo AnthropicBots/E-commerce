@@ -132,7 +132,8 @@ const recentlyViewedRoutes = require('./routes/recentlyViewedRoutes');
 const complexityRoutes = require('./routes/complexityRoutes');
 const { architectureComplexityService } = require('./services/architectureComplexityService');
 
-const processRenewals = require('./jobs/subscriptionRenewalJob');
+// The subscription renewal job is required where it is started, in bootstrap()
+// alongside the other three background jobs, rather than at module load.
 const flagRoutes = require('./routes/flagRoutes');
 const { featureFlagService } = require('./services/featureFlagService');
 
@@ -459,8 +460,17 @@ process.on('SIGINT', async () => {
     }
 });
 
-// Start Subscription Renewals Cron Job
-setInterval(processRenewals, 24 * 60 * 60 * 1000); // run daily
+// The subscription renewal sweep used to be scheduled here, as a bare
+// top-level `setInterval(processRenewals, 24 * 60 * 60 * 1000)` (#1494). It is
+// scheduled with the other three background jobs in bootstrap() now, for the
+// three reasons it should always have been:
+//
+//   * it sat outside the `NODE_ENV !== "test"` guard the others are behind and
+//     had no unref, so it armed itself during `npm test` and held the event
+//     loop open -- part of why the suite ends with "Force exiting Jest";
+//   * the first run was 24 hours after boot and the timer reset on every
+//     restart, so a service deploying more than once a day never swept;
+//   * it had no try/catch of its own, unlike the three below it.
 
 // 11. Application Bootstrap Function
 async function bootstrap() {
@@ -527,6 +537,17 @@ async function bootstrap() {
             startCartRecoveryJob();
         } catch (err) {
             console.error("Warning: Failed to start cart recovery job:", err.message);
+        }
+
+        // Subscription renewals (#1494). Moved here from a bare top-level
+        // setInterval so it is guarded, caught and stoppable like the rest.
+        try {
+            const {
+                startSubscriptionRenewalJob
+            } = require("./jobs/subscriptionRenewalJob");
+            startSubscriptionRenewalJob();
+        } catch (err) {
+            console.error("Warning: Failed to start subscription renewal job:", err.message);
         }
     }
 

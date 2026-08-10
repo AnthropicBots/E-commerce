@@ -19,6 +19,7 @@ const addressRoutes = require("./addressRoutes");
 const wishlistNotifyRoutes = require("./wishlistNotifyRoutes");
 const contactRoutes = require("./contactRoutes");
 const interactionRoutes = require("./interactionRoutes");
+const newsletterRoutes = require("./newsletterRoutes");
 
 router.use("/products", productRoutes);
 router.use("/auth", authRoutes);
@@ -43,5 +44,8 @@ router.use("/addresses", addressRoutes);
 // here, not the other way round.
 router.use("/contact", contactRoutes);
 router.use("/interactions", interactionRoutes);
+// Newsletter sign-up. The form has been on eight pages since long before
+// anything served this path (#1459).
+router.use("/newsletter", newsletterRoutes);
 
 module.exports = router;

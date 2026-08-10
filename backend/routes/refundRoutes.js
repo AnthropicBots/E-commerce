@@ -14,6 +14,11 @@ router.post("/request", authMiddleware, refundController.createRequest);
 // List the authenticated user's own return requests
 router.get("/mine", authMiddleware, refundController.listMyRequests);
 
+// What is still returnable on one of the caller's orders, line by line (#1477).
+// Scoped to the caller in the controller, like /mine -- an order id in the path
+// is not authorisation to see it.
+router.get("/returnable/:orderId", authMiddleware, refundController.listReturnable);
+
 // ==================== ADMIN ROUTES ====================
 
 // List all return requests (optionally filtered by ?status=)

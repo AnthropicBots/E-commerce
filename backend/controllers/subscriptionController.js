@@ -1,110 +1,170 @@
-const promisePool = require("../config/db");
-const { safeNumber } = require("../utils/helpers");
+// backend/controllers/subscriptionController.js
+//
+// Thin handlers over subscriptionService (#1494).
+//
+// This file used to hold the rules: a hand-taken pool connection, an existence
+// check and an insert issued outside any transaction, and its own copy of the
+// four-branch period arithmetic that the renewal job also carried. Both copies
+// fell through their `else if` chain on an unrecognised interval and produced a
+// period of zero length. The rules are in the service now, so there is one of
+// each, and the job and these handlers are both callers.
+//
+// There were also no reads. Four routes, all writes: a shopper could subscribe,
+// pause, resume and cancel, and had no way to see what they were subscribed to,
+// when the period ended, or that a cancellation was pending. `GET /me` and
+// `GET /plans` are the missing half.
+
+'use strict';
+
+const subscriptionService = require('../services/subscriptionService');
+const { SubscriptionError } = require('../services/subscriptionService');
+
+/**
+ * Map a thrown error onto a response.
+ *
+ * SubscriptionError carries the status it wants. Anything else is unexpected,
+ * so the detail goes to the log and the caller gets a generic message.
+ *
+ * @param {import('express').Response} res
+ * @param {Error} error
+ * @param {string} context
+ */
+function handleError(res, error, context) {
+    if (error instanceof SubscriptionError) {
+        return res.status(error.status).json({
+            success: false,
+            message: error.message,
+            code: error.code
+        });
+    }
+
+    console.error(`${context}:`, error);
+
+    return res.status(500).json({
+        success: false,
+        message: 'Something went wrong. Please try again.'
+    });
+}
+
+/** The id on the token, under either of the two names login paths mint. */
+function callerId(req) {
+    return req.user && (req.user.id || req.user.userId);
+}
 
 const subscriptionController = {
-    // Subscribe user to a plan
-    subscribe: async (req, res) => {
-        let connection;
+    /**
+     * GET /api/subscriptions/plans
+     *
+     * Public: you cannot choose a plan you cannot see, and choosing one is the
+     * step before having an account is required.
+     */
+    listPlans: async (req, res) => {
         try {
-            connection = await promisePool.getConnection();
-            const userId = req.user.id;
-            const planId = safeNumber(req.body.planId);
+            const plans = await subscriptionService.listPlans();
 
-            if (planId < 1) {
-                return res.status(400).json({ success: false, message: "Invalid plan ID" });
-            }
-
-            const [plans] = await connection.query("SELECT * FROM billing_plans WHERE id = ? AND is_active = 1", [planId]);
-            if (plans.length === 0) {
-                return res.status(404).json({ success: false, message: "Billing plan not found" });
-            }
-            const plan = plans[0];
-
-            // Check if already subscribed
-            const [existing] = await connection.query("SELECT id FROM subscriptions WHERE user_id = ? AND status IN ('active', 'past_due', 'paused')", [userId]);
-            if (existing.length > 0) {
-                return res.status(400).json({ success: false, message: "User already has an active subscription" });
-            }
-
-            // Calculate period end
-            const start = new Date();
-            const end = new Date();
-            if (plan.interval === 'monthly') end.setMonth(end.getMonth() + plan.interval_count);
-            else if (plan.interval === 'yearly') end.setFullYear(end.getFullYear() + plan.interval_count);
-            else if (plan.interval === 'weekly') end.setDate(end.getDate() + 7 * plan.interval_count);
-            else if (plan.interval === 'daily') end.setDate(end.getDate() + plan.interval_count);
-
-            await connection.query(
-                "INSERT INTO subscriptions (user_id, plan_id, status, current_period_start, current_period_end) VALUES (?, ?, 'active', ?, ?)",
-                [userId, planId, start, end]
-            );
-
-            return res.status(200).json({ success: true, message: "Subscribed successfully", periodEnd: end });
+            return res.status(200).json({
+                success: true,
+                message: 'Billing plans retrieved',
+                data: { plans }
+            });
         } catch (error) {
-            console.error("SUBSCRIBE ERROR:", error);
-            return res.status(500).json({ success: false, message: "Failed to subscribe" });
-        } finally {
-            if (connection) connection.release();
+            return handleError(res, error, 'LIST BILLING PLANS ERROR');
         }
     },
 
-    // Pause subscription
+    /**
+     * GET /api/subscriptions/me
+     *
+     * The caller's own subscription, or null. 200 with null rather than 404:
+     * "you have no subscription" is a successful answer to "what am I
+     * subscribed to", and a 404 here would be indistinguishable from a route
+     * that does not exist -- which is what this endpoint is fixing.
+     */
+    getMine: async (req, res) => {
+        try {
+            const subscription = await subscriptionService.getForUser(callerId(req));
+
+            return res.status(200).json({
+                success: true,
+                message: subscription
+                    ? 'Subscription retrieved'
+                    : 'No active subscription',
+                data: { subscription }
+            });
+        } catch (error) {
+            return handleError(res, error, 'GET SUBSCRIPTION ERROR');
+        }
+    },
+
+    /** POST /api/subscriptions/subscribe */
+    subscribe: async (req, res) => {
+        try {
+            const subscription = await subscriptionService.subscribe(
+                callerId(req),
+                req.body?.planId
+            );
+
+            return res.status(201).json({
+                success: true,
+                message: 'Subscribed successfully',
+                data: { subscription },
+                // The old handler answered with a bare `periodEnd` at the top
+                // level. Kept so an existing caller does not break.
+                periodEnd: subscription.currentPeriodEnd
+            });
+        } catch (error) {
+            return handleError(res, error, 'SUBSCRIBE ERROR');
+        }
+    },
+
+    /** POST /api/subscriptions/pause */
     pause: async (req, res) => {
         try {
-            const userId = req.user.id;
-            const [result] = await promisePool.query(
-                "UPDATE subscriptions SET status = 'paused' WHERE user_id = ? AND status = 'active'",
-                [userId]
-            );
+            const subscription = await subscriptionService.pause(callerId(req));
 
-            if (result.affectedRows === 0) {
-                return res.status(404).json({ success: false, message: "No active subscription found to pause" });
-            }
-
-            return res.status(200).json({ success: true, message: "Subscription paused" });
+            return res.status(200).json({
+                success: true,
+                message: 'Subscription paused',
+                data: { subscription }
+            });
         } catch (error) {
-            console.error("PAUSE SUBSCRIPTION ERROR:", error);
-            return res.status(500).json({ success: false, message: "Failed to pause subscription" });
+            return handleError(res, error, 'PAUSE SUBSCRIPTION ERROR');
         }
     },
 
-    // Resume subscription
+    /** POST /api/subscriptions/resume */
     resume: async (req, res) => {
         try {
-            const userId = req.user.id;
-            const [result] = await promisePool.query(
-                "UPDATE subscriptions SET status = 'active' WHERE user_id = ? AND status = 'paused'",
-                [userId]
-            );
+            const subscription = await subscriptionService.resume(callerId(req));
 
-            if (result.affectedRows === 0) {
-                return res.status(404).json({ success: false, message: "No paused subscription found to resume" });
-            }
-
-            return res.status(200).json({ success: true, message: "Subscription resumed" });
+            return res.status(200).json({
+                success: true,
+                message: subscription.withdrewCancellation
+                    ? 'Subscription resumed and the pending cancellation withdrawn'
+                    : 'Subscription resumed',
+                data: { subscription }
+            });
         } catch (error) {
-            console.error("RESUME SUBSCRIPTION ERROR:", error);
-            return res.status(500).json({ success: false, message: "Failed to resume subscription" });
+            return handleError(res, error, 'RESUME SUBSCRIPTION ERROR');
         }
     },
 
-    // Cancel subscription
+    /** POST /api/subscriptions/cancel */
     cancel: async (req, res) => {
         try {
-            const userId = req.user.id;
-            const [result] = await promisePool.query(
-                "UPDATE subscriptions SET cancel_at_period_end = 1 WHERE user_id = ? AND status IN ('active', 'paused')",
-                [userId]
-            );
+            const subscription = await subscriptionService.cancel(callerId(req));
 
-            if (result.affectedRows === 0) {
-                return res.status(404).json({ success: false, message: "No active subscription found to cancel" });
-            }
-
-            return res.status(200).json({ success: true, message: "Subscription will be canceled at the end of the billing period" });
+            return res.status(200).json({
+                success: true,
+                // Says when, which the old message did not -- and until the
+                // renewal job was fixed there was no "end of the billing
+                // period" at all, because nothing ever ended one.
+                message:
+                    'Subscription will end at the close of the current billing period',
+                data: { subscription }
+            });
         } catch (error) {
-            console.error("CANCEL SUBSCRIPTION ERROR:", error);
-            return res.status(500).json({ success: false, message: "Failed to cancel subscription" });
+            return handleError(res, error, 'CANCEL SUBSCRIPTION ERROR');
         }
     }
 };

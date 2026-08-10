@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <!-- SEO -->
+    <link rel="canonical" href="https://e-commerce-git-main-bhuvanshs-projects.vercel.app/newsletter.html">
+    <meta
+        name="description"
+        content="Confirm or cancel your AnthropicBots E-Commerce newsletter subscription."
+    >
+
+    <!-- Transactional: this page is only ever reached from a link in an email,
+         and it does nothing without the token in that link. There is nothing
+         here for a search engine to index, and an indexed copy would just be a
+         permanent error page. -->
+    <meta
+        name="robots"
+        content="noindex, nofollow"
+    >
+
+    <meta
+        name="author"
+        content="AnthropicBots E-Commerce"
+    >
+
+    <title>
+        Newsletter | AnthropicBots E-Commerce
+    </title>
+
+    <!-- Favicon -->
+
+    <link
+        rel="icon"
+        type="image/png"
+        href="assets/images/logo.png"
+    >
+
+    <!-- Styles -->
+
+    <link rel="stylesheet" href="styles/base.css">
+    <link rel="stylesheet" href="styles/layout.css">
+    <link rel="stylesheet" href="styles/components.css">
+    <link rel="stylesheet" href="styles/style.css">
+    <link rel="stylesheet" href="styles/back-to-top.css">
+
+    <!-- Icons -->
+
+    <link
+        rel="stylesheet"
+        href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css"
+    >
+
+</head>
+
+<body>
+
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <!-- Navbar -->
+
+    <div id="navbar"></div>
+
+    <!-- `tabindex="-1"` so the skip link can actually move focus here. Without
+         it the browser scrolls to the landmark but leaves focus on the link, and
+         the next Tab goes back to the navigation the user just skipped. This is
+         the shape #1452's landmark gate checks for. -->
+    <main id="main-content" tabindex="-1">
+
+        <section class="section-p1 newsletter-status-page">
+
+            <h1 id="newsletter-status-heading">Newsletter</h1>
+
+            <!-- The result is written here by scripts/newsletter-status.js.
+                 aria-live because the outcome arrives after a request, so
+                 nothing would otherwise announce that the page had changed
+                 from "Checking..." to an answer. -->
+            <p
+                id="newsletter-status-message"
+                role="status"
+                aria-live="polite"
+            >
+                Checking your link&hellip;
+            </p>
+
+            <p>
+                <a class="normal" href="index.html">Back to the shop</a>
+            </p>
+
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+
+    <div id="footer"></div>
+
+    <script defer src="scripts/config.js"></script>
+    <script defer src="scripts/utils.js"></script>
+    <script defer src="scripts/auth.js"></script>
+    <script defer src="scripts/components.js"></script>
+    <script defer src="scripts/ui.js"></script>
+    <script defer src="scripts/newsletter-status.js"></script>
+    <script defer src="scripts/back-to-top.js"></script>
+
+</body>
+
+</html>

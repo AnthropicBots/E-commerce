@@ -32,28 +32,15 @@
 
 const path = require('path');
 
+// Shared with scripts/check-modules.js, which needs the identical set. Applied
+// before the first require of application code -- see the module itself for why
+// the two gates must not keep separate copies of it.
+const { applyPlaceholderEnv } = require('./lib/placeholder-env');
+
+applyPlaceholderEnv();
+
 const REPO_ROOT = path.resolve(__dirname, '..');
 const SERVER_PATH = path.join(REPO_ROOT, 'backend', 'server.js');
-
-// Placeholders, not secrets: nothing here is used to reach a real service.
-// Each is `||`-guarded so a caller that has a real value keeps it.
-const PLACEHOLDER_ENV = {
-    NODE_ENV: 'test',
-    DB_HOST: 'localhost',
-    DB_PORT: '3306',
-    DB_USER: 'boot_check',
-    DB_PASSWORD: 'boot_check',
-    DB_NAME: 'boot_check',
-    JWT_SECRET: 'boot_check_jwt_secret_at_least_32_characters_long',
-    JWT_REFRESH_SECRET: 'boot_check_jwt_refresh_secret_at_least_32_characters',
-    PORT: '5099',
-    FRONTEND_URL: 'http://localhost:5500',
-    STRIPE_SECRET_KEY: 'sk_test_00000000000000000000000000'
-};
-
-for (const [key, value] of Object.entries(PLACEHOLDER_ENV)) {
-    process.env[key] = process.env[key] || value;
-}
 
 function fail(message, error) {
     console.error(`\n❌ backend/server.js failed to boot: ${message}\n`);

@@ -39,6 +39,14 @@ const PUBLIC_ROUTES = Object.freeze([
     { method: 'GET', path: '/api/products/categories/tree', reason: PUBLIC_REASON.CATALOG },
     { method: 'GET', path: '/api/products/:id/questions', reason: PUBLIC_REASON.CATALOG },
     { method: 'GET', path: '/api/pincode/check/:pincode', reason: PUBLIC_REASON.CATALOG },
+    // The other two reads over serviceable_pincodes, which had handlers and no
+    // routes until #1496. Same reasoning as the single check: a shopper asks
+    // whether you deliver to them before they have an account, often before
+    // they have a basket. Both read one public table, write nothing, and
+    // answer only what the delivery page already shows -- and all three are
+    // now rate limited at the router, which none of them was before.
+    { method: 'GET', path: '/api/pincode/search', reason: PUBLIC_REASON.CATALOG },
+    { method: 'POST', path: '/api/pincode/check-multiple', reason: PUBLIC_REASON.CATALOG },
 
     { method: 'GET', path: '/api/auth/status', reason: PUBLIC_REASON.AUTH_ENTRY },
     { method: 'POST', path: '/api/auth/signup', reason: PUBLIC_REASON.AUTH_ENTRY },

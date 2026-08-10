@@ -6,9 +6,22 @@ const { withTransaction } = require('../config/db');
  * Base Repository class providing common CRUD operations
  */
 class BaseRepository {
-    constructor(tableName, primaryKey = 'id') {
+    /**
+     * @param {string} tableName
+     * @param {string} [primaryKey='id']
+     * @param {object} [options]
+     * @param {string|null} [options.softDeleteColumn=null]
+     *   Column marking a row as deleted. When set, `delete()` stamps it instead
+     *   of removing the row.
+     *
+     *   Declared explicitly rather than sniffed from the schema: a repository
+     *   whose behaviour depends on whether a column happens to exist is a
+     *   repository that silently changes behaviour when someone adds one.
+     */
+    constructor(tableName, primaryKey = 'id', { softDeleteColumn = null } = {}) {
         this.tableName = tableName;
         this.primaryKey = primaryKey;
+        this.softDeleteColumn = softDeleteColumn;
         this.db = db;
         this.cache = new Map();
         this.cacheEnabled = true;
@@ -124,9 +137,53 @@ class BaseRepository {
     }
 
     /**
-     * Delete record by ID
+     * Delete record by ID.
+     *
+     * Soft when the repository declares a `softDeleteColumn`, hard otherwise.
+     *
+     * This is the second door onto the same problem as #1457: the controller's
+     * `DELETE FROM products` was the visible one, but `productService.deleteProduct()`
+     * reaches the row through here, so fixing only the controller would have
+     * left the cascade -- fourteen tables off `products(id)`, plus `order_items`
+     * and `refund_requests` nulled -- one method call away.
+     *
+     * Already-deleted rows are excluded so a repeat call reports `false`
+     * rather than moving the timestamp forward and losing when the deletion
+     * actually happened.
+     *
+     * @param {string|number} id
+     * @returns {Promise<boolean>} whether a row changed.
      */
     async delete(id) {
+        const [result] = this.softDeleteColumn
+            ? await this.db.query(
+                `UPDATE ${this.tableName}
+                    SET ${this.softDeleteColumn} = NOW()
+                  WHERE ${this.primaryKey} = ?
+                    AND ${this.softDeleteColumn} IS NULL`,
+                [id]
+            )
+            : await this.db.query(
+                `DELETE FROM ${this.tableName} WHERE ${this.primaryKey} = ?`,
+                [id]
+            );
+
+        this.cache.delete(id);
+
+        return result.affectedRows > 0;
+    }
+
+    /**
+     * Remove a row for good, cascades and all.
+     *
+     * Split out from `delete()` so that erasing a row is something a caller has
+     * to ask for by name. `dataErasureService` is the legitimate case -- an
+     * erasure request is supposed to destroy data.
+     *
+     * @param {string|number} id
+     * @returns {Promise<boolean>}
+     */
+    async hardDelete(id) {
         const [result] = await this.db.query(
             `DELETE FROM ${this.tableName} WHERE ${this.primaryKey} = ?`,
             [id]
