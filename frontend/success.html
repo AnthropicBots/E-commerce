@@ -81,6 +81,11 @@
         href="styles/success.css"
     >
 
+    <link
+        rel="stylesheet"
+        href="styles/checkout-stepper.css"
+    >
+
     <!-- Icons -->
 
     <link
@@ -102,7 +107,11 @@
     <main id="main-content" tabindex="-1">
         <h1 class="visually-hidden">Order Success</h1>
 
-
+        <!-- Checkout Progress Stepper -->
+        <ul
+            id="checkout-stepper"
+            data-current-step="confirmation"
+        ></ul>
 
     <!-- Success Section -->
 
@@ -217,6 +226,11 @@
     <script
         defer
         src="scripts/components.js"
+    ></script>
+
+    <script
+        defer
+        src="scripts/checkout-stepper.js"
     ></script>
 
     <!-- Success Script -->

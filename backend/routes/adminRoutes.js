@@ -16,6 +16,15 @@ const {
     verifyErasureReceiptAdmin
 } = require("../controllers/admin.controller");
 
+// Support queue (#1495). The contact form has been writing to
+// contact_messages since #1445; nothing has ever read the table.
+const {
+    listContactMessages,
+    getContactMessage,
+    updateContactMessageStatus,
+    getContactMessageSummary
+} = require("../controllers/adminContactController");
+
 const authMiddleware = require("../middleware/authMiddleware");
 const { adminMiddleware } = require("../middleware/rbacMiddleware");
 const { adminLimiter } = require("../middleware/authLimiter");
@@ -61,5 +70,19 @@ router.get("/logs", getAdminLogs);
 router.get("/erasure-requests", listErasureRequests);
 router.get("/erasure-requests/:id", getErasureRequest);
 router.get("/erasure-receipts/:receiptId", verifyErasureReceiptAdmin);
+
+// ==================== SUPPORT QUEUE (#1495) ====================
+//
+// Every route on this router already has `adminLimiter`, `authMiddleware` and
+// `adminMiddleware` applied above, so these inherit them rather than restating
+// them -- which is the point of mounting the queue here instead of giving it a
+// router of its own.
+//
+// "/summary" is declared BEFORE "/:id". Express matches in declaration order,
+// and the id guard would otherwise reject "summary" as an invalid id.
+router.get("/contact-messages/summary", getContactMessageSummary);
+router.get("/contact-messages", listContactMessages);
+router.get("/contact-messages/:id", getContactMessage);
+router.patch("/contact-messages/:id/status", updateContactMessageStatus);
 
 module.exports = router;

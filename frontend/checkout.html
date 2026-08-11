@@ -81,6 +81,11 @@
         href="styles/checkout.css"
     >
 
+    <link
+        rel="stylesheet"
+        href="styles/checkout-stepper.css"
+    >
+
     <!-- Icons -->
 
     <link
@@ -102,7 +107,11 @@
     <main id="main-content" tabindex="-1">
         <h1 class="visually-hidden">Checkout</h1>
 
-
+        <!-- Checkout Progress Stepper -->
+        <ul
+            id="checkout-stepper"
+            data-current-step="payment"
+        ></ul>
 
     <!-- Checkout Header -->
 
@@ -488,6 +497,11 @@
     <script
         defer
         src="scripts/components.js"
+    ></script>
+
+    <script
+        defer
+        src="scripts/checkout-stepper.js"
     ></script>
 
     <!-- Checkout Script -->

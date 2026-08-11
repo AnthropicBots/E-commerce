@@ -536,8 +536,18 @@
         defer
         src="scripts/recommendations.js"
     ></script>
+    <!-- The single owner of the recentlyViewed key (#1497). Must load before
+         any script that records or reads a view. -->
     <script
-        type="module"
+        defer
+        src="scripts/recently-viewed-store.js"
+    ></script>
+
+    <!-- Was type="module", importing named bindings from utils.js, which
+         exports nothing. The import failed at module resolution and the whole
+         file was discarded, so this section never rendered (#1497). -->
+    <script
+        defer
         src="scripts/recentlyViewed.js"
     ></script>
   </body>

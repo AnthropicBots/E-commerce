@@ -923,6 +923,13 @@
     ></script>
 
     <!-- Product Modules -->
+    <!-- The single owner of the recentlyViewed key (#1497). Must load before
+         product-render.js and product.js, both of which record a view. -->
+    <script
+        defer
+        src="scripts/recently-viewed-store.js"
+    ></script>
+
     <script
         defer
         src="scripts/product-render.js"
