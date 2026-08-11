@@ -368,65 +368,27 @@ function renderProductRating(
 }
 
 // recently viewed
+//
+// This wrote the `recentlyViewed` key directly, deduplicating with
+// `Number(item.id) !== Number(product.id)` -- and `products.id` is a CHAR(36)
+// UUID, so `Number(uuid)` is NaN, `NaN !== NaN` is true, and the filter
+// removed nothing for any product, ever (#1497). It also capped at 8 while
+// product.js capped the same key at 10 in the same page load.
+//
+// Both are window.RecentlyViewed's business now, and it is the only writer.
 function updateRecentlyViewed(
     product
 ) {
 
-    let viewed =
-        AppUtils.getJSON(
-            "recentlyViewed",
-            []
-        );
+    if (
+        !product
+        || !window.RecentlyViewed
+    ) {
+        return;
+    }
 
-    viewed =
-        AppUtils.safeArray(
-            viewed
-        ).filter(
-            (
-                item
-            ) => {
-
-                return (
-                    Number(
-                        item.id
-                    ) !==
-                    Number(
-                        product.id
-                    )
-                );
-            }
-        );
-
-    viewed.unshift({
-
-        id:
-            product.id,
-
-        name:
-            product.name,
-
-        brand:
-            product.brand,
-
-        category:
-            product.category,
-
-        price:
-            product.price,
-
-        image:
-            product.image
-    });
-
-    viewed =
-        viewed.slice(
-            0,
-            8
-        );
-
-    AppUtils.setJSON(
-        "recentlyViewed",
-        viewed
+    window.RecentlyViewed.record(
+        product
     );
 }
 
@@ -589,9 +551,14 @@ function renderProduct(
         product
     );
 
-    updateRecentlyViewed(
-        product
-    );
+    // `updateRecentlyViewed(product)` was called here. Recording a view is not
+    // rendering, and this was the third write of the same product to the same
+    // key in one page load (#1497) -- product.js already records it when the
+    // product is fetched, which is where the view actually happens.
+    //
+    // The function is kept and still exported: it delegates to the store now,
+    // so an external caller that has always had `window.updateRecentlyViewed`
+    // keeps working and gets the deduplicated behaviour.
 }
 
 

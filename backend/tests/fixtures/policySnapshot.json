@@ -115,6 +115,7 @@
     "GET /api/courier-webhooks/health",
     "GET /api/orders/status/check",
     "GET /api/pincode/check/:pincode",
+    "GET /api/pincode/search",
     "GET /api/products",
     "GET /api/products/:id",
     "GET /api/products/:id/questions",
@@ -137,6 +138,7 @@
     "POST /api/courier-webhooks/:provider",
     "POST /api/orders/lookup",
     "POST /api/orders/validate",
+    "POST /api/pincode/check-multiple",
     "POST /api/promos/validate",
     "POST /api/wishlist-notify/unsubscribe"
   ],

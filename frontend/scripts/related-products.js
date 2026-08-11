@@ -191,11 +191,23 @@ function renderRelatedProducts(
 
 // recently viewed recommendation
 function loadRecentlyViewedRecommendations() {
+
+    // Read through the store rather than off the key directly (#1497). This
+    // read the raw value and passed each element to renderProductCard, which
+    // works only if every element is an object -- and one of the three writers
+    // stored bare id strings, so what came back depended on which of them had
+    // run last. The store hands back one shape whatever is in storage.
     const viewed =
-        AppUtils.getJSON(
-            "recentlyViewed",
-            []
-        );
+        window.RecentlyViewed
+            ? window.RecentlyViewed.list().filter(
+                (
+                    item
+                ) => {
+
+                    return !item.partial;
+                }
+            )
+            : [];
 
     const recommendationContainer =
         document.getElementById(

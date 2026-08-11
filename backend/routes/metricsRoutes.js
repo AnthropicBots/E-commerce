@@ -1,14 +1,48 @@
 // backend/routes/metricsRoutes.js
+//
+// Business metrics: revenue, conversion, churn, customer lifetime value.
+//
+// Every route here was `authMiddleware` and nothing else (#1529), so any
+// signed-in shopper could read the store's takings -- and
+// /customer-lifetime-value returns the names of the hundred highest-spending
+// customers alongside what each of them has spent. `adminOnly` is applied at
+// the router now, so a route added later cannot be missing it.
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/authMiddleware');
+const { authorizeRoles } = require('../middleware/rbacMiddleware');
+const { ROLES } = require('../config/policy');
 const { metricsAggregationService, METRIC_TYPES, TIME_PERIODS } = require('../services/metricsAggregationService');
+
+// What the store earns is not a fact about the shopper reading it.
+router.use(authMiddleware);
+router.use(authorizeRoles(ROLES.ADMIN));
+
+/**
+ * Answer with the status the error carries.
+ *
+ * A filter this service does not implement is the caller's mistake, not the
+ * server's, and reporting it as a 500 hides which of the two it was.
+ */
+function fail(res, error, fallback) {
+    const status = error.status || 500;
+
+    if (status >= 500) {
+        console.error(`${fallback}:`, error);
+    }
+
+    return res.status(status).json({
+        success: false,
+        error: status >= 500 ? fallback : error.message,
+        code: error.code
+    });
+}
 
 /**
  * GET /api/metrics/dashboard
  * Get metrics dashboard
  */
-router.get('/dashboard', authMiddleware, async (req, res) => {
+router.get('/dashboard', async (req, res) => {
     try {
         const { period = TIME_PERIODS.WEEK, ...filters } = req.query;
         const dashboard = await metricsAggregationService.getDashboard(period, filters);
@@ -18,11 +52,7 @@ router.get('/dashboard', authMiddleware, async (req, res) => {
             data: dashboard
         });
     } catch (error) {
-        console.error('Dashboard error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get dashboard'
-        });
+        return fail(res, error, 'Failed to get dashboard');
     }
 });
 
@@ -30,7 +60,7 @@ router.get('/dashboard', authMiddleware, async (req, res) => {
  * GET /api/metrics/conversion-rate
  * Get conversion rate
  */
-router.get('/conversion-rate', authMiddleware, async (req, res) => {
+router.get('/conversion-rate', async (req, res) => {
     try {
         const { period = TIME_PERIODS.WEEK, ...filters } = req.query;
         const result = await metricsAggregationService.getConversionRate(period, filters);
@@ -40,11 +70,7 @@ router.get('/conversion-rate', authMiddleware, async (req, res) => {
             data: result
         });
     } catch (error) {
-        console.error('Conversion rate error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get conversion rate'
-        });
+        return fail(res, error, 'Failed to get conversion rate');
     }
 });
 
@@ -52,7 +78,7 @@ router.get('/conversion-rate', authMiddleware, async (req, res) => {
  * GET /api/metrics/average-order-value
  * Get average order value
  */
-router.get('/average-order-value', authMiddleware, async (req, res) => {
+router.get('/average-order-value', async (req, res) => {
     try {
         const { period = TIME_PERIODS.WEEK, ...filters } = req.query;
         const result = await metricsAggregationService.getAverageOrderValue(period, filters);
@@ -62,11 +88,7 @@ router.get('/average-order-value', authMiddleware, async (req, res) => {
             data: result
         });
     } catch (error) {
-        console.error('AOV error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get average order value'
-        });
+        return fail(res, error, 'Failed to get average order value');
     }
 });
 
@@ -74,7 +96,7 @@ router.get('/average-order-value', authMiddleware, async (req, res) => {
  * GET /api/metrics/abandoned-cart
  * Get abandoned cart rate
  */
-router.get('/abandoned-cart', authMiddleware, async (req, res) => {
+router.get('/abandoned-cart', async (req, res) => {
     try {
         const { period = TIME_PERIODS.WEEK, ...filters } = req.query;
         const result = await metricsAggregationService.getAbandonedCartRate(period, filters);
@@ -84,11 +106,7 @@ router.get('/abandoned-cart', authMiddleware, async (req, res) => {
             data: result
         });
     } catch (error) {
-        console.error('Abandoned cart error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get abandoned cart rate'
-        });
+        return fail(res, error, 'Failed to get abandoned cart rate');
     }
 });
 
@@ -96,7 +114,7 @@ router.get('/abandoned-cart', authMiddleware, async (req, res) => {
  * GET /api/metrics/recommendation-ctr
  * Get recommendation CTR
  */
-router.get('/recommendation-ctr', authMiddleware, async (req, res) => {
+router.get('/recommendation-ctr', async (req, res) => {
     try {
         const { period = TIME_PERIODS.WEEK, ...filters } = req.query;
         const result = await metricsAggregationService.getRecommendationCTR(period, filters);
@@ -106,11 +124,7 @@ router.get('/recommendation-ctr', authMiddleware, async (req, res) => {
             data: result
         });
     } catch (error) {
-        console.error('Recommendation CTR error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get recommendation CTR'
-        });
+        return fail(res, error, 'Failed to get recommendation CTR');
     }
 });
 
@@ -118,7 +132,7 @@ router.get('/recommendation-ctr', authMiddleware, async (req, res) => {
  * GET /api/metrics/coupon-effectiveness
  * Get coupon effectiveness
  */
-router.get('/coupon-effectiveness', authMiddleware, async (req, res) => {
+router.get('/coupon-effectiveness', async (req, res) => {
     try {
         const { period = TIME_PERIODS.WEEK, ...filters } = req.query;
         const result = await metricsAggregationService.getCouponEffectiveness(period, filters);
@@ -128,11 +142,7 @@ router.get('/coupon-effectiveness', authMiddleware, async (req, res) => {
             data: result
         });
     } catch (error) {
-        console.error('Coupon effectiveness error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get coupon effectiveness'
-        });
+        return fail(res, error, 'Failed to get coupon effectiveness');
     }
 });
 
@@ -140,7 +150,7 @@ router.get('/coupon-effectiveness', authMiddleware, async (req, res) => {
  * GET /api/metrics/customer-lifetime-value
  * Get customer lifetime value
  */
-router.get('/customer-lifetime-value', authMiddleware, async (req, res) => {
+router.get('/customer-lifetime-value', async (req, res) => {
     try {
         const { period = TIME_PERIODS.MONTH, ...filters } = req.query;
         const result = await metricsAggregationService.getCustomerLifetimeValue(period, filters);
@@ -150,11 +160,7 @@ router.get('/customer-lifetime-value', authMiddleware, async (req, res) => {
             data: result
         });
     } catch (error) {
-        console.error('CLV error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get customer lifetime value'
-        });
+        return fail(res, error, 'Failed to get customer lifetime value');
     }
 });
 
@@ -162,7 +168,7 @@ router.get('/customer-lifetime-value', authMiddleware, async (req, res) => {
  * GET /api/metrics/revenue-growth
  * Get revenue growth
  */
-router.get('/revenue-growth', authMiddleware, async (req, res) => {
+router.get('/revenue-growth', async (req, res) => {
     try {
         const { period = TIME_PERIODS.MONTH, ...filters } = req.query;
         const result = await metricsAggregationService.getRevenueGrowth(period, filters);
@@ -172,11 +178,7 @@ router.get('/revenue-growth', authMiddleware, async (req, res) => {
             data: result
         });
     } catch (error) {
-        console.error('Revenue growth error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get revenue growth'
-        });
+        return fail(res, error, 'Failed to get revenue growth');
     }
 });
 
@@ -184,7 +186,7 @@ router.get('/revenue-growth', authMiddleware, async (req, res) => {
  * GET /api/metrics/churn-rate
  * Get churn rate
  */
-router.get('/churn-rate', authMiddleware, async (req, res) => {
+router.get('/churn-rate', async (req, res) => {
     try {
         const { period = TIME_PERIODS.MONTH, ...filters } = req.query;
         const result = await metricsAggregationService.getChurnRate(period, filters);
@@ -194,11 +196,7 @@ router.get('/churn-rate', authMiddleware, async (req, res) => {
             data: result
         });
     } catch (error) {
-        console.error('Churn rate error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get churn rate'
-        });
+        return fail(res, error, 'Failed to get churn rate');
     }
 });
 
@@ -206,7 +204,7 @@ router.get('/churn-rate', authMiddleware, async (req, res) => {
  * GET /api/metrics/types
  * Get metric types
  */
-router.get('/types', authMiddleware, (req, res) => {
+router.get('/types', (req, res) => {
     res.json({
         success: true,
         data: METRIC_TYPES
@@ -217,7 +215,7 @@ router.get('/types', authMiddleware, (req, res) => {
  * GET /api/metrics/periods
  * Get time periods
  */
-router.get('/periods', authMiddleware, (req, res) => {
+router.get('/periods', (req, res) => {
     res.json({
         success: true,
         data: TIME_PERIODS
@@ -228,15 +226,10 @@ router.get('/periods', authMiddleware, (req, res) => {
  * POST /api/metrics/aggregate
  * Trigger metrics aggregation (admin only)
  */
-router.post('/aggregate', authMiddleware, async (req, res) => {
+router.post('/aggregate', async (req, res) => {
     try {
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({
-                success: false,
-                error: 'Admin access required'
-            });
-        }
-
+        // The router already refuses anybody who is not an admin, so the
+        // inline check that used to be here said nothing extra.
         await metricsAggregationService.aggregateMetrics();
 
         res.json({
@@ -244,11 +237,7 @@ router.post('/aggregate', authMiddleware, async (req, res) => {
             message: 'Metrics aggregation triggered'
         });
     } catch (error) {
-        console.error('Aggregation error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to trigger aggregation'
-        });
+        return fail(res, error, 'Failed to trigger aggregation');
     }
 });
 
@@ -256,7 +245,7 @@ router.post('/aggregate', authMiddleware, async (req, res) => {
  * GET /api/metrics/stats
  * Get metrics service statistics
  */
-router.get('/stats', authMiddleware, async (req, res) => {
+router.get('/stats', async (req, res) => {
     try {
         const stats = await metricsAggregationService.getStatistics();
 
@@ -265,11 +254,7 @@ router.get('/stats', authMiddleware, async (req, res) => {
             data: stats
         });
     } catch (error) {
-        console.error('Stats error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get statistics'
-        });
+        return fail(res, error, 'Failed to get statistics');
     }
 });
 

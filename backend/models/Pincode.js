@@ -1,12 +1,39 @@
-const db = require("../config/db");
-const NodeCache = require('node-cache');
+// backend/models/Pincode.js
+//
+// Delivery serviceability (#1496).
+//
+// Two things were wrong at this layer and both were invisible from outside.
+//
+// `serviceable_pincodes` carries `deleted_at`, `deleted_by` and an index on
+// `deleted_at` (migrations/0001_baseline_schema.sql:888-912). Not one query
+// read any of them. Every read filtered on `is_active = TRUE` and nothing
+// else, so a soft-deleted pincode still answered "yes, we deliver here", still
+// resolved a city and state for a shipping quote, and still turned up in
+// search. Withdrawal had no effect on any read path.
+//
+// And `delete` was a hard DELETE against a table built for soft deletion, so
+// `deleted_by` and `deleted_at` had no writer at all and the audit trail those
+// columns exist for did not exist.
+//
+// The cache also lives in services/pincodeCache.js now rather than here; see
+// that file for why there were two of them and why that could not work.
 
-const cache = new NodeCache({
-    stdTTL: 86400,
-    checkperiod: 3600
-});
+const db = require("../config/db");
+const pincodeCache = require("../services/pincodeCache");
 
 const PINCODE_REGEX = /^\d{6}$/;
+
+/**
+ * The predicate every read shares.
+ *
+ * Written out once, so a query added later cannot quietly omit the soft-delete
+ * check -- which is how the omission survived across nine separate reads.
+ */
+const LIVE = "is_active = TRUE AND deleted_at IS NULL";
+
+/** The columns a caller gets. `deleted_at` is not among them by design. */
+const COLUMNS = `pincode, city, state, country, eta_days, is_active,
+                 delivery_charges, cod_available, created_at, updated_at`;
 
 const Pincode = {
     validatePincode: (pincode) => {
@@ -30,29 +57,23 @@ const Pincode = {
         return pincodes.map(p => Pincode.validatePincode(p));
     },
 
-    getCacheKey: (pincode) => {
-        return `pincode_${pincode}`;
-    },
-
     findByCode: async (pincode) => {
         try {
             const validPincode = Pincode.validatePincode(pincode);
-            const cacheKey = Pincode.getCacheKey(validPincode);
 
-            const cached = cache.get(cacheKey);
+            const cached = pincodeCache.get(pincodeCache.NAMESPACE_ROWS, validPincode);
             if (cached !== undefined) {
                 return cached;
             }
 
             const [rows] = await db.query(
-                `SELECT pincode, city, state, country, eta_days, is_active, 
-                        delivery_charges, cod_available, created_at, updated_at
-                 FROM serviceable_pincodes 
-                 WHERE pincode = ? AND is_active = TRUE`,
+                `SELECT ${COLUMNS}
+                 FROM serviceable_pincodes
+                 WHERE pincode = ? AND ${LIVE}`,
                 [validPincode]
             );
 
-            cache.set(cacheKey, rows);
+            pincodeCache.set(pincodeCache.NAMESPACE_ROWS, validPincode, rows);
             return rows;
 
         } catch (error) {
@@ -68,10 +89,9 @@ const Pincode = {
 
             const placeholders = uniquePincodes.map(() => '?').join(',');
             const [rows] = await db.query(
-                `SELECT pincode, city, state, country, eta_days, is_active, 
-                        delivery_charges, cod_available, created_at, updated_at
-                 FROM serviceable_pincodes 
-                 WHERE pincode IN (${placeholders}) AND is_active = TRUE`,
+                `SELECT ${COLUMNS}
+                 FROM serviceable_pincodes
+                 WHERE pincode IN (${placeholders}) AND ${LIVE}`,
                 uniquePincodes
             );
 
@@ -95,13 +115,18 @@ const Pincode = {
                 throw new Error('Search query must be at least 2 characters');
             }
 
-            const searchTerm = `%${query.trim()}%`;
+            // LIKE metacharacters in the term are escaped: a search for "100%"
+            // should find "100%", not scan and return everything.
+            const searchTerm = `%${Pincode.escapeLike(query.trim())}%`;
+
             const [rows] = await db.query(
                 `SELECT pincode, city, state, country, eta_days, is_active,
                         delivery_charges, cod_available
-                 FROM serviceable_pincodes 
-                 WHERE (pincode LIKE ? OR city LIKE ? OR state LIKE ?) 
-                 AND is_active = TRUE
+                 FROM serviceable_pincodes
+                 WHERE (pincode LIKE ? ESCAPE '\\\\'
+                        OR city LIKE ? ESCAPE '\\\\'
+                        OR state LIKE ? ESCAPE '\\\\')
+                 AND ${LIVE}
                  LIMIT ?`,
                 [searchTerm, searchTerm, searchTerm, Math.min(limit, 50)]
             );
@@ -116,7 +141,9 @@ const Pincode = {
 
     count: async (filter = {}) => {
         try {
-            let query = 'SELECT COUNT(*) as total FROM serviceable_pincodes WHERE 1=1';
+            // Withdrawn rows are excluded here too. A count that includes them
+            // disagrees with every list that does not.
+            let query = 'SELECT COUNT(*) as total FROM serviceable_pincodes WHERE deleted_at IS NULL';
             const params = [];
 
             if (filter.is_active !== undefined) {
@@ -143,7 +170,7 @@ const Pincode = {
         }
     },
 
-    create: async (data) => {
+    create: async (data, actorId = null) => {
         try {
             const validPincode = Pincode.validatePincode(data.pincode);
 
@@ -151,10 +178,25 @@ const Pincode = {
                 throw new Error('City and state are required');
             }
 
+            // A pincode withdrawn earlier and added again is the same row --
+            // `pincode` is UNIQUE, so a plain INSERT would fail against a
+            // soft-deleted one and the operator would have no way to tell why.
             const [result] = await db.query(
-                `INSERT INTO serviceable_pincodes 
-                 (pincode, city, state, country, eta_days, delivery_charges, cod_available, is_active)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO serviceable_pincodes
+                 (pincode, city, state, country, eta_days, delivery_charges,
+                  cod_available, is_active, created_by)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                     city = VALUES(city),
+                     state = VALUES(state),
+                     country = VALUES(country),
+                     eta_days = VALUES(eta_days),
+                     delivery_charges = VALUES(delivery_charges),
+                     cod_available = VALUES(cod_available),
+                     is_active = VALUES(is_active),
+                     updated_by = VALUES(created_by),
+                     deleted_at = NULL,
+                     deleted_by = NULL`,
                 [
                     validPincode,
                     data.city,
@@ -163,12 +205,12 @@ const Pincode = {
                     data.eta_days || 3,
                     data.delivery_charges || 0,
                     data.cod_available !== false ? 1 : 0,
-                    data.is_active !== false ? 1 : 0
+                    data.is_active !== false ? 1 : 0,
+                    actorId
                 ]
             );
 
-            const cacheKey = Pincode.getCacheKey(validPincode);
-            cache.del(cacheKey);
+            pincodeCache.invalidate(validPincode);
 
             return {
                 id: result.insertId,
@@ -182,7 +224,7 @@ const Pincode = {
         }
     },
 
-    update: async (pincode, data) => {
+    update: async (pincode, data, actorId = null) => {
         try {
             const validPincode = Pincode.validatePincode(pincode);
 
@@ -222,17 +264,19 @@ const Pincode = {
                 throw new Error('No fields to update');
             }
 
+            updates.push('updated_by = ?');
+            params.push(actorId);
+
             params.push(validPincode);
 
             const [result] = await db.query(
-                `UPDATE serviceable_pincodes 
+                `UPDATE serviceable_pincodes
                  SET ${updates.join(', ')}, updated_at = NOW()
-                 WHERE pincode = ?`,
+                 WHERE pincode = ? AND deleted_at IS NULL`,
                 params
             );
 
-            const cacheKey = Pincode.getCacheKey(validPincode);
-            cache.del(cacheKey);
+            pincodeCache.invalidate(validPincode);
 
             return result.affectedRows > 0;
 
@@ -242,17 +286,30 @@ const Pincode = {
         }
     },
 
-    delete: async (pincode) => {
+    /**
+     * Withdraw a pincode.
+     *
+     * A soft delete, which is what the table was built for. This used to issue
+     * `DELETE FROM serviceable_pincodes`, destroying the row and with it any
+     * record that the store had ever served that area -- while `deleted_at`
+     * and `deleted_by` sat unused two columns over.
+     *
+     * @param {string} pincode
+     * @param {string|null} actorId - recorded in deleted_by
+     * @returns {Promise<boolean>}
+     */
+    delete: async (pincode, actorId = null) => {
         try {
             const validPincode = Pincode.validatePincode(pincode);
 
             const [result] = await db.query(
-                'DELETE FROM serviceable_pincodes WHERE pincode = ?',
-                [validPincode]
+                `UPDATE serviceable_pincodes
+                 SET deleted_at = NOW(), deleted_by = ?, is_active = 0
+                 WHERE pincode = ? AND deleted_at IS NULL`,
+                [actorId, validPincode]
             );
 
-            const cacheKey = Pincode.getCacheKey(validPincode);
-            cache.del(cacheKey);
+            pincodeCache.invalidate(validPincode);
 
             return result.affectedRows > 0;
 
@@ -262,9 +319,40 @@ const Pincode = {
         }
     },
 
+    /**
+     * Undo a withdrawal.
+     *
+     * A soft delete nobody can reverse is, from outside, the hard delete it
+     * replaced -- the same argument #1457 made for products.
+     *
+     * @param {string} pincode
+     * @param {string|null} actorId
+     * @returns {Promise<boolean>}
+     */
+    restore: async (pincode, actorId = null) => {
+        try {
+            const validPincode = Pincode.validatePincode(pincode);
+
+            const [result] = await db.query(
+                `UPDATE serviceable_pincodes
+                 SET deleted_at = NULL, deleted_by = NULL, is_active = 1, updated_by = ?
+                 WHERE pincode = ? AND deleted_at IS NOT NULL`,
+                [actorId, validPincode]
+            );
+
+            pincodeCache.invalidate(validPincode);
+
+            return result.affectedRows > 0;
+
+        } catch (error) {
+            console.error('Pincode.restore error:', error.message);
+            throw error;
+        }
+    },
+
     getCities: async (state = null) => {
         try {
-            let query = 'SELECT DISTINCT city FROM serviceable_pincodes WHERE is_active = TRUE';
+            let query = `SELECT DISTINCT city FROM serviceable_pincodes WHERE ${LIVE}`;
             const params = [];
 
             if (state) {
@@ -286,7 +374,7 @@ const Pincode = {
     getStates: async () => {
         try {
             const [rows] = await db.query(
-                'SELECT DISTINCT state FROM serviceable_pincodes WHERE is_active = TRUE ORDER BY state'
+                `SELECT DISTINCT state FROM serviceable_pincodes WHERE ${LIVE} ORDER BY state`
             );
             return rows.map(row => row.state);
 
@@ -300,7 +388,7 @@ const Pincode = {
         try {
             const validPincode = Pincode.validatePincode(pincode);
             const [rows] = await db.query(
-                'SELECT eta_days FROM serviceable_pincodes WHERE pincode = ? AND is_active = TRUE',
+                `SELECT eta_days FROM serviceable_pincodes WHERE pincode = ? AND ${LIVE}`,
                 [validPincode]
             );
 
@@ -316,7 +404,7 @@ const Pincode = {
         try {
             const validPincode = Pincode.validatePincode(pincode);
             const [rows] = await db.query(
-                'SELECT COUNT(*) as count FROM serviceable_pincodes WHERE pincode = ? AND is_active = TRUE',
+                `SELECT COUNT(*) as count FROM serviceable_pincodes WHERE pincode = ? AND ${LIVE}`,
                 [validPincode]
             );
 
@@ -328,20 +416,26 @@ const Pincode = {
         }
     },
 
+    /**
+     * Escape the LIKE metacharacters in a user-supplied search term.
+     *
+     * @param {string} value
+     * @returns {string}
+     */
+    escapeLike: (value) => String(value).replace(/[\\%_]/g, (character) => `\\${character}`),
+
     clearCache: () => {
-        cache.flushAll();
-        console.log('Pincode cache cleared');
-        return true;
+        const cleared = pincodeCache.flush();
+        console.log(`Pincode cache cleared: ${cleared} entries removed`);
+        return cleared;
     },
 
-    getCacheStats: () => {
-        return {
-            keys: cache.keys(),
-            size: cache.keys().length,
-            hits: cache.getStats?.().hits || 0,
-            misses: cache.getStats?.().misses || 0
-        };
-    }
+    getCacheStats: () => pincodeCache.stats(),
+
+    // Exported so the controller and the tests can name the same thing the
+    // model does, rather than each keeping a copy.
+    LIVE_CONDITION: LIVE,
+    PINCODE_REGEX
 };
 
 module.exports = Pincode;
