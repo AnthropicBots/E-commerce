@@ -156,26 +156,15 @@ function cacheProduct(
 // TRACK RECENTLY VIEWED PRODUCTS (Issue #1126)
 // ========================================
 
-function trackRecentlyViewed(productId) {
-    if (!productId) return;
-    
-    // Get existing recently viewed IDs from localStorage
-    let recentlyViewed = AppUtils.getJSON('recentlyViewed', []);
-    
-    // Remove if already exists (to move to front)
-    recentlyViewed = recentlyViewed.filter(id => id !== productId);
-    
-    // Add to front
-    recentlyViewed.unshift(productId);
-    
-    // Keep only last 10
-    if (recentlyViewed.length > 10) {
-        recentlyViewed = recentlyViewed.slice(0, 10);
-    }
-    
-    // Save to localStorage
-    AppUtils.setJSON('recentlyViewed', recentlyViewed);
-}
+// `trackRecentlyViewed` used to live here. It wrote the `recentlyViewed` key
+// as an array of bare id strings, capped at 10, and nothing in the frontend
+// ever called it -- grepping the whole directory for the name returned one
+// hit, its own declaration (#1497). It also disagreed with the two writers
+// that *were* live, both of which stored objects, so leaving it in place meant
+// a fourth shape sitting there waiting for its first caller.
+//
+// Recording a view is `window.RecentlyViewed.record()` now, which owns the key
+// and is the only thing that writes it. See recently-viewed-store.js.
 
 // ========================================
 // Breadcrumb Navigation (Issue #344)
@@ -296,20 +285,25 @@ async function toggleWishlist(productId) {
     // ============================================
     // RECENTLY VIEWED
     // ============================================
+    //
+    // This wrote localStorage directly and deduplicated with
+    // `Number(item.id) !== Number(product.id)`. `products.id` is a CHAR(36)
+    // UUID, `Number(uuid)` is NaN, and `NaN !== NaN` is true -- so the
+    // predicate held for every element and the filter removed nothing, ever,
+    // for any product (#1497). Same defect as #1443, where router.param ran
+    // UUIDs through parseInt.
+    //
+    // It also disagreed with product-render.js on the cap (10 against 8) while
+    // both wrote the same key in the same page load.
     function saveRecentlyViewed(product) {
         if (!product) return;
 
-        const recentlyViewed = JSON.parse(localStorage.getItem("recentlyViewed")) || [];
-        const filtered = recentlyViewed.filter((item) => Number(item.id) !== Number(product.id));
+        if (!window.RecentlyViewed) {
+            console.warn("recently-viewed-store.js is not loaded; view not recorded");
+            return;
+        }
 
-        filtered.unshift({
-            id: product.id,
-            name: product.name,
-            price: product.price,
-            image: product.image
-        });
-
-        localStorage.setItem("recentlyViewed", JSON.stringify(filtered.slice(0, 10)));
+        window.RecentlyViewed.record(product);
     }
 
     // ============================================
@@ -536,13 +530,14 @@ async function toggleWishlist(productId) {
 
             if (response && response.success && response.product) {
                 currentProductData = response.product;
-
-                saveRecentlyViewed(currentProductData);
-
                 window.currentProductData = currentProductData;
-                if (typeof saveRecentlyViewed === "function") {
-                    saveRecentlyViewed(currentProductData);
-                }
+
+                // Once. This was two calls from adjacent lines -- one bare,
+                // one behind a `typeof === "function"` guard on the function
+                // declared six lines above it -- and product-render.js wrote
+                // the same key again during render, so a single page view put
+                // three copies of the product in the list (#1497).
+                saveRecentlyViewed(currentProductData);
 
                 cacheProduct(currentProductData);
             } else {
