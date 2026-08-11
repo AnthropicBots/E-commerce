@@ -3,10 +3,36 @@ const {
   getPagination,
   sanitizeString,
   safeNumber,
-  safeUUID,
+  safeInteger,
 } = require("../utils/helpers");
 const logger = require("../utils/logger");
 const { PERMISSIONS, hasPermission } = require("../config/policy");
+
+/**
+ * The id of a conversation, or null.
+ *
+ * `chat_conversations.id` is `INT AUTO_INCREMENT` (migrations/0001, line 940),
+ * and `chat.service` has always parsed it as one -- `findOrCreateConversation`
+ * returns `result.insertId`. These handlers validated it with `safeUUID`, which
+ * every integer fails, so every request naming a real conversation was refused
+ * as "Invalid ID format" before the service was reached (#1527).
+ *
+ * @param {*} value
+ * @returns {number|null}
+ */
+function conversationId(value) {
+  // Digits and nothing else, checked before parsing. `safeInteger` is
+  // `parseInt`, which reads a leading number and discards the rest -- so
+  // "42-and-a-half", or a UUID beginning "3f25…", would resolve to a real
+  // conversation that the caller did not name.
+  if (!/^\d+$/.test(String(value ?? "").trim())) {
+    return null;
+  }
+
+  const id = safeInteger(value, 0);
+
+  return id > 0 ? id : null;
+}
 
 const getConversations = async (req, res) => {
   try {
@@ -68,7 +94,7 @@ const getConversations = async (req, res) => {
 
 const getConversationDetails = async (req, res) => {
   try {
-    const id = safeUUID(req.params.id);
+    const id = conversationId(req.params.id);
     if (!id) {
       return res.status(400).json({
         success: false,
@@ -92,13 +118,28 @@ const getConversationDetails = async (req, res) => {
       });
     }
 
-    const messages = await chatService.getConversationMessages(id);
+    // The page the caller asked for. `getConversationMessages` has taken a
+    // limit and an offset from the start; this handler passed neither, so a
+    // conversation longer than fifty messages could not be read past its
+    // first page from anywhere.
+    const limit = safeNumber(req.query.limit, 50);
+    const offset = safeNumber(req.query.offset, 0);
+
+    const result = await chatService.getConversationMessages(id, limit, offset);
 
     res.set("Cache-Control", "private, max-age=60");
 
+    // `messages` at the top level as well as under `data`.
+    //
+    // The chat widget reads `res.messages` (frontend/scripts/chat-widget.js),
+    // so it saw `undefined.length` and threw into its own catch on every open
+    // -- the history simply never appeared. Both shapes are served rather than
+    // breaking the widget in a change about conversation ids.
     res.status(200).json({
       success: true,
-      data: messages,
+      data: result,
+      messages: result.messages,
+      total: result.total,
       conversationId: id,
     });
   } catch (error) {
@@ -113,7 +154,7 @@ const getConversationDetails = async (req, res) => {
 
 const updateStatus = async (req, res) => {
   try {
-    const id = safeUUID(req.params.id);
+    const id = conversationId(req.params.id);
     const { status } = req.body;
 
     const validStatuses = ["open", "pending", "closed", "archived"];
@@ -163,7 +204,7 @@ const updateStatus = async (req, res) => {
 
 const assignAdmin = async (req, res) => {
   try {
-    const id = safeUUID(req.params.id);
+    const id = conversationId(req.params.id);
     if (!id) {
       return res.status(400).json({
         success: false,
@@ -215,6 +256,69 @@ const assignAdmin = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/chat/unread-count
+ *
+ * How many messages are waiting for the caller. `chatService.getUnreadCount`
+ * has existed since the chat was written and nothing served it -- the widget
+ * asks for this path on every page load and has always got a 404, so the
+ * badge never appeared.
+ *
+ * Scoped to `req.user.id`. The count is a fact about the caller's own inbox,
+ * and a `userId` parameter here would be an endpoint for reading how much
+ * unread mail somebody else has.
+ */
+const getUnreadCount = async (req, res) => {
+  try {
+    const scopedConversation = req.query.conversationId
+      ? conversationId(req.query.conversationId)
+      : null;
+
+    if (req.query.conversationId && !scopedConversation) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid conversation ID",
+      });
+    }
+
+    if (scopedConversation) {
+      const hasAccess = await chatService.verifyConversationAccess(
+        scopedConversation,
+        req.user.id,
+        req.user.role,
+      );
+
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Access forbidden: You don't have permission to view this conversation",
+        });
+      }
+    }
+
+    const count = await chatService.getUnreadCount(
+      req.user.id,
+      scopedConversation,
+    );
+
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+
+    res.status(200).json({
+      success: true,
+      count,
+      data: { count },
+    });
+  } catch (error) {
+    console.error("GET UNREAD COUNT ERROR:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to get unread count",
+    });
+  }
+};
+
 const getConnectionTelemetry = async (req, res) => {
   try {
     const activeConnections = await chatService.getActiveConnections();
@@ -258,6 +362,7 @@ const getDashboardStats = async (req, res) => {
 module.exports = {
   getConversations,
   getConversationDetails,
+  getUnreadCount,
   updateStatus,
   assignAdmin,
   getConnectionTelemetry,

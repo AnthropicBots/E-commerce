@@ -81,6 +81,12 @@
         href="styles/cart.css"
     >
 
+    <link
+        rel="stylesheet"
+        href="styles/checkout-stepper.css"
+    >
+
+
     <!-- Icons -->
 
     <link
@@ -99,8 +105,16 @@
 
     <div id="navbar"></div>
 
-    <main id="main-content" tabindex="-1">
+   <main id="main-content" tabindex="-1">
         <h1 class="visually-hidden">Cart</h1>
+
+        <!-- Checkout Progress Stepper -->
+        <ul
+            id="checkout-stepper"
+            data-current-step="cart"
+        ></ul>
+
+  
 
 
 
@@ -345,6 +359,15 @@
         defer
         src="scripts/components.js"
     ></script>
+
+    <script
+        defer
+        src="scripts/checkout-stepper.js"
+    ></script>
+
+    
+
+    <!-- Cart Scripts -->
 
     
 
