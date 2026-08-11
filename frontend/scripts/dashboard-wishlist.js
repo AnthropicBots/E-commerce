@@ -247,11 +247,20 @@ async function renderDashboardWishlist() {
 
     try {
         const response = await AppUtils.apiRequest("/wishlist");
+
+        // `data.items` is the shape GET /api/wishlist answers in. This read
+        // `response.wishlist`, which the endpoint has never sent, so the
+        // server copy was never adopted here either.
+        const items =
+            response && response.success === true
+                ? (response.data && response.data.items) || response.wishlist
+                : null;
+
         // only adopt the server copy when it actually has items, so an
         // empty/unsynced server response never wipes the local wishlist.
         // setJSON (not saveWishlist) avoids echoing a sync request back.
-        if (response && response.success && Array.isArray(response.wishlist) && response.wishlist.length) {
-            AppUtils.setJSON(AppUtils.CONFIG.STORAGE_KEYS.WISHLIST, response.wishlist);
+        if (Array.isArray(items) && items.length) {
+            AppUtils.setJSON(AppUtils.CONFIG.STORAGE_KEYS.WISHLIST, items);
             paintDashboardWishlist();
         }
     } catch (error) {
