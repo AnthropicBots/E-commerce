@@ -19,7 +19,7 @@ const BACKEND_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(BACKEND_DIR, '..');
 
 function read(relativePath) {
-    return fs.readFileSync(path.join(REPO_ROOT, relativePath), 'utf8');
+    return fs.readFileSync(path.join(REPO_ROOT, relativePath), 'utf8').replace(/\r\n/g, '\n');
 }
 
 /** Count non-overlapping matches of a global regex. */
