@@ -1688,6 +1688,31 @@ const pushCartToBackend = async (cart) => {
     }
 
     if (response && response.success) {
+        // The server drops lines whose product has been withdrawn from sale
+        // and names them (#1546). Keeping a line the server refused would
+        // resurrect it on the next sync and carry it all the way to checkout,
+        // so the acknowledged basket is what the server actually stored.
+        const droppedIds = safeArray(response.droppedProductIds)
+            .map((id) => String(id));
+
+        if (droppedIds.length) {
+            const kept = safeArray(cart).filter(
+                (item) => !droppedIds.includes(String(item.id))
+            );
+
+            notify(
+                droppedIds.length === 1
+                    ? "An item in your cart is no longer available and has been removed."
+                    : `${droppedIds.length} items in your cart are no longer available and have been removed.`,
+                "warning"
+            );
+
+            serverAcknowledgedItems = kept;
+            saveCart(kept, { sync: false });
+
+            return true;
+        }
+
         serverAcknowledgedItems = cart;
         return true;
     }
@@ -1770,6 +1795,21 @@ const fetchServerCart = async () => {
         const data = await apiRequest("/cart", {}, false);
 
         if (data && data.success) {
+            // Lines whose product has since been withdrawn are not returned
+            // (#1546). The count of them is, so a basket that comes back
+            // shorter than the shopper left it can say why instead of looking
+            // like the cart lost their items.
+            const unavailableCount = Number(data.unavailableCount) || 0;
+
+            if (unavailableCount > 0) {
+                notify(
+                    unavailableCount === 1
+                        ? "An item in your cart is no longer available and has been removed."
+                        : `${unavailableCount} items in your cart are no longer available and have been removed.`,
+                    "warning"
+                );
+            }
+
             return safeArray(data.cart)
                 .map(normalizeCartItem)
                 .filter(Boolean);
