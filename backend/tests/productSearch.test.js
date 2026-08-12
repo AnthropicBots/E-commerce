@@ -163,7 +163,44 @@ describe("getProducts — full-text search", () => {
         expect(res.statusCode).toBe(200);
         expect(res.body.success).toBe(true);
         expect(res.body.total).toBe(2);
-        expect(calls().some((sql) => /LIKE/.test(sql))).toBe(true);
+        expect(res.body.products).toHaveLength(2);
+
+        // The index is attempted first. A fallback that never tries is not a
+        // fallback, it is a permanent downgrade.
+        expect(calls().some((sql) => /MATCH\(/.test(sql))).toBe(true);
+
+        // Both statements of the retry carry the LIKE predicate. Asserting
+        // only that *some* query says LIKE would pass on a retry that dropped
+        // the search from the count and reported a total for the unfiltered
+        // catalogue.
+        const retriedCount = db.query.mock.calls.find(
+            ([sql]) => /SELECT COUNT/.test(sql) && /LIKE/.test(sql)
+        );
+        const retriedPage = db.query.mock.calls.find(
+            ([sql]) => /LIMIT/.test(sql) && /LIKE/.test(sql)
+        );
+
+        expect(retriedCount).toBeDefined();
+        expect(retriedPage).toBeDefined();
+
+        for (const [sql, params] of [retriedCount, retriedPage]) {
+            // Nothing that threw is retried verbatim.
+            expect(sql).not.toMatch(/MATCH\(/);
+
+            for (const column of SEARCHABLE_COLUMNS) {
+                expect(sql).toMatch(new RegExp(`p\\.${column} LIKE \\?`));
+            }
+
+            // One bound wildcard per searched column, and the boolean-mode
+            // expression the failed attempt used is not carried over.
+            expect(params.filter((value) => value === "%mixer%")).toHaveLength(
+                SEARCHABLE_COLUMNS.length
+            );
+            expect(params).not.toContain("+mixer*");
+        }
+
+        // The page statement binds its search terms before LIMIT/OFFSET.
+        expect(retriedPage[1].slice(-2)).toEqual([10, 0]);
     });
 
     test("the LIKE fallback searches the same columns the index does", async () => {
