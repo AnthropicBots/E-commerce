@@ -274,19 +274,20 @@ class ArchitecturalRiskService extends EventEmitter {
                 const content = fs.readFileSync(file, 'utf8');
                 const deps = this.extractDependencies(content);
                 
-                // Check if this module depends on the target module
+                // Check if another module depends on the target module
                 if (deps.some(d => d.includes(moduleName))) {
                     incoming++;
                 }
             }
         }
         
-        // Calculate outgoing separately
+        // Calculate outgoing coupling (external / cross-module dependencies)
         const targetFiles = this.findFilesInModule(modulePath);
         for (const file of targetFiles) {
             const content = fs.readFileSync(file, 'utf8');
             const deps = this.extractDependencies(content);
-            outgoing += deps.length;
+            const crossModuleDeps = deps.filter(d => !d.startsWith('./') && !d.includes(`/${moduleName}/`));
+            outgoing += crossModuleDeps.length;
         }
 
         return {
