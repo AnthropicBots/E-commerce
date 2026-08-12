@@ -11,6 +11,10 @@ const dashboardOrderElements = {
         )
 };
 
+// How many orders the dashboard panel shows. It is a summary, not the history
+// -- the full paged list lives on the orders page.
+const DASHBOARD_ORDERS_LIMIT = 5;
+
 // order badge color
 function getOrderStatusClass(
     status = "pending"
@@ -41,14 +45,23 @@ async function renderDashboardOrders() {
     }
 
     try {
-        const data = await AppUtils.apiRequest("/orders/my-orders");
+        // The endpoint is paginated (#1545), so ask for a page explicitly
+        // rather than relying on whatever the server's default happens to be.
+        const data = await AppUtils.apiRequest(
+            `/orders/my-orders?page=1&limit=${DASHBOARD_ORDERS_LIMIT}`
+        );
+
         const orders = data.orders || [];
 
         if (
             dashboardOrderElements.ordersCount
         ) {
+            // `total` is every order the account has; `orders.length` is only
+            // how many fit on this panel. The badge means the former.
             dashboardOrderElements.ordersCount.innerText =
-                orders.length;
+                Number.isFinite(Number(data.total))
+                    ? Number(data.total)
+                    : orders.length;
         }
 
         if (
