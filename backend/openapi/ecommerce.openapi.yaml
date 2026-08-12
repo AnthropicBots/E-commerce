@@ -125,6 +125,85 @@ paths:
                 unauthorized:
                   $ref: "#/components/examples/Unauthorized401"
 
+  /auth/profile:
+    get:
+      tags: [Auth]
+      summary: The signed-in shopper's editable profile
+      description: >
+        Distinct from /auth/me, which returns the fields a session needs. This
+        returns the fields a profile page edits.
+      operationId: getProfile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The stored profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileSuccess"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                unauthorized:
+                  $ref: "#/components/examples/Unauthorized401"
+        "403":
+          description: Account deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      tags: [Auth]
+      summary: Save a partial profile update
+      description: >
+        Only the fields present in the body are written, so sending {name}
+        does not blank the phone number. `email` is refused -- changing the
+        address on an account is an identity change and goes through the
+        verification flow. An unknown field is a 400 rather than being
+        silently ignored.
+      operationId: updateProfile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileUpdateRequest"
+      responses:
+        "200":
+          description: The stored profile, re-read after the write
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileSuccess"
+        "400":
+          description: Invalid, unknown or non-editable field
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                unauthorized:
+                  $ref: "#/components/examples/Unauthorized401"
+        "404":
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /auth/refresh-token:
     post:
       tags: [Auth]
@@ -700,6 +779,109 @@ components:
           const: true
         user:
           $ref: "#/components/schemas/UserSummary"
+
+    Profile:
+      type: object
+      description: >
+        The shopper's own profile. Unset fields are null rather than empty
+        strings, so a client can tell "not provided" from "provided as empty".
+      required: [id, name, email]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          readOnly: true
+        role:
+          type: string
+        phone:
+          type: string
+          nullable: true
+          maxLength: 20
+        address:
+          type: string
+          nullable: true
+          maxLength: 500
+        city:
+          type: string
+          nullable: true
+          maxLength: 100
+        state:
+          type: string
+          nullable: true
+          maxLength: 100
+        zip:
+          type: string
+          nullable: true
+          maxLength: 20
+        country:
+          type: string
+          nullable: true
+          maxLength: 100
+        avatar:
+          type: string
+          nullable: true
+          maxLength: 500
+          description: An http(s) URL or an image data URL.
+        isVerified:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProfileSuccess:
+      type: object
+      required: [success, profile]
+      properties:
+        success:
+          type: boolean
+          const: true
+        message:
+          type: string
+        profile:
+          $ref: "#/components/schemas/Profile"
+
+    ProfileUpdateRequest:
+      type: object
+      description: >
+        A partial update. Every property is optional; only what is present is
+        written. `email`, `password`, `role` and `id` are refused with a 400.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 255
+        phone:
+          type: string
+          maxLength: 20
+        address:
+          type: string
+          maxLength: 500
+        city:
+          type: string
+          maxLength: 100
+        state:
+          type: string
+          maxLength: 100
+        zip:
+          type: string
+          maxLength: 20
+        country:
+          type: string
+          maxLength: 100
+        avatar:
+          type: string
+          maxLength: 500
 
     TokenRefreshSuccess:
       type: object

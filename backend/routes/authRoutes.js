@@ -9,6 +9,9 @@ const {
     resetPassword,
     refreshAccessToken,
     getMe,
+    // The shopper's own profile (#1548).
+    getProfile,
+    updateProfile,
     getStatus,
     logout,
     validateToken,
@@ -165,6 +168,35 @@ router.get(
     "/me",
     authMiddleware,
     getMe
+);
+
+/**
+ * GET /api/auth/profile
+ * The signed-in shopper's editable profile.
+ *
+ * Distinct from `/me`, which returns the four fields a session needs. This
+ * returns the fields a profile page edits, and it is the read half of the pair
+ * that makes a saved profile survive a different browser (#1548).
+ */
+router.get(
+    "/profile",
+    authMiddleware,
+    getProfile
+);
+
+/**
+ * PUT /api/auth/profile
+ * Save a partial profile update.
+ *
+ * No separate validator middleware here: what may be written, and how wide it
+ * may be, is derived from the `users` column definitions inside
+ * profileService. Restating those limits at the route is how two copies of a
+ * rule drift apart.
+ */
+router.put(
+    "/profile",
+    authMiddleware,
+    updateProfile
 );
 
 /**
