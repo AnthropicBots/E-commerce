@@ -2,6 +2,7 @@
 const db = require('../config/db').promise;
 const crypto = require('crypto');
 const EventEmitter = require('events');
+const redis = require('../config/redis');
 
 // ============================================
 // SAGA CONFIGURATION
@@ -40,10 +41,27 @@ class SagaOrchestrator extends EventEmitter {
         this.isProcessingCompensations = false;
     }
 
-    /**
-     * Create a new saga
-     */
     async createSaga(workflow, context = {}) {
+        const idempotencyKey = context.idempotencyKey;
+        if (idempotencyKey) {
+            const cacheKey = `saga:idempotency:${idempotencyKey}`;
+            const setnx = await redis.set(cacheKey, 'pending', 'NX', 'EX', 86400);
+            
+            if (!setnx) {
+                console.log(`🔄 Duplicate saga request ignored (Idempotency Key: ${idempotencyKey})`);
+                const cachedStr = await redis.get(cacheKey);
+                if (cachedStr && cachedStr !== 'pending') {
+                    const cachedData = JSON.parse(cachedStr);
+                    this.sagas.set(cachedData.id, cachedData);
+                    return cachedData;
+                }
+                // It's still pending/running. Generate a dummy saga to satisfy downstream
+                const mockSaga = { id: this.generateSagaId(), status: SAGA_STATUS.RUNNING, isDuplicate: true, steps: [] };
+                this.sagas.set(mockSaga.id, mockSaga);
+                return mockSaga;
+            }
+        }
+
         const saga = {
             id: this.generateSagaId(),
             workflow: workflow.name || 'checkout',
@@ -82,7 +100,7 @@ class SagaOrchestrator extends EventEmitter {
             throw new Error(`Saga not found: ${sagaId}`);
         }
 
-        if (saga.status === SAGA_STATUS.COMPLETED) {
+        if (saga.status === SAGA_STATUS.COMPLETED || saga.isDuplicate) {
             return saga;
         }
 
@@ -124,11 +142,21 @@ class SagaOrchestrator extends EventEmitter {
 
             this.emit('saga.completed', { sagaId, results: saga.results });
 
+            if (saga.context.idempotencyKey) {
+                const cacheKey = `saga:idempotency:${saga.context.idempotencyKey}`;
+                await redis.set(cacheKey, JSON.stringify(saga), 'EX', 86400);
+            }
+
         } catch (error) {
             console.error(`Saga execution failed: ${sagaId}`, error);
             saga.status = SAGA_STATUS.FAILED;
             saga.updatedAt = new Date().toISOString();
             this.emit('saga.failed', { sagaId, error: error.message });
+
+            if (saga.context && saga.context.idempotencyKey) {
+                const cacheKey = `saga:idempotency:${saga.context.idempotencyKey}`;
+                await redis.set(cacheKey, JSON.stringify(saga), 'EX', 86400);
+            }
         }
 
         // Clean up
