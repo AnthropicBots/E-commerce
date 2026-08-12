@@ -1,0 +1,127 @@
+// frontend/scripts/stock-alert.js
+// Notify Me / back-in-stock alert feature (#1233)
+(() => {
+    const ALERT_TYPE_STOCK = "back_in_stock";
+    const SUBSCRIBED_KEY = "stockAlertSubscriptions";
+
+    function getSubscribed() {
+        try {
+            const raw = localStorage.getItem(SUBSCRIBED_KEY);
+            const parsed = raw ? JSON.parse(raw) : [];
+            return Array.isArray(parsed) ? new Set(parsed) : new Set();
+        } catch (e) { return new Set(); }
+    }
+    function saveSubscribed(set) {
+        try { localStorage.setItem(SUBSCRIBED_KEY, JSON.stringify([...set])); }
+        catch (err) { console.warn("stockAlert: could not persist", err); }
+    }
+    function isSubscribed(productId) { return getSubscribed().has(String(productId)); }
+    function markSubscribed(productId) { const s = getSubscribed(); s.add(String(productId)); saveSubscribed(s); }
+    function markUnsubscribed(productId) { const s = getSubscribed(); s.delete(String(productId)); saveSubscribed(s); }
+
+    async function subscribeAlert(productId) {
+        return AppUtils.apiRequest("/stock-alerts", {
+            method: "POST",
+            body: JSON.stringify({ productId: String(productId), alertType: ALERT_TYPE_STOCK })
+        });
+    }
+    async function unsubscribeAlert(productId) {
+        return AppUtils.apiRequest("/stock-alerts", {
+            method: "DELETE",
+            body: JSON.stringify({ productId: String(productId), alertType: ALERT_TYPE_STOCK })
+        });
+    }
+
+    function paintSubscribed(btn) {
+        btn.disabled = false;
+        btn.dataset.subscribed = "true";
+        btn.innerHTML = "<i class="fas fa-bell-slash" aria-hidden="true"></i> Cancel Alert";
+        btn.classList.add("notify-me-btn--active");
+        btn.setAttribute("aria-pressed", "true");
+        btn.setAttribute("title", "Cancel back-in-stock notification");
+    }
+    function paintUnsubscribed(btn) {
+        btn.disabled = false;
+        btn.dataset.subscribed = "false";
+        btn.innerHTML = "<i class="fas fa-bell" aria-hidden="true"></i> Notify Me";
+        btn.classList.remove("notify-me-btn--active");
+        btn.setAttribute("aria-pressed", "false");
+        btn.setAttribute("title", "Get notified when this is back in stock");
+    }
+    function paintLoading(btn) {
+        btn.disabled = true;
+        btn.innerHTML = "<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Please wait...";
+    }
+
+    async function handleToggle(btn, productId) {
+        if (productId == null) return;
+        if (AppUtils.isAuthenticated() === false) {
+            AppUtils.notify("Please sign in to set stock alerts.", "error");
+            setTimeout(function() {
+                window.location.href = "signin.html?next=" + encodeURIComponent(window.location.href);
+            }, 800);
+            return;
+        }
+        const alreadySubscribed = btn.dataset.subscribed === "true";
+        paintLoading(btn);
+        try {
+            if (alreadySubscribed) {
+                const res = await unsubscribeAlert(productId);
+                if (res && res.success) {
+                    markUnsubscribed(productId);
+                    paintUnsubscribed(btn);
+                    AppUtils.notify("You will no longer be notified for this product.", "info");
+                } else {
+                    throw new Error((res && res.message) || "Could not cancel alert.");
+                }
+            } else {
+                const res = await subscribeAlert(productId);
+                if (res && res.success) {
+                    markSubscribed(productId);
+                    paintSubscribed(btn);
+                    AppUtils.notify("We will email you when this is back in stock!", "success");
+                } else {
+                    throw new Error((res && res.message) || "Could not set alert.");
+                }
+            }
+        } catch (err) {
+            console.error("stockAlert toggle error:", err);
+            AppUtils.notify(err.message || "Something went wrong. Please try again.", "error");
+            if (alreadySubscribed) { paintSubscribed(btn); } else { paintUnsubscribed(btn); }
+        }
+    }
+
+    function createNotifyBtn(productId) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "notify-me-btn";
+        btn.dataset.productId = String(productId);
+        if (isSubscribed(productId)) { paintSubscribed(btn); } else { paintUnsubscribed(btn); }
+        btn.addEventListener("click", function() { handleToggle(btn, productId); });
+        return btn;
+    }
+
+    function initStockAlert(product) {
+        if (product == null) return;
+        if (Number(product.stock) > 0) return;
+        const container = document.getElementById("product-buttons");
+        if (container == null) return;
+        if (container.querySelector(".notify-me-btn")) return;
+        container.appendChild(createNotifyBtn(product.id));
+    }
+
+    function injectNotifyBtnIntoCard(card, product) {
+        if (card == null || product == null) return;
+        const stock = product.stock;
+        if (stock === undefined || stock === null || Number(stock) > 0) return;
+        const productId = product.id || product.productId;
+        if (productId == null) return;
+        if (card.querySelector(".notify-me-btn")) return;
+        const btn = createNotifyBtn(productId);
+        const buttonRow = card.querySelector(".wishlist-buttons");
+        if (buttonRow) { buttonRow.appendChild(btn); }
+        else { const content = card.querySelector(".wishlist-content"); if (content) content.appendChild(btn); }
+    }
+
+    window.StockAlert = { initStockAlert: initStockAlert, injectNotifyBtnIntoCard: injectNotifyBtnIntoCard, isSubscribed: isSubscribed, createNotifyBtn: createNotifyBtn };
+})();

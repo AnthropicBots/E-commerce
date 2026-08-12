@@ -77,6 +77,11 @@ function renderWishlist() {
                 }
             });
         });
+        // Notify Me button for out-of-stock wishlist items (#1233)
+        if (typeof StockAlert !== "undefined" && StockAlert.injectNotifyBtnIntoCard) {
+            StockAlert.injectNotifyBtnIntoCard(card, product);
+        }
+
         fragment.appendChild(card);
     });
     wishlistContainer.appendChild(fragment);
