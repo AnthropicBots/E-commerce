@@ -1,5 +1,6 @@
 // frontend/scripts/stock-alert.js
 // Notify Me / back-in-stock alert feature (#1233)
+
 (() => {
     const ALERT_TYPE_STOCK = "back_in_stock";
     const SUBSCRIBED_KEY = "stockAlertSubscriptions";
@@ -19,17 +20,30 @@
     function markSubscribed(productId) { const s = getSubscribed(); s.add(String(productId)); saveSubscribed(s); }
     function markUnsubscribed(productId) { const s = getSubscribed(); s.delete(String(productId)); saveSubscribed(s); }
 
+    // FIX: try-catch added to handle API errors gracefully
     async function subscribeAlert(productId) {
-        return AppUtils.apiRequest("/stock-alerts", {
-            method: "POST",
-            body: JSON.stringify({ productId: String(productId), alertType: ALERT_TYPE_STOCK })
-        });
+        try {
+            return await AppUtils.apiRequest("/stock-alerts", {
+                method: "POST",
+                body: JSON.stringify({ productId: String(productId), alertType: ALERT_TYPE_STOCK })
+            });
+        } catch (err) {
+            console.error("stockAlert: subscribeAlert failed", err);
+            return { success: false, message: err.message || "Subscription request failed." };
+        }
     }
+
+    // FIX: try-catch added to handle API errors gracefully
     async function unsubscribeAlert(productId) {
-        return AppUtils.apiRequest("/stock-alerts", {
-            method: "DELETE",
-            body: JSON.stringify({ productId: String(productId), alertType: ALERT_TYPE_STOCK })
-        });
+        try {
+            return await AppUtils.apiRequest("/stock-alerts", {
+                method: "DELETE",
+                body: JSON.stringify({ productId: String(productId), alertType: ALERT_TYPE_STOCK })
+            });
+        } catch (err) {
+            console.error("stockAlert: unsubscribeAlert failed", err);
+            return { success: false, message: err.message || "Unsubscribe request failed." };
+        }
     }
 
     function paintSubscribed(btn) {
@@ -53,8 +67,20 @@
         btn.innerHTML = "<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Please wait...";
     }
 
+    // FIX: validate productId is a non-empty, finite value before proceeding
+    function isValidProductId(productId) {
+        if (productId === null || productId === undefined) return false;
+        const str = String(productId).trim();
+        return str.length > 0 && str !== "undefined" && str !== "null";
+    }
+
     async function handleToggle(btn, productId) {
-        if (productId == null) return;
+        // FIX: validate productId before any action
+        if (!isValidProductId(productId)) {
+            console.error("stockAlert: invalid productId", productId);
+            AppUtils.notify("Cannot set alert: product ID is missing.", "error");
+            return;
+        }
         if (AppUtils.isAuthenticated() === false) {
             AppUtils.notify("Please sign in to set stock alerts.", "error");
             setTimeout(function() {
@@ -85,13 +111,18 @@
                 }
             }
         } catch (err) {
-            console.error("stockAlert toggle error:", err);
+            console.error("stockAlert: handleToggle error", err);
             AppUtils.notify(err.message || "Something went wrong. Please try again.", "error");
             if (alreadySubscribed) { paintSubscribed(btn); } else { paintUnsubscribed(btn); }
         }
     }
 
+    // FIX: guard against null/undefined productId before creating button
     function createNotifyBtn(productId) {
+        if (!isValidProductId(productId)) {
+            console.warn("stockAlert: createNotifyBtn called with invalid productId", productId);
+            return null;
+        }
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "notify-me-btn";
@@ -107,7 +138,8 @@
         const container = document.getElementById("product-buttons");
         if (container == null) return;
         if (container.querySelector(".notify-me-btn")) return;
-        container.appendChild(createNotifyBtn(product.id));
+        const btn = createNotifyBtn(product.id);
+        if (btn) container.appendChild(btn);
     }
 
     function injectNotifyBtnIntoCard(card, product) {
@@ -115,9 +147,10 @@
         const stock = product.stock;
         if (stock === undefined || stock === null || Number(stock) > 0) return;
         const productId = product.id || product.productId;
-        if (productId == null) return;
+        if (!isValidProductId(productId)) return;
         if (card.querySelector(".notify-me-btn")) return;
         const btn = createNotifyBtn(productId);
+        if (!btn) return;
         const buttonRow = card.querySelector(".wishlist-buttons");
         if (buttonRow) { buttonRow.appendChild(btn); }
         else { const content = card.querySelector(".wishlist-content"); if (content) content.appendChild(btn); }
