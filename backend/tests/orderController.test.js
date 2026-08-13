@@ -294,6 +294,32 @@ describe("getOrderById", () => {
         expect(sql).not.toMatch(/AND user_id = \?/);
         expect(params).toEqual([VALID_ORDER_ID]);
     });
+
+    // #1545 — an order hidden from the history but readable at its own URL is
+    // not hidden.
+    test("a soft-deleted order is not fetchable by id", async () => {
+        db.query.mockResolvedValueOnce([[{ id: VALID_ORDER_ID, user_id: 1 }]]);
+        db.query.mockResolvedValueOnce([[]]);
+
+        const req = { params: { id: VALID_ORDER_ID }, user: { id: 1, role: "user" } };
+        const res = mockRes();
+
+        await getOrderById(req, res);
+
+        expect(db.query.mock.calls[0][0]).toMatch(/deleted_at IS NULL/);
+    });
+
+    test("the soft-delete guard applies to admins too", async () => {
+        db.query.mockResolvedValueOnce([[{ id: VALID_ORDER_ID, user_id: 42 }]]);
+        db.query.mockResolvedValueOnce([[]]);
+
+        const req = { params: { id: VALID_ORDER_ID }, user: { id: 1, role: "admin" } };
+        const res = mockRes();
+
+        await getOrderById(req, res);
+
+        expect(db.query.mock.calls[0][0]).toMatch(/deleted_at IS NULL/);
+    });
 });
 
 describe("updateOrderStatus", () => {
@@ -481,32 +507,186 @@ describe("getAllOrders", () => {
 });
 
 describe("getUserOrders", () => {
+    // The endpoint issues two statements now: a COUNT for the pagination meta
+    // and the page itself. Both are stubbed by shape rather than by call order,
+    // so a future reordering does not silently mis-assert (#1545).
+    function stubOrders(total, rows) {
+        db.query.mockImplementation(async (sql) => {
+            if (/SELECT COUNT/.test(sql)) return [[{ total }]];
+            return [rows];
+        });
+    }
+
+    function listQuery() {
+        return db.query.mock.calls.find(([sql]) => /LIMIT/.test(sql));
+    }
+
+    function countQuery() {
+        return db.query.mock.calls.find(([sql]) => /SELECT COUNT/.test(sql));
+    }
+
     beforeEach(() => {
         jest.clearAllMocks();
+        db.query.mockReset();
     });
 
     test("scopes the query to the requesting user and returns their orders", async () => {
-        db.query.mockResolvedValueOnce([[{ id: "o1", customer_name: "Ishwari" }]]);
-        const req = { user: { id: 7 } };
+        stubOrders(1, [{ id: "o1", customer_name: "Ishwari" }]);
+        const req = { user: { id: 7 }, query: {} };
         const res = mockRes();
 
         await getUserOrders(req, res);
 
-        const [sql, params] = db.query.mock.calls[0];
+        const [sql, params] = listQuery();
         expect(sql).toMatch(/WHERE user_id = \?/);
-        expect(params).toEqual([7]);
+        expect(params[0]).toBe(7);
         expect(res.statusCode).toBe(200);
         expect(res.body.orders).toHaveLength(1);
     });
 
     test("returns 500 on a DB failure", async () => {
         db.query.mockRejectedValue(new Error("boom"));
-        const req = { user: { id: 7 } };
+        const req = { user: { id: 7 }, query: {} };
         const res = mockRes();
 
         await getUserOrders(req, res);
 
         expect(res.statusCode).toBe(500);
+    });
+
+    // ------------------------------------------------------------------
+    // #1545
+    // ------------------------------------------------------------------
+
+    test("orders by created_at, not by the random UUID primary key", async () => {
+        stubOrders(0, []);
+        const req = { user: { id: 7 }, query: {} };
+        const res = mockRes();
+
+        await getUserOrders(req, res);
+
+        const [sql] = listQuery();
+
+        expect(sql).toMatch(/ORDER BY created_at DESC/);
+        // `ORDER BY id DESC` on a CHAR(36) UUID is a random shuffle.
+        expect(sql).not.toMatch(/ORDER BY\s+id DESC/);
+    });
+
+    test("keeps id as a tie-breaker so pages cannot overlap", async () => {
+        stubOrders(0, []);
+        const req = { user: { id: 7 }, query: {} };
+        const res = mockRes();
+
+        await getUserOrders(req, res);
+
+        const [sql] = listQuery();
+        expect(sql).toMatch(/ORDER BY created_at DESC,\s*id DESC/);
+    });
+
+    test("excludes soft-deleted orders from the list and from the count", async () => {
+        stubOrders(0, []);
+        const req = { user: { id: 7 }, query: {} };
+        const res = mockRes();
+
+        await getUserOrders(req, res);
+
+        expect(listQuery()[0]).toMatch(/deleted_at IS NULL/);
+        expect(countQuery()[0]).toMatch(/deleted_at IS NULL/);
+    });
+
+    test("paginates, defaulting to the first page", async () => {
+        stubOrders(34, [{ id: "o1" }]);
+        const req = { user: { id: 7 }, query: {} };
+        const res = mockRes();
+
+        await getUserOrders(req, res);
+
+        const [sql, params] = listQuery();
+
+        expect(sql).toMatch(/LIMIT \?/);
+        expect(sql).toMatch(/OFFSET \?/);
+        expect(params).toEqual([7, 10, 0]);
+    });
+
+    test("honours an explicit page and limit", async () => {
+        stubOrders(34, [{ id: "o1" }]);
+        const req = { user: { id: 7 }, query: { page: "3", limit: "5" } };
+        const res = mockRes();
+
+        await getUserOrders(req, res);
+
+        const [, params] = listQuery();
+        expect(params).toEqual([7, 5, 10]);
+    });
+
+    test("caps an oversized limit rather than honouring it", async () => {
+        stubOrders(5000, []);
+        const req = { user: { id: 7 }, query: { limit: "100000" } };
+        const res = mockRes();
+
+        await getUserOrders(req, res);
+
+        const [, params] = listQuery();
+        expect(params[1]).toBeLessThanOrEqual(50);
+    });
+
+    test("returns pagination metadata alongside the page", async () => {
+        stubOrders(34, [{ id: "o1" }, { id: "o2" }]);
+        const req = { user: { id: 7 }, query: { page: "2", limit: "10" } };
+        const res = mockRes();
+
+        await getUserOrders(req, res);
+
+        expect(res.body).toMatchObject({
+            success: true,
+            total: 34,
+            page: 2,
+            limit: 10,
+            totalPages: 4,
+            hasNextPage: true,
+            hasPrevPage: true,
+            count: 2
+        });
+    });
+
+    test("the count query is scoped to the same user as the page", async () => {
+        stubOrders(3, []);
+        const req = { user: { id: 7 }, query: {} };
+        const res = mockRes();
+
+        await getUserOrders(req, res);
+
+        const [sql, params] = countQuery();
+        expect(sql).toMatch(/WHERE user_id = \?/);
+        expect(params).toEqual([7]);
+    });
+
+    test("filters on a valid status and counts against the same predicate", async () => {
+        stubOrders(2, [{ id: "o1" }]);
+        const req = { user: { id: 7 }, query: { status: "Delivered" } };
+        const res = mockRes();
+
+        await getUserOrders(req, res);
+
+        expect(listQuery()[0]).toMatch(/status = \?/);
+        expect(listQuery()[1]).toEqual([7, "delivered", 10, 0]);
+
+        expect(countQuery()[0]).toMatch(/status = \?/);
+        expect(countQuery()[1]).toEqual([7, "delivered"]);
+
+        expect(res.body.status).toBe("delivered");
+    });
+
+    test("ignores a status that is not one of the known values", async () => {
+        stubOrders(0, []);
+        const req = { user: { id: 7 }, query: { status: "teleported" } };
+        const res = mockRes();
+
+        await getUserOrders(req, res);
+
+        expect(listQuery()[0]).not.toMatch(/status = \?/);
+        expect(listQuery()[1]).toEqual([7, 10, 0]);
+        expect(res.body.status).toBeNull();
     });
 });
 
