@@ -16,10 +16,29 @@ const {
     sanitizeString
 } = require("../utils/helpers");
 
-async function productExists(productId) {
-    const [products] = await db.query(
-        "SELECT id FROM products WHERE id = ? LIMIT 1",
-        [productId]
+// The same definition of "a shopper may see this product" the catalogue uses
+// (#1456). Reviews were reachable for a product that had been withdrawn from
+// sale: `SELECT id FROM products WHERE id = ?` matches a soft-deleted row, so
+// a product that 404s at its own URL still accepted new reviews and still
+// served old ones (#1547).
+const { publicProductCondition } = require("../constants/productVisibility");
+
+/**
+ * Is this a product a shopper may still see?
+ *
+ * @param {string} productId
+ * @param {object} [connection] A pool or an open transaction.
+ * @returns {Promise<boolean>}
+ */
+async function productExists(productId, connection = db) {
+    const visibility = publicProductCondition("p");
+
+    const [products] = await connection.query(
+        `SELECT p.id
+           FROM products p
+          WHERE p.id = ? AND ${visibility.sql}
+          LIMIT 1`,
+        [productId, ...visibility.params]
     );
 
     return safeArray(products).length > 0;
@@ -165,12 +184,7 @@ const createProductReview = async (req, res) => {
     try {
         await connection.beginTransaction();
 
-        const [products] = await connection.query(
-            "SELECT id FROM products WHERE id = ? LIMIT 1",
-            [productId]
-        );
-
-        if (!safeArray(products).length) {
+        if (!(await productExists(productId, connection))) {
             await connection.rollback();
 
             return res.status(404).json({
@@ -179,8 +193,28 @@ const createProductReview = async (req, res) => {
             });
         }
 
+        // `deleted_at IS NULL`, and locked.
+        //
+        // Two separate problems lived in this one statement (#1547).
+        //
+        // Deletion is a *soft* delete -- #1349 made it one deliberately, so
+        // there is a record of what was removed and by whom. This check matched
+        // any row, so the tombstone of a review the shopper had withdrawn went
+        // on blocking them forever: they were told "you have already reviewed
+        // this product" while the product page showed no review of theirs,
+        // because every read filters `deleted_at IS NULL`. There was no way out
+        // of that state from the UI.
+        //
+        // And it was a plain read inside the transaction, which locks nothing.
+        // Two submissions arriving together both saw no review and both
+        // inserted one; there is no unique key on (product_id, user_id) to
+        // catch it. `FOR UPDATE` makes the second wait for the first.
         const [existing] = await connection.query(
-            "SELECT id FROM reviews WHERE product_id = ? AND user_id = ? LIMIT 1",
+            `SELECT id
+               FROM reviews
+              WHERE product_id = ? AND user_id = ? AND deleted_at IS NULL
+              LIMIT 1
+              FOR UPDATE`,
             [productId, userId]
         );
 
