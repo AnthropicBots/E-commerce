@@ -72,11 +72,41 @@ async function getOrCreateCategoryId(categoryName, connection = db) {
     }
 }
 
-const FULLTEXT_SEARCH_COLUMNS = "name, description, short_description, meta_keywords";
+// The columns of `ft_product_search`, the FULLTEXT index declared in
+// migrations/0001_baseline_schema.sql. The list has to match the index exactly
+// or MySQL cannot use it, so it is written once and qualified per query rather
+// than retyped.
+const SEARCHABLE_COLUMNS = Object.freeze([
+    "name",
+    "description",
+    "short_description",
+    "meta_keywords"
+]);
+
+/**
+ * The searchable columns, qualified with a table alias.
+ *
+ * Qualifying is not cosmetic. Every public product query joins `categories`,
+ * and `categories` has its own `name` and `description` -- so an unqualified
+ * `MATCH(name, description, ...)` is ambiguous and MySQL rejects the whole
+ * statement with ER_NON_UNIQ_ERROR before it ever looks at an index. That is
+ * not a search that degrades; it is a 500 on every search the store serves
+ * (#1544).
+ *
+ * @param {string} alias
+ * @returns {string} comma-separated qualified column list
+ */
+const qualifiedSearchColumns = (alias) =>
+    SEARCHABLE_COLUMNS.map((column) => `${alias}.${column}`).join(", ");
 
 const FULLTEXT_UNAVAILABLE_CODES = new Set([
     "ER_FT_MATCHING_KEY_NOT_FOUND",
-    "ER_BAD_FIELD_ERROR"
+    "ER_BAD_FIELD_ERROR",
+    // Belt and braces. The ambiguity above is fixed at the source, but a future
+    // join that reintroduces one should cost the store its index, not its
+    // search: falling back to LIKE returns results, and re-throwing returns a
+    // 500 (#1544).
+    "ER_NON_UNIQ_ERROR"
 ]);
 
 // Whitelisted sort keys → ORDER BY clause. Keys mirror the frontend shop
@@ -256,12 +286,23 @@ const getProducts = async (req, res) => {
             if (rawSearch) {
                 if (useFulltext) {
                     conditions.push(
-                        `MATCH(${FULLTEXT_SEARCH_COLUMNS}) AGAINST (? IN BOOLEAN MODE)`
+                        `MATCH(${qualifiedSearchColumns("p")}) AGAINST (? IN BOOLEAN MODE)`
                     );
                     params.push(booleanSearch);
                 } else {
-                    conditions.push("p.name LIKE ?");
-                    params.push(likeSearch);
+                    // The fallback searches the same columns the index does.
+                    //
+                    // It used to search `p.name` alone, so which path ran
+                    // decided what "matches" meant: a term that appears only in
+                    // a description was found by one and not by the other. A
+                    // fallback that answers a different question is not a
+                    // fallback (#1544).
+                    conditions.push(
+                        `(${SEARCHABLE_COLUMNS.map(
+                            (column) => `p.${column} LIKE ?`
+                        ).join(" OR ")})`
+                    );
+                    params.push(...SEARCHABLE_COLUMNS.map(() => likeSearch));
                 }
             }
 
