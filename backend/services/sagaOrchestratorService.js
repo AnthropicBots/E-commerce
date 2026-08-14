@@ -51,9 +51,14 @@ class SagaOrchestrator extends EventEmitter {
                 console.log(`🔄 Duplicate saga request ignored (Idempotency Key: ${idempotencyKey})`);
                 const cachedStr = await redis.get(cacheKey);
                 if (cachedStr && cachedStr !== 'pending') {
-                    const cachedData = JSON.parse(cachedStr);
-                    this.sagas.set(cachedData.id, cachedData);
-                    return cachedData;
+                    try {
+                        const cachedData = JSON.parse(cachedStr);
+                        this.sagas.set(cachedData.id, cachedData);
+                        return cachedData;
+                    } catch (parseError) {
+                        console.error(`Malformed saga idempotency cache for key ${cacheKey}:`, parseError);
+                        await redis.del(cacheKey);
+                    }
                 }
                 // It's still pending/running. Generate a dummy saga to satisfy downstream
                 const mockSaga = { id: this.generateSagaId(), status: SAGA_STATUS.RUNNING, isDuplicate: true, steps: [] };
