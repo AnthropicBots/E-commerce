@@ -498,6 +498,11 @@ async function toggleWishlist(productId) {
         // 🔥 Initialize Share Button
         initShareButton(product);
 
+        // Notify Me button for out-of-stock products (#1233)
+        if (typeof StockAlert !== "undefined" && StockAlert.initStockAlert) {
+            StockAlert.initStockAlert(product);
+        }
+
         productElements.mainImage.alt = escapeHTML(product.name || "Product image");
 
         if (typeof loadProductReviews === "function") {
