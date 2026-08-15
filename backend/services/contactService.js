@@ -350,7 +350,7 @@ async function getMessage(id) {
 async function updateStatus(id, status, adminId) {
     const messageId = Math.trunc(safeNumber(id));
     const next = sanitizeString(status).toLowerCase();
-    const actor = safeUUID(adminId);
+    const actor = safeUUID(adminId) || (Number.isInteger(Number(adminId)) && Number(adminId) > 0 ? Number(adminId) : null);
 
     if (messageId < 1) {
         throw new ContactError('Invalid message ID', 400, 'INVALID_ID');
