@@ -233,6 +233,8 @@ class SagaOrchestrator extends EventEmitter {
         // Execute compensations in reverse order
         const compensationSteps = saga.compensations.reverse();
 
+        let hasCompensationFailure = false;
+
         for (const compensation of compensationSteps) {
             try {
                 console.log(`🔄 Executing compensation for: ${compensation.step}`);
@@ -245,8 +247,16 @@ class SagaOrchestrator extends EventEmitter {
                 });
 
             } catch (error) {
+                hasCompensationFailure = true;
+                compensation.executed = false;
+                compensation.error = error.message;
+                saga.errors.push({
+                    step: compensation.step,
+                    phase: 'compensation',
+                    error: error.message,
+                    timestamp: new Date().toISOString()
+                });
                 console.error(`Compensation failed for step: ${compensation.step}`, error);
-                // Log compensation failure but continue
                 this.emit('compensation.failed', {
                     sagaId: saga.id,
                     step: compensation.step,
@@ -255,10 +265,14 @@ class SagaOrchestrator extends EventEmitter {
             }
         }
 
-        saga.status = SAGA_STATUS.COMPENSATED;
+        saga.status = hasCompensationFailure ? SAGA_STATUS.PARTIAL : SAGA_STATUS.COMPENSATED;
         saga.updatedAt = new Date().toISOString();
 
-        this.emit('saga.compensated', { sagaId: saga.id });
+        if (hasCompensationFailure) {
+            this.emit('saga.compensation_partial', { sagaId: saga.id, errors: saga.errors });
+        } else {
+            this.emit('saga.compensated', { sagaId: saga.id });
+        }
 
         await this.storeSaga(saga);
     }
