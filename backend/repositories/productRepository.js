@@ -1,6 +1,39 @@
 // backend/repositories/productRepository.js
 const BaseRepository = require('./baseRepository');
 
+// The rows a catalogue read is allowed to see.
+//
+// `deleted_at` is what the `softDeleteColumn` declared below is for, and until
+// #1565 not one read in this file filtered on it. Withdrawing a product stamps
+// the column, and every method here read straight past the stamp -- so a
+// product an admin removed still came back from search, featured, low-stock,
+// related and by-id lookups alike. That is the other half of #1457: the write
+// path stopped cascading, and the read path never noticed.
+//
+// Named once so that a read added later cannot quietly omit it.
+const LIVE = 'deleted_at IS NULL';
+
+/** The same predicate, where the table carries an alias. */
+const liveOn = (alias) => `${alias}.deleted_at IS NULL`;
+
+/**
+ * Escape the characters that are metacharacters *inside* a LIKE pattern.
+ *
+ * Parameterising the term stops injection but not this: `%` and `_` keep their
+ * wildcard meaning once the driver has substituted the value, so searching the
+ * catalogue for "50%" matched every product rather than the discounted ones,
+ * and "_" matched any single character. The backslash goes first, or it would
+ * escape the escapes added after it.
+ *
+ * Paired with an explicit `ESCAPE '\\'` at the call site, because MySQL's
+ * default escape character depends on `NO_BACKSLASH_ESCAPES` being off.
+ *
+ * @param {any} value the raw search term
+ * @returns {string}
+ */
+const escapeLike = (value) =>
+    String(value ?? '').replace(/[\\%_]/g, (character) => `\\${character}`);
+
 class ProductRepository extends BaseRepository {
     constructor() {
         // `products.deleted_at` is filtered by every read path in the codebase
@@ -12,17 +45,26 @@ class ProductRepository extends BaseRepository {
     }
 
     /**
-     * Find products by category
+     * Find products by category.
+     *
+     * The column is `category_id INT` (`0001_baseline_schema.sql:163`). There
+     * is no `products.category`, so the previous `WHERE category = ?` failed
+     * outright with `ER_BAD_FIELD_ERROR` rather than returning the wrong rows
+     * (#1565).
+     *
+     * @param {number} categoryId
+     * @param {{limit?: number, offset?: number}} [options]
+     * @returns {Promise<object[]>}
      */
-    async findByCategory(category, options = {}) {
+    async findByCategory(categoryId, options = {}) {
         const { limit = 20, offset = 0 } = options;
 
         const [rows] = await this.db.query(
-            `SELECT * FROM ${this.tableName} 
-             WHERE category = ? AND stock > 0 
-             ORDER BY created_at DESC 
+            `SELECT * FROM ${this.tableName}
+             WHERE category_id = ? AND stock > 0 AND ${LIVE}
+             ORDER BY created_at DESC
              LIMIT ? OFFSET ?`,
-            [category, limit, offset]
+            [categoryId, limit, offset]
         );
 
         return rows;
@@ -35,9 +77,9 @@ class ProductRepository extends BaseRepository {
         const { limit = 20, offset = 0 } = options;
 
         const [rows] = await this.db.query(
-            `SELECT * FROM ${this.tableName} 
-             WHERE price BETWEEN ? AND ? AND stock > 0 
-             ORDER BY price ASC 
+            `SELECT * FROM ${this.tableName}
+             WHERE price BETWEEN ? AND ? AND stock > 0 AND ${LIVE}
+             ORDER BY price ASC
              LIMIT ? OFFSET ?`,
             [minPrice, maxPrice, limit, offset]
         );
@@ -50,13 +92,15 @@ class ProductRepository extends BaseRepository {
      */
     async search(query, options = {}) {
         const { limit = 20, offset = 0 } = options;
+        const term = `%${escapeLike(query)}%`;
 
         const [rows] = await this.db.query(
-            `SELECT * FROM ${this.tableName} 
-             WHERE (name LIKE ? OR description LIKE ?) AND stock > 0 
-             ORDER BY created_at DESC 
+            `SELECT * FROM ${this.tableName}
+             WHERE (name LIKE ? ESCAPE '\\\\' OR description LIKE ? ESCAPE '\\\\')
+               AND stock > 0 AND ${LIVE}
+             ORDER BY created_at DESC
              LIMIT ? OFFSET ?`,
-            [`%${query}%`, `%${query}%`, limit, offset]
+            [term, term, limit, offset]
         );
 
         return rows;
@@ -67,8 +111,8 @@ class ProductRepository extends BaseRepository {
      */
     async getLowStockProducts(threshold = 10) {
         const [rows] = await this.db.query(
-            `SELECT * FROM ${this.tableName} 
-             WHERE stock <= ? AND stock > 0 
+            `SELECT * FROM ${this.tableName}
+             WHERE stock <= ? AND stock > 0 AND ${LIVE}
              ORDER BY stock ASC`,
             [threshold]
         );
@@ -149,16 +193,32 @@ class ProductRepository extends BaseRepository {
     }
 
     /**
-     * Get product with reviews
+     * Get product with reviews.
+     *
+     * The aggregate counts only reviews a shopper is allowed to see. `reviews`
+     * carries both `deleted_at` and `is_approved` (`0001_baseline_schema.sql:
+     * 824-838`) and the previous version consulted neither, so withdrawn and
+     * unapproved reviews inflated `review_count` and skewed `avg_rating` --
+     * which is the rating shown against the product.
+     *
+     * The predicates sit in the JOIN rather than the WHERE because the join is
+     * a LEFT one: moving them out would turn it into an inner join and drop the
+     * product entirely as soon as it had no visible reviews.
+     *
+     * @param {string} id product UUID
+     * @returns {Promise<object|null>}
      */
     async findWithReviews(id) {
         const [rows] = await this.db.query(
-            `SELECT p.*, 
+            `SELECT p.*,
                     AVG(r.rating) as avg_rating,
                     COUNT(r.id) as review_count
              FROM ${this.tableName} p
-             LEFT JOIN reviews r ON p.id = r.product_id
-             WHERE p.id = ?
+             LEFT JOIN reviews r
+                    ON p.id = r.product_id
+                   AND ${liveOn('r')}
+                   AND r.is_approved = 1
+             WHERE p.id = ? AND ${liveOn('p')}
              GROUP BY p.id`,
             [id]
         );
@@ -169,7 +229,10 @@ class ProductRepository extends BaseRepository {
 
         // Get reviews
         const [reviews] = await this.db.query(
-            `SELECT * FROM reviews WHERE product_id = ? ORDER BY created_at DESC LIMIT 10`,
+            `SELECT * FROM reviews
+              WHERE product_id = ? AND ${LIVE} AND is_approved = 1
+              ORDER BY created_at DESC
+              LIMIT 10`,
             [id]
         );
 
@@ -180,29 +243,54 @@ class ProductRepository extends BaseRepository {
     }
 
     /**
-     * Get related products
+     * Get related products.
+     *
+     * Related by `category_id`, read off the product this method just loaded.
+     * It previously matched `WHERE category = ?` against `product.category`,
+     * and since neither the column nor the property exists that was a
+     * `ER_BAD_FIELD_ERROR` with `undefined` as its parameter (#1565).
+     *
+     * A product filed under no category has nothing to be related to, so it
+     * returns nothing rather than matching every other uncategorised product
+     * via `category_id = NULL`.
+     *
+     * @param {string} id
+     * @param {number} [limit=5]
+     * @returns {Promise<object[]>}
      */
     async getRelatedProducts(id, limit = 5) {
         const product = await this.findById(id);
         if (!product) return [];
 
+        if (product.category_id === null || product.category_id === undefined) {
+            return [];
+        }
+
         const [rows] = await this.db.query(
-            `SELECT * FROM ${this.tableName} 
-             WHERE category = ? AND id != ? AND stock > 0 
-             ORDER BY created_at DESC 
+            `SELECT * FROM ${this.tableName}
+             WHERE category_id = ? AND id != ? AND stock > 0 AND ${LIVE}
+             ORDER BY created_at DESC
              LIMIT ?`,
-            [product.category, id, limit]
+            [product.category_id, id, limit]
         );
 
         return rows;
     }
 
     /**
-     * Increment view count
+     * Increment view count.
+     *
+     * The counter is `views_count INT DEFAULT 0` (`0001_baseline_schema.sql:
+     * 180`). There is no `products.views`, so this threw `ER_BAD_FIELD_ERROR`
+     * on every product page view (#1565).
+     *
+     * @param {string} id
      */
     async incrementViews(id) {
         await this.db.query(
-            `UPDATE ${this.tableName} SET views = views + 1 WHERE id = ?`,
+            `UPDATE ${this.tableName}
+                SET views_count = views_count + 1
+              WHERE id = ? AND ${LIVE}`,
             [id]
         );
         this.cache.delete(id);
@@ -216,7 +304,8 @@ class ProductRepository extends BaseRepository {
 
         const placeholders = ids.map(() => '?').join(',');
         const [rows] = await this.db.query(
-            `SELECT * FROM ${this.tableName} WHERE id IN (${placeholders})`,
+            `SELECT * FROM ${this.tableName}
+              WHERE id IN (${placeholders}) AND ${LIVE}`,
             ids
         );
 
@@ -228,9 +317,9 @@ class ProductRepository extends BaseRepository {
      */
     async getFeatured(limit = 10) {
         const [rows] = await this.db.query(
-            `SELECT * FROM ${this.tableName} 
-             WHERE featured = 1 AND stock > 0 
-             ORDER BY created_at DESC 
+            `SELECT * FROM ${this.tableName}
+             WHERE featured = 1 AND stock > 0 AND ${LIVE}
+             ORDER BY created_at DESC
              LIMIT ?`,
             [limit]
         );
