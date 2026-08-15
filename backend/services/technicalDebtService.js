@@ -205,6 +205,7 @@ class TechnicalDebtService extends EventEmitter {
         const issues = [];
         const files = this.findCodeFiles();
 
+        this.todoItems = [];
         let totalIssues = 0;
         let totalFiles = files.length;
 
