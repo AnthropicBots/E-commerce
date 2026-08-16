@@ -4,6 +4,8 @@ const OrderValidator = require('./orderValidator');
 const ProductValidator = require('./productValidator');
 const UserValidator = require('./userValidator');
 const CouponValidator = require('./couponValidator');
+const authSchemas = require('./authSchemas');
+const orderSchemas = require('./orderSchemas');
 
 module.exports = {
     BaseValidator,
@@ -11,6 +13,8 @@ module.exports = {
     ProductValidator,
     UserValidator,
     CouponValidator,
+    authSchemas,
+    orderSchemas,
     
     // Convenience exports
     orderValidator: OrderValidator,
