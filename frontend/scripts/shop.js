@@ -18,13 +18,13 @@ let priceTouched = false;
 let productObserver = null;
 const loadedProductIds = new Set();
 
-// Legacy filter-button state, read and written by setupCategoryFilters,
-// setupSearch and clearAllFilters. These were only ever assigned, never
-// declared, so each one leaked onto `window` -- harmless while the file did
-// not parse at all, and worth closing now that it does (#1444).
-let currentCategory = "all";
-let currentSearch = "";
-let showAllHoodies = false;
+// `currentCategory`, `currentSearch` and `showAllHoodies` stood here. They were
+// the state of the `.filter-btn` toolbar, which shop.html has not had for some
+// time -- categories are the checkbox list `renderCategoryFilters` builds, and
+// `filters` is what every control writes and what `filterProducts` reads. The
+// three functions that still wrote them (`setupCategoryFilters`, the older
+// `setupSearch`, `clearAllFilters`) are gone with this change, and nothing
+// rendered from them, so they go too (#1582).
 
 // Local fallback sample products (used when backend returns no products)
 const fallbackProducts = [
@@ -101,11 +101,10 @@ let hasAppliedUrlFilters = false;
 // SHOP PAGE ELEMENTS
 const elements = {};
 
-const cacheShopElements = () => {
-    elements.searchInput = document.getElementById("search-input");
-    elements.suggestions = document.getElementById("search-suggestions");
-    elements.searchForm = document.querySelector(".search-box");
-};
+// `cacheShopElements` cached three of these nodes and was called only by the
+// initialiser that has been merged away. The surviving one caches the same
+// three and eleven more, so keeping a second partial copy would only invite
+// them to disagree (#1582).
 
 const getFilterUtils = () =>
     globalThis.ShopFilterUtils;
@@ -701,10 +700,83 @@ function setupProductCard(
     }
 }
 
-// SEARCH FILTER (Updated)
-function setupSearch() {
+// ===========================================================================
+// FILTER STATE AND CONTROLS
+// ===========================================================================
+//
+// Everything from here to `showSearchSuggestions` was dropped by the merge in
+// 341fb57 (#1582). That merge took the "clear filters" side of the file whole
+// and the other side lost fourteen function declarations -- while every call
+// site for them stayed. So `fetchProducts` called `setupProductObserver`, which
+// no longer existed, and threw a ReferenceError before it reached the network.
+// Both DOMContentLoaded handlers died on it, `/api/products` was never
+// requested, and the shop page rendered an empty grid on every visit.
+//
+// These are the implementations as they stood in 49bc1a8, the last commit
+// before the merge, unchanged apart from this comment. They are not a rewrite:
+// the surrounding code -- `loadNextProductsPage`, `maybeAutoLoadMore`,
+// `setupFilterControls`, `renderSuggestionList` -- was all written against
+// these exact signatures and is still calling them.
+//
+// The one omission is deliberate. `updateResultsSummary` was dropped too, but
+// the surviving side has its own newer version carrying the active-filter
+// indicators from #1401, so that one stays as it is.
 
-    if (!elements.searchInput) {
+function getReviewCount(product) {
+    return Number(
+        product?.num_reviews ??
+        product?.numReviews ??
+        product?.reviewCount ??
+        0
+    );
+}
+
+function getRatingLabel(product) {
+    const count = getReviewCount(product);
+    const rating = Number(product.rating || 0);
+
+    if (!count) {
+        return "No reviews yet";
+    }
+
+    const reviewLabel = count === 1 ? "review" : "reviews";
+
+    return `${rating.toFixed(1)} (${count} ${reviewLabel})`;
+}
+
+function initializeFilterControls() {
+    const utils =
+        getFilterUtils();
+
+    priceBounds =
+        utils.getPriceBounds(
+            allProducts
+        );
+
+    filters = {
+        ...filters,
+        minPrice: priceBounds.min,
+        maxPrice: priceBounds.max,
+        sort: elements.sortSelect?.value || "newest"
+    };
+
+    renderCategoryFilters();
+    applyUrlCategoryFilters();
+    updatePriceControls();
+}
+
+function getUrlCategoryFilters() {
+    const params =
+        new URLSearchParams(globalThis.location.search);
+
+    return {
+        category: params.get("category") || "",
+        subcategory: params.get("subcategory") || ""
+    };
+}
+
+function applyUrlCategoryFilters() {
+    if (hasAppliedUrlFilters) {
         return;
     }
 
@@ -716,43 +788,288 @@ function setupSearch() {
     filters.megaCategory = category;
     filters.megaSubcategory = subcategory;
 
-    elements.searchInput.addEventListener(
-        "input",
-        () => {
-            clearTimeout(searchTimeout);
+    if (category) {
+        const matchingCategoryInput =
+            Array.from(
+                document.querySelectorAll('input[name="category-filter"]')
+            ).find((input) => input.value === category);
 
-            searchTimeout = setTimeout(() => {
-
-                currentSearch = elements.searchInput.value.trim();
-                showAllHoodies = false;
-                fetchProducts(1);
-                updateClearFiltersButton(); // <-- ADD THIS LINE
-
-            }, 400);
+        if (matchingCategoryInput) {
+            matchingCategoryInput.checked = true;
+            filters.categories = [category];
         }
+    }
+
+    hasAppliedUrlFilters = true;
+}
+
+function renderCategoryFilters() {
+    if (!elements.categoryList) {
+        return;
+    }
+
+    // Preserve the user's ticked categories across catalog re-renders (the
+    // list grows as more pages stream in via infinite scroll).
+    const checkedValues =
+        new Set(
+            Array.from(
+                document.querySelectorAll('input[name="category-filter"]:checked')
+            ).map((input) => input.value)
+        );
+
+    const categories =
+        getFilterUtils().uniqueCategories(
+            allProducts
+        );
+
+    elements.categoryList.innerHTML =
+        categories.map(
+            (category) => `
+                <label>
+                    <input
+                        type="checkbox"
+                        name="category-filter"
+                        value="${AppUtils.escapeHTML(category)}"
+                        ${checkedValues.has(category) ? "checked" : ""}
+                    >
+                    ${AppUtils.escapeHTML(category)}
+                </label>
+            `
+        ).join("");
+}
+
+// Refresh derived controls after each streamed page without clobbering the
+// user's active selections. Price bounds only auto-widen while the user hasn't
+// manually adjusted the sliders.
+function refreshFilterControls() {
+    priceBounds =
+        getFilterUtils().getPriceBounds(
+            allProducts
+        );
+
+    if (!priceTouched) {
+        filters.minPrice = priceBounds.min;
+        filters.maxPrice = priceBounds.max;
+    }
+
+    renderCategoryFilters();
+    updatePriceControls();
+}
+
+function updatePriceControls() {
+    const {
+        minPriceRange,
+        maxPriceRange,
+        priceOutput
+    } = elements;
+
+    if (!minPriceRange || !maxPriceRange) {
+        return;
+    }
+
+    [minPriceRange, maxPriceRange].forEach((range) => {
+        range.min = priceBounds.min;
+        range.max = priceBounds.max;
+        range.step = 1;
+    });
+
+    minPriceRange.value = filters.minPrice;
+    maxPriceRange.value = filters.maxPrice;
+    if (elements.minPriceNumber) elements.minPriceNumber.value = filters.minPrice;
+    if (elements.maxPriceNumber) elements.maxPriceNumber.value = filters.maxPrice;
+
+    if (priceOutput) {
+        priceOutput.textContent =
+            `${AppUtils.formatPrice(filters.minPrice)} - ${AppUtils.formatPrice(filters.maxPrice)}`;
+    }
+}
+
+function readFiltersFromControls() {
+    filters.search =
+        elements.searchInput?.value.trim() || "";
+
+    filters.categories =
+        Array.from(
+            document.querySelectorAll('input[name="category-filter"]:checked')
+        ).map((input) => input.value);
+
+    const minPrice =
+        Number(elements.minPriceNumber?.value || elements.minPriceRange?.value || priceBounds.min);
+
+    const maxPrice =
+        Number(elements.maxPriceNumber?.value || elements.maxPriceRange?.value || priceBounds.max);
+
+    if (elements.minPriceRange) elements.minPriceRange.value = minPrice;
+    if (elements.maxPriceRange) elements.maxPriceRange.value = maxPrice;
+
+    filters.minPrice =
+        Math.min(minPrice, maxPrice);
+
+    filters.maxPrice =
+        Math.max(minPrice, maxPrice);
+
+    filters.rating =
+        Number(
+            document.querySelector('input[name="rating-filter"]:checked')?.value || 0
+        );
+
+    filters.availability =
+        Array.from(
+            document.querySelectorAll('input[name="availability-filter"]:checked')
+        ).map((input) => input.value);
+
+    filters.sort =
+        elements.sortSelect?.value || "newest";
+}
+
+function applyFilters({ resetPage = false } = {}) {
+    const utils =
+        getFilterUtils();
+
+    readFiltersFromControls();
+
+    // Sort is the server-driven dimension. When it changes, the accumulated
+    // pages are ordered by the old key, so restart streaming from page 1 with
+    // the new sort to keep pagination consistent.
+    if (filters.sort !== lastServerSort) {
+        lastServerSort = filters.sort;
+        resetCatalog();
+        loadNextProductsPage();
+        return;
+    }
+
+    filteredProducts =
+        utils.sortProducts(
+            utils.filterProducts(
+                allProducts,
+                filters
+            ),
+            filters.sort
+        );
+
+    updatePriceControls();
+    updateResultsSummary();
+    // Every filter change funnels through here, which makes it the one place
+    // that can decide whether the Clear Filters button should be on screen.
+    updateClearFiltersButton();
+    renderProducts(
+        filteredProducts,
+        {
+            emptyMessage:
+                isFetchingPage
+                    ? "Loading products..."
+                    : filters.megaCategory || filters.megaSubcategory
+                        ? "No products available in this category."
+                        : "No products found."
+        }
+    );
+    renderScrollStatus();
+
+    // A filter change can leave the sentinel on screen with more pages
+    // available; pull them so filtering reflects the full catalog.
+    maybeAutoLoadMore();
+}
+
+function showSearchSuggestions() {
+    if (!elements.searchInput) {
+        return;
+    }
+
+    const query =
+        elements.searchInput.value.trim();
+
+    if (!query) {
+        renderSuggestionList(
+            searchHistory,
+            {
+                isHistory: true
+            }
+        );
+        return;
+    }
+
+    renderSuggestionList(
+        getFilterUtils().getSuggestions(
+            allProducts,
+            query,
+            6
+        )
     );
 }
 
-// CATEGORY FILTER (Updated)
-function setupCategoryFilters() {
+// INFINITE SCROLL UI
+// The `#pagination` section holds the loading indicator, an end-of-results
+// note, and the sentinel element the IntersectionObserver watches.
+function renderScrollStatus() {
+    let statusBar =
+        document.getElementById("pagination");
 
-    elements.filterButtons.forEach(button => {
+    if (!statusBar) {
+        statusBar =
+            document.createElement("section");
+        statusBar.id = "pagination";
+        elements.productContainer?.after(statusBar);
+    }
 
-        button.addEventListener("click", () => {
+    const hasResults =
+        filteredProducts.length > 0;
 
-            elements.filterButtons.forEach(btn => {
-                btn.classList.remove("active-filter");
-            });
+    let statusMarkup = "";
 
-            button.classList.add("active-filter");
+    if (isFetchingPage) {
+        statusMarkup = `
+            <div class="scroll-loader" role="status" aria-live="polite">
+                <span class="scroll-spinner" aria-hidden="true"></span>
+                <span>Loading more products…</span>
+            </div>
+        `;
+    } else if (catalogExhausted && !serverHasNext && hasResults) {
+        statusMarkup = `
+            <p class="scroll-end" role="status">
+                You've reached the end of the catalog.
+            </p>
+        `;
+    }
 
-            currentCategory = button.dataset.category || "all";
-            showAllHoodies = false;
-            fetchProducts(1);
-            updateClearFiltersButton(); // <-- ADD THIS LINE
+    statusBar.innerHTML = `
+        ${statusMarkup}
+        <div id="product-scroll-sentinel" class="scroll-sentinel" aria-hidden="true"></div>
+    `;
 
-        });
-    });
+    observeSentinel();
+}
+
+// (Re)attach the observer to the current sentinel node. The sentinel is
+// recreated on every status render, so it must be re-observed each time.
+function observeSentinel() {
+    if (!productObserver) {
+        return;
+    }
+
+    const sentinel =
+        document.getElementById("product-scroll-sentinel");
+
+    if (sentinel) {
+        productObserver.observe(sentinel);
+    }
+}
+
+function setupProductObserver() {
+    if (productObserver || typeof IntersectionObserver === "undefined") {
+        return;
+    }
+
+    productObserver =
+        new IntersectionObserver(
+            (entries) => {
+                if (entries.some((entry) => entry.isIntersecting)) {
+                    loadNextProductsPage();
+                }
+            },
+            {
+                rootMargin: "200px 0px"
+            }
+        );
 }
 
 function updateResultsSummary() {
@@ -944,16 +1261,12 @@ function chooseSuggestion(button) {
     });
 }
 
-// SORT SELECT (Updated)
-function setupSorting() {
-    if (!elements.sortSelect) {
-        return;
-    }
-    elements.sortSelect.addEventListener("change", () => {
-        applySorting();
-        updateClearFiltersButton(); // <-- ADD THIS LINE
-    });
-}
+// `setupSorting` used to sit here and bound a second `change` listener to
+// `#product-sort` calling `applySorting()` -- a function that has not existed
+// in this file since the sort became server-driven. `setupFilterControls`
+// already binds that select to `applyFilters`, which restarts the stream from
+// page one when `filters.sort` changes, so the sort is handled once and in the
+// place that owns every other control (#1582).
 
 function setupSearch() {
     if (!elements.searchInput) {
@@ -1186,40 +1499,55 @@ function setupFilterDrawer() {
     );
 }
 
-// INITIALIZATION (Updated)
-document.addEventListener("DOMContentLoaded", () => {
-    cacheShopElements();
-    fetchProducts();
-    setupSearch();
-    setupCategoryFilters();
-    setupSorting();
-    setupClearFilters(); // <-- ADD THIS LINE
-    updateClearFiltersButton(); // <-- ADD THIS LINE
-});
-
 // ========================================
 // CLEAR FILTERS BUTTON (Issue #1124)
 // ========================================
+//
+// This never worked. It resolved its elements at module scope from ids that are
+// not in shop.html -- `#clear-filters-btn` is the button's *class* and its id is
+// `#clear-filters`, and `#sort-select` has never existed; the select is
+// `#product-sort`. Both lookups returned null, `updateClearFiltersButton`
+// returned at its first line every time, and the button stayed hidden whatever
+// the shopper did (#1582).
+//
+// It also read the wrong state. `.filter-btn` elements are not in this page --
+// categories are the checkbox list `renderCategoryFilters` builds -- and the
+// sort's default value is `newest`, not `default`, so on a page with no filters
+// at all the old check would have reported one active.
+//
+// Both functions now read `filters`, which is the object every control writes
+// through `readFiltersFromControls`, and the button is resolved from `elements`
+// alongside every other node. `applyFilters` calls this, so the button follows
+// the filter state rather than needing a call bolted onto each listener.
 
-// Elements
-const clearFiltersBtn = document.getElementById('clear-filters-btn');
-const searchInput = document.getElementById('search-input');
-const filterButtons = document.querySelectorAll('.filter-btn');
-const sortSelect = document.getElementById('sort-select');
-
-// Check if any filter is active
+/**
+ * Is anything narrowing the catalogue right now?
+ *
+ * Sort is deliberately not a filter: reordering the same products is not
+ * something a shopper needs a "clear" button to undo, and treating it as one
+ * would leave the button showing permanently on a page whose default sort is
+ * `newest`.
+ */
 function isAnyFilterActive() {
-    const searchValue = searchInput?.value?.trim() || '';
-    const activeCategory = document.querySelector('.filter-btn.active-filter')?.dataset?.category || 'all';
-    const sortValue = sortSelect?.value || 'default';
-    
-    return searchValue !== '' || activeCategory !== 'all' || sortValue !== 'default';
+    return Boolean(
+        filters.search
+        || filters.categories.length
+        || filters.megaCategory
+        || filters.megaSubcategory
+        || Number(filters.rating) > 0
+        || filters.availability.length
+        || (priceTouched
+            && (filters.minPrice !== priceBounds.min
+                || filters.maxPrice !== priceBounds.max))
+    );
 }
 
 // Show/hide clear filters button
 function updateClearFiltersButton() {
+    const clearFiltersBtn = elements.clearFilters;
+
     if (!clearFiltersBtn) return;
-    
+
     if (isAnyFilterActive()) {
         clearFiltersBtn.style.display = 'inline-flex';
         clearFiltersBtn.classList.add('show');
@@ -1229,7 +1557,15 @@ function updateClearFiltersButton() {
     }
 }
 
+// ===========================================================================
 // INITIALIZATION
+// ===========================================================================
+//
+// One handler. There were two, registered a few lines apart, and each one
+// bootstrapped the page: both called `setupSearch()` and both called
+// `fetchProducts()`. Had they run to completion the shop would have requested
+// the catalogue twice and rendered the grid twice on every visit; as it was
+// they both threw on the first missing function they reached (#1582).
 document.addEventListener(
     "DOMContentLoaded",
     () => {
@@ -1316,57 +1652,19 @@ document.addEventListener(
     }
 );
 
-// Clear every active filter and go back to the default catalogue view.
+// `clearAllFilters` and `setupClearFilters` stood here and were a second,
+// broken implementation of a button that already has a working one (#1582).
 //
-// The `);` above and this declaration are what a bad merge dropped (#1444):
-// the DOMContentLoaded listener was left unclosed and this function's body ran
-// straight on from it, so the file did not parse and the whole shop page --
-// search, filters, sorting, the product list -- was dead. `setupClearFilters`
-// at the bottom binds this by name, and every binding the body reads is
-// already declared above.
-function clearAllFilters() {
-    // Reset category
-    filterButtons.forEach(btn => {
-        btn.classList.remove('active-filter');
-        if (btn.dataset.category === 'all') {
-            btn.classList.add('active-filter');
-        }
-    });
-    currentCategory = 'all';
-    
-    // Reset sort
-    if (sortSelect) {
-        sortSelect.value = 'default';
-    }
-    
-    // Reset state
-    showAllHoodies = false;
-    currentSearch = '';
-    currentCategory = 'all';
-    
-    // Update URL (remove query params)
-    if (window.history && window.history.pushState) {
-        const url = window.location.pathname;
-        window.history.pushState({}, '', url);
-    }
-    
-    // Hide button
-    if (clearFiltersBtn) {
-        clearFiltersBtn.style.display = 'none';
-    }
-    
-    // Reload products
-    fetchProducts(1);
-    
-    // Show notification
-    if (typeof AppUtils !== 'undefined' && AppUtils.notify) {
-        AppUtils.notify('All filters cleared ✅', 'info');
-    }
-}
-
-// Setup clear filters button
-function setupClearFilters() {
-    if (!clearFiltersBtn) return;
-    clearFiltersBtn.addEventListener('click', clearAllFilters);
-}
+// They read `filterButtons` (no `.filter-btn` element exists in shop.html),
+// wrote `sortSelect.value = 'default'` (not one of the select's options), and
+// reset `currentCategory` / `currentSearch` / `showAllHoodies`, which are the
+// legacy state variables nothing renders from any more. `setupClearFilters`
+// bound them to `clearFiltersBtn`, which was null, so none of it ever ran.
+//
+// The click handler that does work is in `setupFilterControls`, bound to
+// `elements.clearFilters` -- the real `#clear-filters` button. It unticks the
+// category and availability boxes, resets rating and sort, restores the price
+// bounds, clears the mega-category filters and re-applies. What #1124 was
+// missing was not the reset but the show/hide, and `updateClearFiltersButton`
+// above now handles that from `applyFilters`.
 })()
