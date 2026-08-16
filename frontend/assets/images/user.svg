@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Default avatar for a signed-in user with no picture of their own.
+
+  dashboard.html pointed at assets/images/user.png, which is not in the tree and
+  is not in the history either, so every visit to the dashboard rendered a broken
+  image in the sidebar (#1580). SVG rather than a raster file: it is a flat
+  two-tone glyph, so it costs under a kilobyte, stays sharp on any display, and
+  is text in the diff rather than an opaque blob.
+
+  currentColor is deliberately avoided -- this is an <img>, not an inline SVG, so
+  it does not inherit the page's colour. The greys below sit acceptably against
+  both the light and the dark dashboard card.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Default user avatar">
+  <circle cx="64" cy="64" r="64" fill="#e2e5ea"/>
+  <circle cx="64" cy="49" r="23" fill="#9aa3af"/>
+  <path d="M64 80c-22.4 0-40.6 14.2-43.6 32.6A64 64 0 0 0 64 128a64 64 0 0 0 43.6-15.4C104.6 94.2 86.4 80 64 80Z" fill="#9aa3af"/>
+</svg>
