@@ -379,6 +379,7 @@ class MetricsAggregationService extends EventEmitter {
         // exist.
         let conditions = `
             c.created_at BETWEEN ? AND ?
+            AND c.is_deleted = 0
             AND c.usage_count > 0
         `;
 
@@ -387,19 +388,40 @@ class MetricsAggregationService extends EventEmitter {
             params.push(filters.couponType);
         }
 
+        // Two things this query used to get wrong about where a coupon lives.
+        //
         // `orders.coupon_code` does not exist. The order path writes the code
         // it applied to `promo_code` and `discount_code` (`order.service`).
+        //
+        // And `coupons` is the wrong table (#1581). It is a baseline table with
+        // no writer anywhere in the codebase, and it names its columns `type`,
+        // `value` and `used_count` -- so `c.discount_type`, `c.discount_value`
+        // and `c.usage_count` were all ER_BAD_FIELD_ERROR and this metric could
+        // not return a row under any filter. Those three names are exactly the
+        // ones on `promo_codes` (migrations/0002_promo_schema.sql), which is
+        // the table `promo.service` validates against and the one whose `code`
+        // the join above is matching `orders.promo_code` to. The query was
+        // written for `promo_codes` and pointed at its dormant namesake.
+        //
+        // `is_deleted` is how the rest of the promo path filters this table; a
+        // withdrawn code should not appear in an effectiveness report.
+        //
+        // The COUNT is aliased `redemption_count` rather than `usage_count`:
+        // the latter is also a real column on `c`, and having the same name
+        // mean the lifetime counter in the WHERE clause and the in-period
+        // total in the select list is what made the mismatch hard to see. The
+        // response key below is unchanged.
         const query = `
             SELECT
                 c.code,
                 c.discount_type,
                 c.discount_value,
-                COUNT(o.id) as usage_count,
+                COUNT(o.id) as redemption_count,
                 COALESCE(SUM(${ORDER_VALUE}), 0) as revenue_generated,
                 COALESCE(AVG(${ORDER_VALUE}), 0) as avg_order_value,
                 (COALESCE(SUM(${ORDER_VALUE}), 0) / NULLIF(COUNT(o.id), 0))
                     - c.discount_value as net_value
-            FROM coupons c
+            FROM promo_codes c
             LEFT JOIN orders o
                 ON o.promo_code = c.code
                 AND ${REVENUE_ORDERS}
@@ -415,7 +437,7 @@ class MetricsAggregationService extends EventEmitter {
                 code: row.code,
                 discountType: row.discount_type,
                 discountValue: parseFloat(row.discount_value),
-                usageCount: parseInt(row.usage_count || 0),
+                usageCount: parseInt(row.redemption_count || 0, 10),
                 revenueGenerated: parseFloat(row.revenue_generated || 0),
                 avgOrderValue: parseFloat(row.avg_order_value || 0),
                 netValue: parseFloat(row.net_value || 0)
