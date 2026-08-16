@@ -59,6 +59,14 @@ jobs:
       - name: Check every page has a skip link, a main landmark and an h1
         run: node scripts/check-a11y-landmarks.js
 
+      # Dependency-free as well. Nothing in this repository parses HTML, so a
+      # <script src> or a stylesheet pointing at a deleted file stays green
+      # through every other gate and surfaces only as a 404 in a console nobody
+      # has open -- which is how two dead Firebase tags survived on signin.html
+      # and signup.html, the two pages every visitor passes through (#1580).
+      - name: Check every local asset a page references exists
+        run: node scripts/check-assets.js
+
   backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
