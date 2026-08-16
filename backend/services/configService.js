@@ -317,10 +317,22 @@ class ConfigService extends EventEmitter {
      */
     async persistConfig(key, value, user) {
         try {
+            // Four placeholders, three values. `version` sat in the column list
+            // with a `?` of its own and nothing bound to it, so mysql2 rejected
+            // the statement before it left the process and every persisted
+            // configuration change threw (#1583).
+            //
+            // The placeholder was the mistake, not the missing binding.
+            // `app_config.version` is `INT DEFAULT 1` (sql/app_config.sql) and
+            // the ON DUPLICATE branch below already does `version = version + 1`,
+            // so the insert branch wants the default -- nothing in this codebase
+            // computes a version to pass in. Dropping the column from the list
+            // gives 1 on insert and an increment on update, which is what the
+            // two branches together were always meant to say.
             await db.query(
-                `INSERT INTO app_config 
-                 (config_key, config_value, version, updated_by, updated_at)
-                 VALUES (?, ?, ?, ?, NOW())
+                `INSERT INTO app_config
+                 (config_key, config_value, updated_by, updated_at)
+                 VALUES (?, ?, ?, NOW())
                  ON DUPLICATE KEY UPDATE
                  config_value = VALUES(config_value),
                  version = version + 1,
