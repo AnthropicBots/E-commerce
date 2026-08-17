@@ -49,7 +49,6 @@ const { initializeContainer } = require('./core/serviceRegistration');
 const responseExampleRoutes = require('./routes/responseExampleRoutes');
 const { standardizeResponse } = require('./middleware/responseStandardizer');
 
-const logDir = path.join(process.cwd(), "logs");
 const aiFeedRoutes = require('./routes/aiFeedRoutes');
 const agentRoutes = require('./routes/agentRoutes');
 const legalRoutes = require('./routes/legalRoutes');
@@ -198,8 +197,8 @@ const server = http.createServer(app);
 const { initSocket } = require("./utils/socketManager");
 const { accessLogger, errorLogger, devLogger } = require('./config/morganConfig');
 
-const PORT = Number(process.env.PORT) || 5000;
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5500";
+const appConfig = require('./config/appConfig');
+const logDir = appConfig.logDir;
 
 // Create logs directory if it does not exist
 if (!fs.existsSync(logDir)) {
@@ -233,8 +232,8 @@ if (process.env.NODE_ENV !== "production") {
 
 // Request Compression
 app.use(compression({
-    level: 6,
-    threshold: 1024,
+    level: appConfig.compression.level,
+    threshold: appConfig.compression.threshold,
     filter: (req, res) => {
         if (req.headers["x-no-compression"]) {
             return false;
@@ -244,13 +243,13 @@ app.use(compression({
 }));
 
 // Request Timeout
-app.use(timeout("30s"));
+app.use(timeout(appConfig.requestTimeout));
 app.use((req, res, next) => {
     if (req.path.startsWith("/api/admin") ||
         req.path === "/api/upload" ||
         req.path === "/api/export" ||
         req.path.startsWith("/api/mcp")) {
-        req.setTimeout(60000);
+        req.setTimeout(appConfig.longRequestTimeoutMs);
     }
     next();
 });
@@ -260,9 +259,9 @@ const webhookRoutes = require('./routes/webhookRoutes');
 app.use('/api/webhooks', webhookRoutes);
 
 // JSON and URL-encoded body parsers
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: appConfig.bodyLimit }));
 app.use(cookieParser());
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: appConfig.bodyLimit }));
 
 // Security headers for MCP endpoints
 app.use('/api/mcp', (req, res, next) => {
@@ -299,21 +298,7 @@ app.use("/api/admin", adminLimiter);
 app.use("/api/mcp", mcpLimiter);
 
 // Initialize Socket.IO server
-initSocket(server, [
-    "http://localhost:5500",
-    "http://127.0.0.1:5500",
-    "http://localhost:5501",
-    "http://127.0.0.1:5501",
-    "http://localhost:5502",
-    "http://127.0.0.1:5502",
-    "http://172.18.208.1:5500",
-    "http://172.18.208.1:5501",
-    "http://172.18.208.1:5502",
-    FRONTEND_URL,
-    "https://e-commerce-git-main-bhuvanshs-projects.vercel.app",
-    "https://www.bhuvansh.xyz",
-    "https://e-commerce-production-d546.up.railway.app"
-]);
+initSocket(server, appConfig.allowedOrigins);
 
 // AI identity-claim verification. This ran as a global middleware pair that had
 // been pasted above `const app = express()`, so it never executed and
