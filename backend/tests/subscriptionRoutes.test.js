@@ -444,7 +444,13 @@ describe("scheduling", () => {
             .filter((line) => !line.trim().startsWith("//"))
             .join("\n");
 
+        const bootstrapSource = fs
+            .readFileSync(path.join(__dirname, "..", "bootstrap.js"), "utf8")
+            .split("\n")
+            .filter((line) => !line.trim().startsWith("//"))
+            .join("\n");
+
         expect(source).not.toMatch(/setInterval\(\s*processRenewals/);
-        expect(source).toMatch(/startSubscriptionRenewalJob/);
+        expect(bootstrapSource).toMatch(/startSubscriptionRenewalJob/);
     });
 });
