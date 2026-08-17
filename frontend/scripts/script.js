@@ -256,30 +256,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Homepage search bar
-  const productSearch = document.getElementById("product-search");
-  if (productSearch) {
-    productSearch.addEventListener("input", () => {
-      const query = productSearch.value.trim().toLowerCase();
-
-      if (!query) {
-        renderHomepageProducts();
-        return;
-      }
-
-      const filtered = allProducts.filter((p) =>
-        p.name?.toLowerCase().includes(query) ||
-        p.category?.toLowerCase().includes(query)
-      );
-
-      if (featuredContainer) {
-        renderProducts(
-          featuredContainer,
-          filtered.slice(0, 8)
-        );
-      }
-    });
-  }
+  const productSearch = document.getElementById("product-search"); if (productSearch) { productSearch.addEventListener("input", () => { const query = productSearch.value.trim().toLowerCase(); if (!query) { renderHomepageProducts(); return; } const filtered = allProducts.filter((p) => p.name?.toLowerCase().includes(query) || p.category?.toLowerCase().includes(query)); if (featuredContainer) { renderProducts(featuredContainer, filtered.slice(0, 8)); } }); }
 });
+
+
+
+
 // ===== NEWSLETTER =====
 //
 // The one handler for the newsletter form, covering all eight pages that carry
@@ -319,129 +301,129 @@ const NEWSLETTER_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * @param {"success"|"error"} tone
  */
 function showNewsletterFeedback(feedback, message, tone) {
-    if (feedback) {
-        feedback.style.display = "block";
-        feedback.className =
-            `newsletter-feedback-message newsletter-feedback-${tone}`;
-        // textContent, not innerHTML: the server's message is the only thing
-        // that goes in here today, but a form's own feedback element is not
-        // where anyone should have to think about that.
-        feedback.textContent = message;
-        return;
-    }
+  if (feedback) {
+    feedback.style.display = "block";
+    feedback.className =
+      `newsletter-feedback-message newsletter-feedback-${tone}`;
+    // textContent, not innerHTML: the server's message is the only thing
+    // that goes in here today, but a form's own feedback element is not
+    // where anyone should have to think about that.
+    feedback.textContent = message;
+    return;
+  }
 
-    if (typeof notify === "function") {
-        notify(message, tone);
-    }
+  if (typeof notify === "function") {
+    notify(message, tone);
+  }
 }
 
 /**
  * Bind the sign-up form wherever it appears on this page.
  */
 function initNewsletterForms() {
-    // Two selectors, because the markup is not consistent between pages:
-    // index.html has `<form class="form" id="newsletter-form">`, and the rest
-    // have `<form class="form">` inside `<section id="newsletter">`.
-    //
-    // A Set, because on index.html both selectors find the same element -- and
-    // binding it twice is exactly the bug this replaces.
-    const forms = new Set([
-        ...document.querySelectorAll("#newsletter form"),
-        ...document.querySelectorAll("#newsletter-form")
-    ]);
+  // Two selectors, because the markup is not consistent between pages:
+  // index.html has `<form class="form" id="newsletter-form">`, and the rest
+  // have `<form class="form">` inside `<section id="newsletter">`.
+  //
+  // A Set, because on index.html both selectors find the same element -- and
+  // binding it twice is exactly the bug this replaces.
+  const forms = new Set([
+    ...document.querySelectorAll("#newsletter form"),
+    ...document.querySelectorAll("#newsletter-form")
+  ]);
 
-    forms.forEach((form) => {
-        form.addEventListener("submit", async (event) => {
-            event.preventDefault();
+  forms.forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
 
-            const input =
-                form.querySelector('input[type="email"]')
-                || form.querySelector("input");
-            const button = form.querySelector("button");
-            const feedback = document.getElementById("newsletter-feedback");
-            const email = (input?.value || "").trim();
+      const input =
+        form.querySelector('input[type="email"]')
+        || form.querySelector("input");
+      const button = form.querySelector("button");
+      const feedback = document.getElementById("newsletter-feedback");
+      const email = (input?.value || "").trim();
 
-            if (!email) {
-                showNewsletterFeedback(
-                    feedback,
-                    "Please enter your email address.",
-                    "error"
-                );
-                input?.focus();
-                return;
-            }
+      if (!email) {
+        showNewsletterFeedback(
+          feedback,
+          "Please enter your email address.",
+          "error"
+        );
+        input?.focus();
+        return;
+      }
 
-            if (!NEWSLETTER_EMAIL_PATTERN.test(email)) {
-                showNewsletterFeedback(
-                    feedback,
-                    "Please enter a valid email address.",
-                    "error"
-                );
-                input?.focus();
-                return;
-            }
+      if (!NEWSLETTER_EMAIL_PATTERN.test(email)) {
+        showNewsletterFeedback(
+          feedback,
+          "Please enter a valid email address.",
+          "error"
+        );
+        input?.focus();
+        return;
+      }
 
-            const originalLabel = button ? button.textContent : "";
-            if (button) {
-                button.textContent = "Subscribing...";
-                button.disabled = true;
-            }
-            if (input) {
-                input.disabled = true;
-            }
+      const originalLabel = button ? button.textContent : "";
+      if (button) {
+        button.textContent = "Subscribing...";
+        button.disabled = true;
+      }
+      if (input) {
+        input.disabled = true;
+      }
 
-            try {
-                const response = await AppUtils.apiRequest(
-                    "/newsletter/subscribe",
-                    {
-                        method: "POST",
-                        body: JSON.stringify({
-                            email,
-                            // Part of the consent record: which page the
-                            // visitor was on when they signed up.
-                            source: window.location.pathname
-                        })
-                    }
-                );
+      try {
+        const response = await AppUtils.apiRequest(
+          "/newsletter/subscribe",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              email,
+              // Part of the consent record: which page the
+              // visitor was on when they signed up.
+              source: window.location.pathname
+            })
+          }
+        );
 
-                // Branch on what the server said, not on "the await returned".
-                // apiRequest resolves with { success: false } on a non-2xx
-                // rather than rejecting, so treating arrival as success is how
-                // the contact form used to report a 404 as a win (#1445).
-                if (response && response.success) {
-                    showNewsletterFeedback(
-                        feedback,
-                        response.message
-                        || "Check your email for a link to confirm your subscription.",
-                        "success"
-                    );
-                    form.reset();
-                } else {
-                    showNewsletterFeedback(
-                        feedback,
-                        (response && response.message)
-                        || "Something went wrong. Please try again.",
-                        "error"
-                    );
-                }
-            } catch (error) {
-                console.error("NEWSLETTER SUBSCRIBE ERROR:", error);
-                showNewsletterFeedback(
-                    feedback,
-                    "Something went wrong. Please try again.",
-                    "error"
-                );
-            } finally {
-                if (button) {
-                    button.textContent = originalLabel;
-                    button.disabled = false;
-                }
-                if (input) {
-                    input.disabled = false;
-                }
-            }
-        });
+        // Branch on what the server said, not on "the await returned".
+        // apiRequest resolves with { success: false } on a non-2xx
+        // rather than rejecting, so treating arrival as success is how
+        // the contact form used to report a 404 as a win (#1445).
+        if (response && response.success) {
+          showNewsletterFeedback(
+            feedback,
+            response.message
+            || "Check your email for a link to confirm your subscription.",
+            "success"
+          );
+          form.reset();
+        } else {
+          showNewsletterFeedback(
+            feedback,
+            (response && response.message)
+            || "Something went wrong. Please try again.",
+            "error"
+          );
+        }
+      } catch (error) {
+        console.error("NEWSLETTER SUBSCRIBE ERROR:", error);
+        showNewsletterFeedback(
+          feedback,
+          "Something went wrong. Please try again.",
+          "error"
+        );
+      } finally {
+        if (button) {
+          button.textContent = originalLabel;
+          button.disabled = false;
+        }
+        if (input) {
+          input.disabled = false;
+        }
+      }
     });
+  });
 }
 
 initNewsletterForms();

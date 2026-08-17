@@ -1,6 +1,5 @@
-
 /* product controls */
-.product-controls{
+.product-controls {
     width: 100%;
     display: flex;
     justify-content: space-between;
@@ -10,12 +9,12 @@
     flex-wrap: wrap;
 }
 
-.search-box{
+.search-box {
     flex: 1;
     position: relative;
 }
 
-.search-box input{
+.search-box input {
     width: 100%;
     padding: 15px 18px 15px 50px;
     border: 1px solid #ddd;
@@ -34,7 +33,7 @@
     box-shadow: 0 0 0 4px rgba(8, 129, 120, 0.1);
 }
 
-.search-box i{
+.search-box i {
     position: absolute;
     left: 18px;
     top: 50%;
@@ -44,12 +43,50 @@
     pointer-events: none;
 }
 
-.search-box input:hover + i,
-.search-box input:focus + i {
+.search-box input:hover+i,
+.search-box input:focus+i {
     color: #065f57;
 }
 
-.sort-box select{
+.search-box .clear-search i {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+
+    font-size: 16px !important;
+    color: #777;
+}
+
+.clear-search {
+    position: absolute;
+    right: 15px;
+    left: auto;
+    top: 50%;
+    transform: translateY(-50%);
+
+    border: none;
+    background: transparent;
+    padding: 5px;
+    margin: 0;
+
+    color: #088178;
+    cursor: pointer;
+    z-index: 5;
+}
+
+.clear-search i {
+    position: static;
+    transform: none;
+    color: #088178;
+    font-size: 16px;
+}
+
+.clear-search:hover i {
+    color: #088178;
+}
+
+.sort-box select {
     padding: 15px 18px;
     border: 1px solid #ddd;
     border-radius: 10px;
@@ -57,6 +94,7 @@
     cursor: pointer;
     background: var(--white);
 }
+
 .banner-btn {
     margin-top: 20px;
     border: 1px solid rgba(255, 255, 255, .3);
@@ -71,7 +109,8 @@
     box-shadow: 0 8px 25px rgba(0, 0, 0, .15);
 }
 
-.banner-btn, .banner-btn a {
+.banner-btn,
+.banner-btn a {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -109,6 +148,7 @@
 .banner-btn:active {
     transform: scale(.97);
 }
+
 .banner-btn:focus,
 .banner-btn:focus-visible {
     outline: 3px solid #7fffd4;
@@ -116,31 +156,32 @@
     box-shadow:
         0 0 0 5px rgba(8, 129, 120, .25);
 }
+
 /* responsive layout */
-@media(max-width:1024px){
-    .product-controls{
+@media(max-width:1024px) {
+    .product-controls {
         flex-wrap: wrap;
     }
 }
 
-@media(max-width:799px){
-    .product-controls{
+@media(max-width:799px) {
+    .product-controls {
         flex-direction: column;
         align-items: stretch;
     }
 
-    .sort-box{
+    .sort-box {
         width: 100%;
     }
 
-    .sort-box select{
+    .sort-box select {
         width: 100%;
     }
 }
 
 #product1 .pro-container,
 #new-arrivals .pro-container,
-#recently-viewed .pro-container{
+#recently-viewed .pro-container {
     display: flex;
     flex-wrap: wrap;
     gap: 24px;
@@ -150,7 +191,7 @@
 
 #product1 .pro,
 #new-arrivals .pro,
-#recently-viewed .pro{
+#recently-viewed .pro {
     flex: 0 0 calc(33.333% - 20px);
     max-width: calc(33.333% - 20px);
     cursor: pointer;
@@ -158,34 +199,37 @@
 
 #product1 .pro img,
 #new-arrivals .pro img,
-#recently-viewed .pro img{
+#recently-viewed .pro img {
     width: 100%;
     height: 320px;
     object-fit: cover;
     object-position: center;
 }
 
-@media(max-width:1024px){
+@media(max-width:1024px) {
+
     #product1 .pro,
     #new-arrivals .pro,
-    #recently-viewed .pro{
+    #recently-viewed .pro {
         flex: 0 0 calc(33.333% - 20px);
         max-width: calc(33.333% - 20px);
     }
 }
 
-@media(max-width:799px){
+@media(max-width:799px) {
+
     #product1 .pro,
     #new-arrivals .pro,
-    #recently-viewed .pro{
+    #recently-viewed .pro {
         flex: 0 0 calc(50% - 20px);
     }
 }
 
-@media(max-width:477px){
+@media(max-width:477px) {
+
     #product1 .pro,
     #new-arrivals .pro,
-    #recently-viewed .pro{
+    #recently-viewed .pro {
         flex: 0 0 100%;
         max-width: 100%;
     }
@@ -193,7 +237,8 @@
 
 @media(max-width:768px) {
 
-    .banner-btn, .banner-btn a {
+    .banner-btn,
+    .banner-btn a {
         padding: 14px 24px;
         font-size: 14px;
     }
@@ -202,12 +247,14 @@
 
 @media(max-width:480px) {
 
-    .banner-btn, .banner-btn a {
+    .banner-btn,
+    .banner-btn a {
         padding: 12px 20px;
         font-size: 13px;
     }
 
 }
+
 /* =========================
    SECTION HEADER CARDS
 ========================= */
@@ -220,12 +267,12 @@
     border-radius: 24px;
     text-align: center;
     transition: all 0.3s ease;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
 }
 
 .section-header-card:hover {
     transform: translateY(-5px);
-    box-shadow: 0 16px 40px rgba(0,0,0,0.12);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12);
 }
 
 .section-header-card h2 {
@@ -256,11 +303,9 @@ body.dark-theme .section-header-card p {
 
 /* New Arrivals */
 .arrivals-card {
-    background: linear-gradient(
-        135deg,
-        #fff2e8,
-        #ffe8d9
-    );
+    background: linear-gradient(135deg,
+            #fff2e8,
+            #ffe8d9);
     border-left: 8px solid #f4a261;
 }
 
@@ -271,11 +316,9 @@ body.dark-theme .arrivals-card {
 
 /* Recently Viewed */
 .recent-card {
-    background: linear-gradient(
-        135deg,
-        #edf8f6,
-        #dff3ef
-    );
+    background: linear-gradient(135deg,
+            #edf8f6,
+            #dff3ef);
     border-left: 8px solid #6ab7a8;
 }
 
@@ -286,11 +329,9 @@ body.dark-theme .recent-card {
 
 /* Recommended */
 .recommended-card {
-    background: linear-gradient(
-        135deg,
-        #f3efff,
-        #ebe5ff
-    );
+    background: linear-gradient(135deg,
+            #f3efff,
+            #ebe5ff);
     border-left: 8px solid #9b8cff;
 }
 
@@ -386,7 +427,7 @@ body.dark-theme .recommended-card {
     border: 1px solid #cce7d0;
     border-radius: 20px;
     cursor: pointer;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.06);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
     transition: 0.3s ease;
     background: #fff;
     display: flex;
@@ -396,7 +437,7 @@ body.dark-theme .recommended-card {
 
 #recently-viewed .products-grid .pro:hover {
     transform: translateY(-6px);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
 }
 
 #recently-viewed .products-grid .pro img {
@@ -494,6 +535,7 @@ body.dark-theme .recommended-card {
     #recently-viewed .products-grid {
         justify-content: center;
     }
+
     #recently-viewed .products-grid .pro {
         flex: 0 0 100%;
         max-width: 320px;
