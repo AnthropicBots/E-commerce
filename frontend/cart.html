@@ -147,13 +147,94 @@
 
         <div class="cart-items-container">
 
-            <h2>
+            <!--
+                Expiry notice. cart.js has computed the days remaining from
+                CART_CONFIG.EXPIRY_DAYS since the feature landed, but had
+                nowhere to write it (#1584). Hidden until updateExpiryWarning
+                decides otherwise.
+            -->
+            <div
+                id="cart-expiry-warning"
+                class="cart-expiry-warning"
+                role="status"
+                aria-live="polite"
+                style="display: none;"
+            ></div>
 
-                Cart Items
+            <div class="cart-items-header">
 
-            </h2>
+                <h2>
+
+                    Cart Items
+
+                </h2>
+
+                <div class="cart-items-header__tools">
+
+                    <label class="select-all-label" for="select-all">
+                        <input
+                            type="checkbox"
+                            id="select-all"
+                            class="select-all-checkbox"
+                        >
+                        Select all
+                    </label>
+
+                    <span id="cart-item-count" class="cart-item-count">0 items</span>
+
+                </div>
+
+            </div>
+
+            <!--
+                Bulk actions. bulkRemove() and bulkSaveForLater() have been in
+                cart.js all along with nothing to trigger them, and
+                updateBulkActions() opens with `if (bulkActions && selectedCount)`
+                so it was a no-op. Revealed by updateBulkActions once at least
+                one line is selected.
+            -->
+            <div
+                id="bulk-actions"
+                class="bulk-actions"
+                role="region"
+                aria-label="Actions for selected items"
+                style="display: none;"
+            >
+
+                <span id="selected-count" class="selected-count">0 items selected</span>
+
+                <div class="bulk-actions__buttons">
+
+                    <button
+                        type="button"
+                        id="bulk-save-later-btn"
+                        class="bulk-action-btn bulk-action-btn--secondary"
+                    >
+                        <i class="fas fa-bookmark" aria-hidden="true"></i>
+                        Save for later
+                    </button>
+
+                    <button
+                        type="button"
+                        id="bulk-remove-btn"
+                        class="bulk-action-btn bulk-action-btn--danger"
+                    >
+                        <i class="fas fa-trash" aria-hidden="true"></i>
+                        Remove selected
+                    </button>
+
+                </div>
+
+            </div>
 
             <div id="cart-items"></div>
+
+            <!--
+                Saved for later. renderCart() builds this section itself when
+                there is something in it, so this is the container it renders
+                into rather than markup of its own.
+            -->
+            <div id="saved-for-later-container"></div>
 
         </div>
 

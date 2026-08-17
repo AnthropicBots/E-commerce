@@ -258,7 +258,7 @@ function main() {
     const fixed = [];
 
     for (const file of modules) {
-        const relativeToBackend = path.relative(BACKEND_ROOT, file);
+        const relativeToBackend = path.relative(BACKEND_ROOT, file).replace(/\\/g, '/');
         const known = findKnownFailure(relativeToBackend);
         const error = loadModule(file);
 

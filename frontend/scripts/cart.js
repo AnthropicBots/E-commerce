@@ -32,10 +32,15 @@ const elements = {
     couponForm: document.getElementById("coupon-form"),
     couponCode: document.getElementById("coupon-code"),
     couponMessage: document.getElementById("coupon-message"),
-    // New elements for enhanced features
+    // Selection, bulk actions, saved-for-later and the expiry notice. Every one
+    // of these resolved to null until #1584 added the markup to cart.html: the
+    // code behind them shipped, the elements it needed did not.
     bulkActions: document.getElementById("bulk-actions"),
+    bulkRemoveBtn: document.getElementById("bulk-remove-btn"),
+    bulkSaveLaterBtn: document.getElementById("bulk-save-later-btn"),
     selectAll: document.getElementById("select-all"),
     selectedCount: document.getElementById("selected-count"),
+    cartItemCount: document.getElementById("cart-item-count"),
     savedForLaterContainer: document.getElementById("saved-for-later-container"),
     cartExpiryWarning: document.getElementById("cart-expiry-warning")
 };
@@ -140,6 +145,67 @@ function renderEmptyCart() {
     updateCartTotals(
         0
     );
+}
+
+// Show the undo toast for a destructive action.
+//
+// Called from three places -- single-item remove, empty cart, and the bulk
+// remove this change wires up -- and declared in none of them. It was dropped
+// by the same merge that recommented the `decreaseBtn` declaration (#1535), and
+// went unnoticed because that ReferenceError fires first on the two paths that
+// already existed. `bulkRemove` cannot work without it, so it comes back here,
+// as it stood in 49e3b64.
+//
+// The contract the three call sites rely on: `onConfirm` runs when the window
+// closes (timeout, or the shopper dismissing the toast) and `onUndo` runs if
+// they take it back, with only one of the two ever running.
+//
+// @param {string} message
+// @param {Function} onUndo
+// @param {Function} onConfirm
+function showUndoToast(message, onUndo, onConfirm) {
+    const toast = document.getElementById('undo-toast');
+    if (!toast) {
+        createUndoToast();
+        return showUndoToast(message, onUndo, onConfirm);
+    }
+
+    toast.querySelector('.toast-message').textContent = message;
+    toast.classList.add('show');
+
+    // A second action while one is pending: settle the first rather than
+    // leaving its timeout to fire against a cart that has moved on.
+    if (undoAction) {
+        clearTimeout(undoAction.timeout);
+        if (undoAction.onConfirm) {
+            undoAction.onConfirm();
+        }
+    }
+
+    undoAction = {
+        onUndo,
+        onConfirm,
+        timeout: setTimeout(() => {
+            if (onConfirm) {
+                onConfirm();
+            }
+            hideUndoToast();
+            undoAction = null;
+        }, CART_CONFIG.UNDO_TIMEOUT)
+    };
+
+    const undoBtn = toast.querySelector('.undo-btn');
+    undoBtn.onclick = () => {
+        if (!undoAction) return;
+
+        clearTimeout(undoAction.timeout);
+        if (undoAction.onUndo) {
+            undoAction.onUndo();
+        }
+        hideUndoToast();
+        undoAction = null;
+        AppUtils.notify('Action undone', 'success');
+    };
 }
 
 function createUndoToast() {
@@ -279,11 +345,13 @@ async function updateCartTotals() {
         elements.totalElement.innerText = AppUtils.formatPrice(totals.total, currency);
     }
     
-    // Update cart item count
+    // Update cart item count. The element is cached with the rest rather than
+    // looked up again on every totals refresh; #cart-item-count was not in
+    // cart.html at all, so this had never written anywhere (#1584).
     const itemCount = cart.reduce((sum, item) => sum + (item.qty || 1), 0);
-    const countElement = document.getElementById('cart-item-count');
-    if (countElement) {
-        countElement.textContent = `${itemCount} items`;
+    if (elements.cartItemCount) {
+        elements.cartItemCount.textContent =
+            `${itemCount} ${itemCount === 1 ? 'item' : 'items'}`;
     }
     
     // Update expiry warning
@@ -386,101 +454,165 @@ function removeSavedItem(index) {
 }
 
 // ==================== BULK OPERATIONS ====================
+//
+// The selection is keyed by product id, and product ids are CHAR(36) UUIDs
+// (AGENTS.md: users, products and orders all use them). `parseInt` on one is
+// NaN, so every row collapsed onto a single key and "select all" reported one
+// item selected however many there were (#1584). Ids are kept as strings here
+// and compared with String(), which is what the rest of this file already does.
+const itemKey = (value) => String(value);
+
+/** Is this cart line currently selected? */
+function isSelected(item) {
+    return selectedItems.has(itemKey(item?.id));
+}
+
+/**
+ * Drop anything from the selection that is no longer in the cart.
+ *
+ * Removing a selected line used to leave its id in `selectedItems`, so the
+ * count kept including it and a later bulk action operated on a set that no
+ * longer matched what was on screen.
+ */
+function pruneSelection() {
+    const present = new Set(cart.map((item) => itemKey(item.id)));
+
+    for (const key of [...selectedItems]) {
+        if (!present.has(key)) selectedItems.delete(key);
+    }
+}
+
 function toggleSelectAll() {
     const selectAll = elements.selectAll;
     if (!selectAll) return;
-    
+
     const isChecked = selectAll.checked;
-    
+
     document.querySelectorAll('.cart-item-select').forEach(checkbox => {
         checkbox.checked = isChecked;
-        const itemId = parseInt(checkbox.dataset.itemId);
+        const key = itemKey(checkbox.dataset.itemId);
+
         if (isChecked) {
-            selectedItems.add(itemId);
+            selectedItems.add(key);
         } else {
-            selectedItems.delete(itemId);
+            selectedItems.delete(key);
         }
     });
-    
+
     updateBulkActions();
 }
 
 function toggleSelectItem(itemId) {
-    if (selectedItems.has(itemId)) {
-        selectedItems.delete(itemId);
+    const key = itemKey(itemId);
+
+    if (selectedItems.has(key)) {
+        selectedItems.delete(key);
     } else {
-        selectedItems.add(itemId);
+        selectedItems.add(key);
     }
+
     updateBulkActions();
 }
 
+/**
+ * Reflect the selection in the toolbar.
+ *
+ * `#bulk-actions`, `#selected-count` and `#select-all` were not in cart.html,
+ * so the guard below was false on every call and this did nothing at all -- the
+ * checkboxes rendered, ticked, and led nowhere (#1584).
+ */
 function updateBulkActions() {
     const bulkActions = elements.bulkActions;
     const selectedCount = elements.selectedCount;
-    
+    const selectAll = elements.selectAll;
+    const total = cart.length;
+    const selected = selectedItems.size;
+
     if (bulkActions && selectedCount) {
-        if (selectedItems.size > 0) {
+        if (selected > 0) {
             bulkActions.style.display = 'flex';
-            selectedCount.textContent = `${selectedItems.size} items selected`;
+            selectedCount.textContent =
+                `${selected} ${selected === 1 ? 'item' : 'items'} selected`;
         } else {
             bulkActions.style.display = 'none';
         }
+    }
+
+    if (selectAll) {
+        // Indeterminate rather than checked when only some are picked, so the
+        // control describes the selection instead of guessing at it.
+        selectAll.checked = total > 0 && selected === total;
+        selectAll.indeterminate = selected > 0 && selected < total;
+        selectAll.disabled = total === 0;
     }
 }
 
 function bulkRemove() {
     if (selectedItems.size === 0) return;
-    
-    const removedItems = cart.filter(item => selectedItems.has(item.id));
+
+    // Captured before the cart is filtered. Both callbacks run after
+    // `selectedItems` has been cleared, so one that re-derived the set from it
+    // would act on nothing.
+    const removedItems = cart.filter(isSelected);
     const count = removedItems.length;
-    
+    const noun = count === 1 ? 'item' : 'items';
+
+    // Written through immediately rather than held in memory pending the
+    // toast. `renderCart` opens with `cart = AppUtils.getCart()`, so an
+    // optimistic in-memory filter is discarded by the very render meant to
+    // show it -- the rows would blink out and come straight back. Undo
+    // restores from `removedItems` below, which is what makes this safe.
+    cart = cart.filter((item) => !isSelected(item));
+    selectedItems.clear();
+    saveAndRender(cart);
+
     showUndoToast(
-        `Removing ${count} items from cart`,
+        `Removing ${count} ${noun} from cart`,
         () => {
-            // Undo: restore items
-            cart.push(...removedItems);
-            saveAndRender(cart);
-            selectedItems.clear();
-            updateBulkActions();
+            // Undo: put them back where the cart can see them again.
+            saveAndRender([...cart, ...removedItems]);
         },
         () => {
-            // Confirm: actually remove
-            cart = cart.filter(item => !selectedItems.has(item.id));
-            selectedItems.clear();
-            saveAndRender(cart);
-            updateBulkActions();
-            AppUtils.notify(`Removed ${count} items from cart`, 'success');
+            // Confirm: already durable, so this only reports it.
+            AppUtils.notify(`Removed ${count} ${noun} from cart`, 'success');
         }
     );
-    
-    // Optimistic update
-    cart = cart.filter(item => !selectedItems.has(item.id));
-    renderCart();
-    updateCartTotals();
 }
 
 function bulkSaveForLater() {
     if (selectedItems.size === 0) return;
-    
-    const itemsToSave = cart.filter(item => selectedItems.has(item.id));
+
+    const itemsToSave = cart.filter(isSelected);
     const count = itemsToSave.length;
-    
+
     // Remove from cart
-    cart = cart.filter(item => !selectedItems.has(item.id));
-    
-    // Add to saved for later
-    itemsToSave.forEach(item => {
+    cart = cart.filter((item) => !isSelected(item));
+
+    // Add to saved for later, skipping anything already there so a double
+    // click cannot list the same product twice.
+    itemsToSave.forEach((item) => {
+        const alreadySaved = savedForLater.some(
+            (saved) =>
+                String(saved.id) === String(item.id)
+                && saved.color === item.color
+                && saved.size === item.size
+        );
+
+        if (alreadySaved) return;
+
         savedForLater.push({
             ...item,
             savedAt: new Date().toISOString()
         });
     });
     saveSavedForLater();
-    
+
     selectedItems.clear();
     saveAndRender(cart);
-    updateBulkActions();
-    AppUtils.notify(`Saved ${count} items for later`, 'success');
+    AppUtils.notify(
+        `Saved ${count} ${count === 1 ? 'item' : 'items'} for later`,
+        'success'
+    );
 }
 
 // ==================== ESTIMATED DELIVERY ====================
@@ -512,6 +644,11 @@ function renderCart() {
     loadSavedForLater();
     checkCartExpiry();
 
+    // The cart can change under the selection -- another tab, the drawer, an
+    // expiry sweep -- so anything no longer in it is dropped before the count
+    // is shown, rather than being counted and then acted on as a miss.
+    pruneSelection();
+
     if (!cart.length && !savedForLater.length) {
         renderEmptyCart();
         return;
@@ -531,7 +668,7 @@ function renderCart() {
     cart.forEach((item, index) => {
         const qty = Math.max(1, AppUtils.safeInteger(item.qty, 1));
         const price = AppUtils.safeNumber(item.price, 0);
-        const isSelected = selectedItems.has(item.id);
+        const selected = isSelected(item);
 
         const cartItem = document.createElement("div");
         cartItem.classList.add("cart-item");
@@ -539,11 +676,10 @@ function renderCart() {
 
         cartItem.innerHTML = `
             <div class="cart-item-select-wrapper">
-                <input type="checkbox" class="cart-item-select" 
-                    data-item-id="${item.id}"
-                    ${isSelected ? 'checked' : ''}
-                    onchange="window.toggleSelectItem(${item.id})">
-            </div>
+                <input type="checkbox" class="cart-item-select"
+                    data-item-id="${AppUtils.escapeHTML(String(item.id))}"
+                    aria-label="Select ${AppUtils.escapeHTML(item.name || "Product")}"
+                    ${selected ? 'checked' : ''}></div>
             <img src="${AppUtils.escapeHTML(AppUtils.defaultImage(item.img || item.image))}"
                 alt="${AppUtils.escapeHTML(item.name || "Product")}"
                 loading="lazy">
@@ -556,11 +692,10 @@ function renderCart() {
                 ${item.note ? `<p class="item-note">Note: ${AppUtils.escapeHTML(item.note)}</p>` : ""}
                 
                 <div class="item-notes">
-                    <input type="text" class="note-input" 
-                        placeholder="Add a note..." 
+                    <input type="text" class="note-input"
+                        placeholder="Add a note..."
                         value="${AppUtils.escapeHTML(item.note || '')}"
-                        data-index="${index}"
-                        onchange="window.updateItemNote(${index}, this.value)">
+                        data-index="${index}">
                 </div>
                 
                 <div class="cart-qty-controls" aria-label="Quantity controls">
@@ -568,10 +703,10 @@ function renderCart() {
                             aria-label="Decrease quantity" ${qty <= 1 ? "disabled" : ""}>
                         -
                     </button>
-                    <input type="number" class="qty-input" 
+                    <input type="number" class="qty-input"
                         value="${qty}" min="${CART_CONFIG.MIN_QUANTITY}" max="${CART_CONFIG.MAX_QUANTITY}"
-                        data-index="${index}"
-                        onchange="window.updateQuantity(${index}, parseInt(this.value))">
+                        aria-label="Quantity"
+                        data-index="${index}">
                     <button type="button" data-index="${index}" class="increase-qty" 
                             aria-label="Increase quantity">
                         +
@@ -627,7 +762,16 @@ function renderCart() {
                 `).join('')}
             </div>
         `;
-        fragment.appendChild(savedSection);
+        // Into its own container when the page provides one, so the saved
+        // items sit outside #cart-items and survive a cart re-render intact.
+        // Falls back to the cart fragment on any page that has not got one.
+        if (elements.savedForLaterContainer) {
+            elements.savedForLaterContainer.replaceChildren(savedSection);
+        } else {
+            fragment.appendChild(savedSection);
+        }
+    } else if (elements.savedForLaterContainer) {
+        elements.savedForLaterContainer.replaceChildren();
     }
 
     elements.cartContainer.replaceChildren(fragment);
@@ -658,6 +802,12 @@ function renderEmptyCart() {
     if (elements.emptyCartBtn) {
         elements.emptyCartBtn.disabled = true;
     }
+
+    // Nothing left to have selected. Without this the toolbar would stay on
+    // screen over an empty cart, offering to remove items that are gone.
+    selectedItems.clear();
+    updateBulkActions();
+
     updateCartTotals();
 }
 
@@ -790,6 +940,58 @@ document.addEventListener("click", (event) => {
         return;
     }
 });
+
+// ==================== SELECTION AND BULK ACTIONS ====================
+//
+// The bindings that were missing (#1584). `toggleSelectItem`,
+// `toggleSelectAll`, `bulkRemove` and `bulkSaveForLater` have all been in this
+// file since the feature landed and none of them was called from anywhere:
+// there was no listener on `.cart-item-select` and no `#select-all` or bulk
+// buttons in the page to bind to. Shoppers got a checkbox per line that did
+// nothing when ticked.
+//
+// The rendered markup used to carry `onchange="window.toggleSelectItem(...)"`,
+// which could not have worked either -- this file is an IIFE and assigns
+// nothing to `window`, so the handler was `undefined`, and the id was
+// interpolated unquoted, which for a CHAR(36) UUID is not even valid syntax.
+// The same was true of the quantity and note inputs, whose `onchange` called
+// `window.updateQuantity` and `window.updateItemNote`. All three are delegated
+// here instead, which matches how the rest of this file binds and needs nothing
+// on the global object.
+
+document.addEventListener("change", (event) => {
+    const itemCheckbox = event.target.closest(".cart-item-select");
+
+    if (itemCheckbox) {
+        toggleSelectItem(itemCheckbox.dataset.itemId);
+        return;
+    }
+
+    const qtyInput = event.target.closest(".qty-input");
+
+    if (qtyInput) {
+        updateQuantity(Number(qtyInput.dataset.index), parseInt(qtyInput.value, 10));
+        return;
+    }
+
+    const noteInput = event.target.closest(".note-input");
+
+    if (noteInput) {
+        updateItemNote(Number(noteInput.dataset.index), noteInput.value);
+    }
+});
+
+if (elements.selectAll) {
+    elements.selectAll.addEventListener("change", toggleSelectAll);
+}
+
+if (elements.bulkRemoveBtn) {
+    elements.bulkRemoveBtn.addEventListener("click", bulkRemove);
+}
+
+if (elements.bulkSaveLaterBtn) {
+    elements.bulkSaveLaterBtn.addEventListener("click", bulkSaveForLater);
+}
 
 // ==================== COUPON FORM ====================
 if (elements.couponForm) {
