@@ -54,7 +54,6 @@ const aiFeedRoutes = require('./routes/aiFeedRoutes');
 const agentRoutes = require('./routes/agentRoutes');
 const legalRoutes = require('./routes/legalRoutes');
 const aiLegalRoutes = require('./routes/aiLegalRoutes');
-const routes = require("./routes/index");
 const mcpRoutes = require("./routes/mcpRoutes"); // ✅ MCP Routes added
 // Add with other imports
 const socialEngineeringRoutes = require('./routes/socialEngineeringRoutes');
@@ -322,43 +321,11 @@ initSocket(server, [
 // guards, after the body parsers (it inspects the parsed body) and before the
 // routers it protects.
 app.use(verifyIdentityClaims);
+app.use('/api/identity', identityRoutes);
 
 // 9. Application Routes Setup
-app.use('/api/identity', identityRoutes);
-app.use('/api/response-example', responseExampleRoutes);
-app.use('/api/ai-legal', aiLegalRoutes);
-app.use('/api/legal', legalRoutes);
-app.use('/api/agents', agentRoutes);
-app.use('/api/ai-feed', aiFeedRoutes);
-app.use('/api/discovery', discoveryRoutes);
-app.use('/api/metrics', metricsRoutes);
-app.use('/api/notifications', notificationBrokerRoutes);
-app.use('/api/config', configRoutes);
-app.use('/api/tracing', tracingRoutes);
-app.use('/api/policies', policyRoutes);
-app.use('/api/outbox', outboxRoutes);
-app.use('/api/flags', flagRoutes);
-app.use('/api/correlation', correlationRoutes);
-app.use('/api/provenance', provenanceRoutes);
-app.use('/api/recommendations', recommendationRoutes);
-app.use('/api/loyalty', loyaltyRoutes);
-app.use('/api/rules', ruleRoutes);
-app.use('/api/plugins', pluginRoutes);
-app.use('/api/events', eventRoutes);
-app.use('/api/security', securityRoutes);
-app.use('/api/approvals', approvalRoutes);
-app.use('/api/rollback', rollbackRoutes);
-app.use('/api/ai/financial', aiFinancialRoutes);
-app.use('/api/performance', performanceRoutes);
-app.use('/api/recently-viewed', recentlyViewedRoutes);
-app.use('/api/experiments', experimentRoutes);
-app.use('/api/copywriter', copywriterRoutes);
-app.use('/api/fraud', fraudRoutes);
-app.use('/api/ai', aiRoutes);
-app.use('/api/loyalty', loyaltyRoutes);
-app.use('/api/stock-alerts', stockAlertRoutes);
-app.use("/api", routes);
-app.use("/api/mcp", mcpRoutes);
+const routes = require('./routes');
+Object.entries(routes).forEach(([path, router]) => app.use(path, router));
 
 // Refuse to start with a commerce route that declares no authorization policy
 // and is not on the public allowlist. Opt-in via ROUTE_POLICY_AUDIT=enforce (or

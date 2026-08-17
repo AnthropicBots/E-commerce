@@ -46,12 +46,10 @@ function collectMountedPrefixes() {
         'utf8'
     );
 
-    // routes/index.js is mounted at /api, so its own mounts are relative.
-    for (const match of indexSource.matchAll(/router\.use\(\s*["'`]\/([^/"'`]+)/g)) {
+    for (const match of indexSource.matchAll(/(?:router\.use\(\s*["'`]\/|["'`]\/api\/)([^/"'`]+)/g)) {
         prefixes.add(match[1]);
     }
 
-    // server.js mounts the rest directly, absolute from the root.
     const serverSource = fs.readFileSync(
         path.join(BACKEND_DIR, 'server.js'),
         'utf8'
