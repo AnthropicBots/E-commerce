@@ -321,6 +321,7 @@ initSocket(server, [
 // guards, after the body parsers (it inspects the parsed body) and before the
 // routers it protects.
 app.use(verifyIdentityClaims);
+app.use('/api/identity', identityRoutes);
 
 // 9. Application Routes Setup
 const routes = require('./routes');

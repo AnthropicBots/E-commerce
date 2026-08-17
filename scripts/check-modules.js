@@ -126,7 +126,8 @@ const KNOWN_FAILURES = [
 ];
 
 function findKnownFailure(relativeFile) {
-    return KNOWN_FAILURES.find((entry) => entry.file === relativeFile) || null;
+    const normalized = relativeFile.replace(/\\/g, '/');
+    return KNOWN_FAILURES.find((entry) => entry.file === normalized) || null;
 }
 
 /**
@@ -258,7 +259,7 @@ function main() {
     const fixed = [];
 
     for (const file of modules) {
-        const relativeToBackend = path.relative(BACKEND_ROOT, file);
+        const relativeToBackend = path.relative(BACKEND_ROOT, file).replace(/\\/g, '/');
         const known = findKnownFailure(relativeToBackend);
         const error = loadModule(file);
 

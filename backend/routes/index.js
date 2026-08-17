@@ -3,7 +3,6 @@
  * Map of API route paths to their router modules.
  */
 module.exports = {
-    "/api/identity": require("./identityRoutes"),
     "/api/response-example": require("./responseExampleRoutes"),
     "/api/ai-legal": require("./aiLegalRoutes"),
     "/api/legal": require("./legalRoutes"),
