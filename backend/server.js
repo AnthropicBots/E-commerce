@@ -54,7 +54,6 @@ const aiFeedRoutes = require('./routes/aiFeedRoutes');
 const agentRoutes = require('./routes/agentRoutes');
 const legalRoutes = require('./routes/legalRoutes');
 const aiLegalRoutes = require('./routes/aiLegalRoutes');
-const routes = require("./routes/index");
 const mcpRoutes = require("./routes/mcpRoutes"); // ✅ MCP Routes added
 // Add with other imports
 const socialEngineeringRoutes = require('./routes/socialEngineeringRoutes');
