@@ -49,7 +49,6 @@ const { initializeContainer } = require('./core/serviceRegistration');
 const responseExampleRoutes = require('./routes/responseExampleRoutes');
 const { standardizeResponse } = require('./middleware/responseStandardizer');
 
-const logDir = path.join(process.cwd(), "logs");
 const aiFeedRoutes = require('./routes/aiFeedRoutes');
 const agentRoutes = require('./routes/agentRoutes');
 const legalRoutes = require('./routes/legalRoutes');

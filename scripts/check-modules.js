@@ -270,7 +270,9 @@ function main() {
             continue;
         }
 
-        if (known && known.match.test(error.message || '')) {
+        const errorMessage = (error.message || '').replace(/\\/g, '/');
+
+        if (known && known.match.test(errorMessage)) {
             tolerated.push({ file: relativeToBackend, reason: known.reason });
             continue;
         }
