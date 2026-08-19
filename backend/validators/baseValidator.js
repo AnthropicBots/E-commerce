@@ -259,8 +259,9 @@ class BaseValidator {
      * Validate UUID
      */
     uuid(value, field, message = null) {
-        if (value && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
-            this.addError(field, message || `${field} must be a valid UUID`);
+        const canonicalUUIDRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (value && (typeof value !== 'string' || !canonicalUUIDRegex.test(value))) {
+            this.addError(field, message || 'Invalid UUID');
             return false;
         }
         return true;
