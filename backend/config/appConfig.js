@@ -32,5 +32,9 @@ module.exports = {
     compression: {
         level: 6,
         threshold: 1024
+    },
+    authRateLimit: {
+        windowMs: 15 * 60 * 1000,
+        max: 20
     }
 };

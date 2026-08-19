@@ -289,11 +289,7 @@ app.use(detectAgenticFraud);
 
 // 8. Global Rate Limiting
 app.use("/api", apiLimiter);
-app.use("/api/auth/login", authLimiter);
-app.use("/api/auth/signup", authLimiter);
-app.use("/api/auth/forgot-password", authLimiter);
-app.use("/api/auth/reset-password", authLimiter);
-app.use("/api/auth/refresh-token", authLimiter);
+app.use("/api/auth", authLimiter);
 app.use("/api/admin", adminLimiter);
 app.use("/api/mcp", mcpLimiter);
 
