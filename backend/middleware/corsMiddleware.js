@@ -23,6 +23,7 @@ const allowedOrigins = [
   FRONTEND_URL,
 
   // production
+  "https://ecommerce.vercel.app",
   "https://e-commerce-git-main-bhuvanshs-projects.vercel.app",
   "https://www.bhuvansh.xyz",
 

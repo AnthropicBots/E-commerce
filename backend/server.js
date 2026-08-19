@@ -221,6 +221,7 @@ app.use(logCompletionMiddleware);
 app.use(standardizeResponse);
 
 // Security, tracing, and logging middlewares
+app.use(corsMiddleware);
 app.use(helmetMiddleware);
 app.use(traceRequest);
 app.use(accessLogger);
