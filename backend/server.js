@@ -258,6 +258,10 @@ app.use((req, res, next) => {
 const webhookRoutes = require('./routes/webhookRoutes');
 app.use('/api/webhooks', webhookRoutes);
 
+// Static asset serving with filename whitelist & path-traversal security check
+const assetSecurityMiddleware = require('./middleware/assetSecurityMiddleware');
+app.use('/assets', assetSecurityMiddleware);
+
 // JSON and URL-encoded body parsers
 app.use(express.json({ limit: appConfig.bodyLimit }));
 app.use(cookieParser());
