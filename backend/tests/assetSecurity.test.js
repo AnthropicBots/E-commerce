@@ -7,7 +7,7 @@ describe('Asset Security Middleware', () => {
 
     beforeEach(() => {
         app = express();
-        app.use('/assets', assetSecurityMiddleware);
+        app.use(assetSecurityMiddleware);
     });
 
     test('should allow valid SVG filenames (alphanumeric, hyphens, underscores, .svg)', async () => {

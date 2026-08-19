@@ -11,25 +11,33 @@ const staticMiddleware = express.static(assetsDir);
  * and invalid filename requests.
  */
 function assetSecurityMiddleware(req, res, next) {
-    let decodedPath = req.path;
+    const rawUrl = req.originalUrl || req.url || req.path || '';
+    let decodedUrl = rawUrl;
     try {
-        decodedPath = decodeURIComponent(req.path);
+        decodedUrl = decodeURIComponent(rawUrl);
     } catch (err) {
         return res.status(403).json({
             success: false,
-            message: 'Forbidden: Invalid path encoding'
+            message: 'Forbidden: Invalid URL encoding'
         });
     }
 
-    // Guard against path traversal attacks
-    if (decodedPath.includes('..') || decodedPath.includes('\\')) {
+    const isSvgFile = decodedUrl.endsWith('.svg') || decodedUrl.includes('.svg');
+    const isAssetPath = decodedUrl.startsWith('/assets') || req.path.startsWith('/assets') || req.baseUrl === '/assets' || decodedUrl.includes('/assets/');
+
+    if (!isSvgFile && !isAssetPath) {
+        return next();
+    }
+
+    // Reject requests attempting path traversal or trying to access files outside /assets
+    if (!decodedUrl.startsWith('/assets') || decodedUrl.includes('..') || decodedUrl.includes('\\') || req.path.includes('..')) {
         return res.status(403).json({
             success: false,
             message: 'Forbidden: Path traversal detected'
         });
     }
 
-    const filename = path.basename(decodedPath);
+    const filename = path.basename(decodedUrl);
 
     // Whitelist check: only alphanumeric, hyphens, underscores, .svg
     if (!filename || !ALLOWED_FILENAME_REGEX.test(filename)) {
