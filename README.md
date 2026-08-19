@@ -89,6 +89,16 @@ https://e-commerce-git-main-bhuvanshs-projects.vercel.app
 | JavaScript | Frontend Logic |
 | Vercel | Frontend Deployment |
 
+### 📌 Key Directory Guide
+
+- **`.github/`** – Contains GitHub issue templates and repository automation configuration.
+- **`.agents/`** – Contains reusable agent skills and development guidance.
+- **`backend/`** – Contains the server-side application, API routes, controllers, services, database logic, middleware, and backend tests.
+- **`frontend/`** – Contains the client-side assets, reusable components, JavaScript, and styles.
+- **`docs/`** – Contains project documentation and supporting references.
+- **`migrations/`** – Contains ordered database schema migrations.
+- **`scripts/`** – Contains repository-level development and utility scripts.
+
 ---
 
 # 📂 Updated Project Structure
