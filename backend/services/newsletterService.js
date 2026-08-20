@@ -228,14 +228,51 @@ const sendConfirmationEmail = async (email, rawToken) => {
 };
 
 /**
+ * Every answer `confirm` can give.
+ *
+ * Named because the controller branches on them and the tests assert them, and
+ * a set of bare strings scattered across three files is how one of them quietly
+ * stops being produced.
+ */
+const CONFIRM_OUTCOMES = Object.freeze({
+    /** The link worked; this call is what put the address on the list. */
+    CONFIRMED: 'confirmed',
+    /** A link for a subscription that is already live. Not a failure. */
+    ALREADY_CONFIRMED: 'already_confirmed',
+    /** The address has since asked not to be mailed. */
+    ALREADY_UNSUBSCRIBED: 'already_unsubscribed',
+    /** Still pending, but the 48 hours are up. */
+    EXPIRED: 'expired',
+    /** No row has ever carried this digest. */
+    INVALID_TOKEN: 'invalid_token'
+});
+
+/**
  * Redeem a confirmation token.
  *
+ * A spent token stays findable and stops being usable (#1612). The successful
+ * UPDATE moves the digest from `confirm_token` -- the column every write path
+ * matches on -- to `spent_confirm_token`, which no write path matches on at
+ * all. Before this the digest was simply set to NULL, so the lookup below found
+ * nothing and a second click on a working link was reported as invalid.
+ *
+ * That matters more than it sounds: double-clicking a link in a mail client is
+ * ordinary, and several mail security scanners follow links in a message before
+ * the recipient ever opens it. The scanner spends the token; the human is told
+ * their link is broken for a subscription that is live; they submit the form
+ * again, which correctly mails nothing to an already-confirmed address; and the
+ * page stays broken from their point of view forever.
+ *
  * @param {string} token Raw token from the link.
- * @returns {Promise<{confirmed: boolean, reason?: string, unsubscribeToken?: string}>}
+ * @returns {Promise<{confirmed: boolean, outcome: string, reason?: string}>}
  */
 const confirm = async (token) => {
     if (!token || typeof token !== 'string') {
-        return { confirmed: false, reason: 'invalid_token' };
+        return {
+            confirmed: false,
+            outcome: CONFIRM_OUTCOMES.INVALID_TOKEN,
+            reason: CONFIRM_OUTCOMES.INVALID_TOKEN
+        };
     }
 
     const digest = hashToken(token);
@@ -246,6 +283,7 @@ const confirm = async (token) => {
         `UPDATE newsletter_subscribers
             SET status = 'confirmed',
                 confirmed_at = NOW(),
+                spent_confirm_token = confirm_token,
                 confirm_token = NULL,
                 confirm_token_expires_at = NULL
           WHERE confirm_token = ?
@@ -254,24 +292,56 @@ const confirm = async (token) => {
         [digest]
     );
 
-    if (result.affectedRows === 0) {
-        // Already-confirmed is not a failure from the subscriber's point of
-        // view -- clicking the link twice should not look broken. Distinguished
-        // here so the controller can say something sensible.
-        const [rows] = await db.query(
-            `SELECT status FROM newsletter_subscribers
-              WHERE confirm_token = ? LIMIT 1`,
-            [digest]
-        );
-
-        if (!rows.length) {
-            return { confirmed: false, reason: 'invalid_token' };
-        }
-
-        return { confirmed: false, reason: 'expired' };
+    if (result.affectedRows > 0) {
+        return { confirmed: true, outcome: CONFIRM_OUTCOMES.CONFIRMED };
     }
 
-    return { confirmed: true };
+    // Nothing was confirmed. Which of the four reasons applies is worth
+    // knowing, and the caller is holding a token that was mailed to the
+    // address, so they have already demonstrated they are entitled to know.
+    //
+    // Both columns, because a row reaches `spent_confirm_token` by being
+    // confirmed *or* by being unsubscribed while still pending.
+    const [rows] = await db.query(
+        `SELECT status, confirm_token_expires_at
+           FROM newsletter_subscribers
+          WHERE confirm_token = ? OR spent_confirm_token = ?
+          LIMIT 1`,
+        [digest, digest]
+    );
+
+    const row = rows[0];
+
+    if (!row) {
+        return {
+            confirmed: false,
+            outcome: CONFIRM_OUTCOMES.INVALID_TOKEN,
+            reason: CONFIRM_OUTCOMES.INVALID_TOKEN
+        };
+    }
+
+    if (row.status === 'confirmed') {
+        // `confirmed: true` deliberately. The subscriber asked to be on the
+        // list and is on the list; that the work was done by an earlier click
+        // is not their problem, and reporting it as a failure is what sends
+        // them back to the sign-up form.
+        return { confirmed: true, outcome: CONFIRM_OUTCOMES.ALREADY_CONFIRMED };
+    }
+
+    if (row.status === 'unsubscribed') {
+        return {
+            confirmed: false,
+            outcome: CONFIRM_OUTCOMES.ALREADY_UNSUBSCRIBED,
+            reason: CONFIRM_OUTCOMES.ALREADY_UNSUBSCRIBED
+        };
+    }
+
+    // Still pending, so the only way the UPDATE missed it is the expiry.
+    return {
+        confirmed: false,
+        outcome: CONFIRM_OUTCOMES.EXPIRED,
+        reason: CONFIRM_OUTCOMES.EXPIRED
+    };
 };
 
 /**
@@ -295,10 +365,18 @@ const unsubscribe = async (token) => {
 
     const digest = hashToken(token);
 
+    // `spent_confirm_token = COALESCE(confirm_token, spent_confirm_token)`
+    // rather than a bare assignment: a row that was already confirmed has NULL
+    // in `confirm_token` and its real spent digest in the other column, and
+    // overwriting that with NULL would lose the audit key this change exists to
+    // keep (#1612). A row unsubscribed while still pending records its live
+    // token as spent, which is what lets a confirmation link followed after an
+    // unsubscribe be answered truthfully instead of as an invalid link.
     const [result] = await db.query(
         `UPDATE newsletter_subscribers
             SET status = 'unsubscribed',
                 unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
+                spent_confirm_token = COALESCE(confirm_token, spent_confirm_token),
                 confirm_token = NULL,
                 confirm_token_expires_at = NULL
           WHERE unsubscribe_token = ?`,
@@ -345,6 +423,7 @@ const listConfirmed = async () => {
 module.exports = {
     subscribe,
     confirm,
+    CONFIRM_OUTCOMES,
     unsubscribe,
     listConfirmed,
     normalizeEmail,
