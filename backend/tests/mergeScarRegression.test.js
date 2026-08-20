@@ -152,16 +152,29 @@ describe('backend/services/recentlyViewedService.js', () => {
     });
 
     // Two cache shapes were written to the same key: a bare array and
-    // `{ data, timestamp }`. Every reader expects the second.
+    // `{ data, timestamp }`. Every reader expects the second, and since #1610
+    // it also carries `complete` -- whether the list is the user's whole
+    // history or merely part of it.
     it('writes and reads one cache shape', () => {
-        service.writeCache('user-1', [{ id: 'p1' }]);
+        service.writeCache('user-1', [{ id: 'p1' }], { complete: true });
 
         const raw = service.cache.get(service.getCacheKey('user-1'));
         expect(Array.isArray(raw)).toBe(false);
         expect(raw).toHaveProperty('data');
         expect(raw).toHaveProperty('timestamp');
+        expect(raw).toHaveProperty('complete', true);
 
-        expect(service.readCache('user-1')).toEqual([{ id: 'p1' }]);
+        // The rows are normalised on the way in, so the round trip is by id
+        // rather than by identity -- one row shape whichever path wrote it.
+        expect(service.readCache('user-1').map((row) => row.id)).toEqual(['p1']);
+    });
+
+    it('defaults a cache entry to incomplete', () => {
+        // "Non-empty" is not "complete". Treating the two as the same is what
+        // let one product view hide the rest of the list for five minutes.
+        service.writeCache('user-3', [{ id: 'p1' }]);
+
+        expect(service.readCacheEntry('user-3').complete).toBe(false);
     });
 
     it('treats an expired cache entry as a miss', () => {
