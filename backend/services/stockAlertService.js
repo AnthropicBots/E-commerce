@@ -12,6 +12,19 @@ const {
     NOTIFICATION_TYPES,
 } = require("./notificationBrokerService");
 
+// The one definition of "a shopper may see this product" (#1456). This engine
+// did not use it, which is the whole of #1609: `products` carries `deleted_at`
+// and a `status` enum, and both evaluators joined on nothing but `p.id`. So a
+// soft-deleted, archived, inactive or still-draft product that gained stock --
+// a correction, a return, a re-import -- mailed everyone who had ever
+// subscribed to it, and the link in that mail lands on a page the product
+// routes deliberately 404.
+//
+// Importing the shared condition rather than retyping the predicate is the
+// point: it is what stops this engine drifting away from the catalogue a
+// second time.
+const { publicProductCondition } = require("../constants/productVisibility");
+
 const ALERT_TYPES = {
     BACK_IN_STOCK: "back_in_stock",
     PRICE_DROP: "price_drop",
@@ -37,15 +50,90 @@ function assertAlertType(alertType) {
     }
 }
 
-async function fetchCurrentPrice(productId) {
-    const [rows] = await db.query(
-        "SELECT price FROM products WHERE id = ?",
-        [productId]
-    );
-    if (!rows || rows.length === 0) {
-        throw new Error(`Product not found: ${productId}`);
+/**
+ * Raised when a subscription is asked for against a product a shopper may not
+ * see. Carries a `code` so the route can answer 404 rather than folding every
+ * business-rule failure into a 400.
+ */
+class StockAlertError extends Error {
+    constructor(message, code) {
+        super(message);
+        this.name = "StockAlertError";
+        this.code = code;
     }
-    return rows[0].price;
+}
+
+/**
+ * Load the product a subscription is being taken out against, through the
+ * public visibility condition.
+ *
+ * Runs for every alert type, not only for a price-drop without a baseline.
+ * Before this, a back-in-stock subscription was inserted with no lookup at all
+ * and a price-drop subscription carrying a client-supplied `referencePrice`
+ * skipped it too -- so `POST /api/stock-alerts` accepted subscriptions to
+ * draft and deleted products and held them until an evaluator picked them up.
+ *
+ * @param {string} productId
+ * @returns {Promise<{id: string, price: number, stock: number, name: string}>}
+ * @throws {StockAlertError} PRODUCT_NOT_VISIBLE
+ */
+async function fetchVisibleProduct(productId) {
+    const visible = publicProductCondition("p");
+
+    const [rows] = await db.query(
+        `SELECT p.id, p.price, p.stock, p.name
+           FROM products p
+          WHERE p.id = ?
+            AND ${visible.sql}
+          LIMIT 1`,
+        [productId, ...visible.params]
+    );
+
+    const product = Array.isArray(rows) ? rows[0] : undefined;
+
+    if (!product) {
+        // Deliberately the same message whether the product does not exist or
+        // is merely not public. Which of the two it is is information about
+        // unreleased catalogue, and this endpoint is reachable by any signed-in
+        // account.
+        throw new StockAlertError(
+            `Product not found: ${productId}`,
+            "PRODUCT_NOT_VISIBLE"
+        );
+    }
+
+    return product;
+}
+
+/**
+ * The price a price-drop alert measures against.
+ *
+ * A caller may pin a baseline, but only downwards. Left unclamped, a client
+ * could post `referencePrice: 999999` and be notified of a "price drop" on the
+ * very next scan for a product whose price never moved.
+ *
+ * @param {unknown} requested
+ * @param {number} currentPrice
+ * @returns {number}
+ */
+function resolveReferencePrice(requested, currentPrice) {
+    const current = Number(currentPrice);
+    const base = Number.isFinite(current) ? current : 0;
+
+    if (requested === null || requested === undefined || requested === "") {
+        return base;
+    }
+
+    const pinned = Number(requested);
+
+    if (!Number.isFinite(pinned) || pinned <= 0) {
+        throw new StockAlertError(
+            "referencePrice must be a positive number",
+            "INVALID_REFERENCE_PRICE"
+        );
+    }
+
+    return Math.min(pinned, base);
 }
 
 async function fetchSubscription(userId, productId, alertType) {
@@ -83,6 +171,13 @@ async function dispatchAndMark(subscription, notificationType, extraData) {
 const stockAlertService = {
     ALERT_TYPES,
     SUBSCRIPTION_STATUS,
+    StockAlertError,
+
+    // Exposed so the routes can distinguish "no such visible product" (404)
+    // from a malformed request (400), and so the tests can assert the clamp
+    // without going through the database.
+    fetchVisibleProduct,
+    resolveReferencePrice,
 
     // Create (or reactivate) a subscription. The UNIQUE key on
     // (user_id, product_id, alert_type) makes this idempotent: a repeat call
@@ -92,12 +187,19 @@ const stockAlertService = {
     subscribe: async ({ userId, productId, alertType, referencePrice = null }) => {
         assertAlertType(alertType);
 
+        // Every alert type, every time. A subscription is a promise to mail
+        // this user about this product later, and there is no point recording
+        // one against a product that will never be publicly visible again.
+        const product = await fetchVisibleProduct(productId);
+
         // A price-drop alert needs a baseline to compare against; default it to
-        // the product's current price when the caller doesn't pin one.
-        let effectiveReferencePrice = referencePrice;
-        if (alertType === ALERT_TYPES.PRICE_DROP && effectiveReferencePrice === null) {
-            effectiveReferencePrice = await fetchCurrentPrice(productId);
-        }
+        // the product's current price when the caller doesn't pin one, and take
+        // it from the row already loaded rather than issuing a second query
+        // that could read a price the visibility check never saw.
+        const effectiveReferencePrice =
+            alertType === ALERT_TYPES.PRICE_DROP
+                ? resolveReferencePrice(referencePrice, product.price)
+                : null;
 
         await db.query(
             `INSERT INTO stock_alert_subscriptions
@@ -152,17 +254,51 @@ const stockAlertService = {
         return rows;
     },
 
+    // Cancel every active subscription whose product is no longer publicly
+    // visible.
+    //
+    // Filtering at evaluation time stops the mail going out, but it leaves the
+    // rows sitting `active` forever, re-examined on every scan and shown to the
+    // user on their alerts page as though they were still live. A product can
+    // come back -- `inactive` is explicitly "withdrawn, expected back" -- so
+    // this is deliberately NOT run by the evaluators; it is a housekeeping
+    // call for the scheduler to make against genuinely gone products, i.e.
+    // soft-deleted or archived ones.
+    //
+    // Returns the number of rows cancelled.
+    purgeUnavailableSubscriptions: async () => {
+        const [result] = await db.query(
+            `UPDATE stock_alert_subscriptions s
+               JOIN products p ON p.id = s.product_id
+                SET s.status = ?
+              WHERE s.status = ?
+                AND (p.deleted_at IS NOT NULL OR p.status = 'archived')`,
+            [SUBSCRIPTION_STATUS.CANCELLED, SUBSCRIPTION_STATUS.ACTIVE]
+        );
+
+        return result && typeof result.affectedRows === "number"
+            ? result.affectedRows
+            : 0;
+    },
+
     // Fire a PRODUCT_BACK_IN_STOCK alert for every active back-in-stock
     // subscription whose product now has stock. Returns the number dispatched.
     evaluateRestocks: async () => {
+        const visible = publicProductCondition("p");
+
         const [rows] = await db.query(
             `SELECT s.id, s.user_id, s.product_id, p.stock, p.name
                FROM stock_alert_subscriptions s
                JOIN products p ON p.id = s.product_id
               WHERE s.alert_type = ?
                 AND s.status = ?
-                AND p.stock > 0`,
-            [ALERT_TYPES.BACK_IN_STOCK, SUBSCRIPTION_STATUS.ACTIVE]
+                AND p.stock > 0
+                AND ${visible.sql}`,
+            [
+                ALERT_TYPES.BACK_IN_STOCK,
+                SUBSCRIPTION_STATUS.ACTIVE,
+                ...visible.params,
+            ]
         );
 
         let dispatched = 0;
@@ -188,6 +324,8 @@ const stockAlertService = {
     // whose product price has fallen below the price captured at subscribe
     // time. Returns the number dispatched.
     evaluatePriceDrops: async () => {
+        const visible = publicProductCondition("p");
+
         const [rows] = await db.query(
             `SELECT s.id, s.user_id, s.product_id, s.reference_price, p.price, p.name
                FROM stock_alert_subscriptions s
@@ -195,8 +333,13 @@ const stockAlertService = {
               WHERE s.alert_type = ?
                 AND s.status = ?
                 AND s.reference_price IS NOT NULL
-                AND p.price < s.reference_price`,
-            [ALERT_TYPES.PRICE_DROP, SUBSCRIPTION_STATUS.ACTIVE]
+                AND p.price < s.reference_price
+                AND ${visible.sql}`,
+            [
+                ALERT_TYPES.PRICE_DROP,
+                SUBSCRIPTION_STATUS.ACTIVE,
+                ...visible.params,
+            ]
         );
 
         let dispatched = 0;
