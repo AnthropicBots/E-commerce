@@ -84,10 +84,23 @@ const canRenderText = (doc, text) => {
 /**
  * Decide, once per document, how money will be written on it.
  *
- * Returned rather than computed per call so a single invoice cannot print some
- * amounts with the symbol and others with the code.
+ * Two possible answers, and which one applies is a property of the font this
+ * document happens to be using, not of the currency:
  *
- * @param {object} doc pdfkit document
+ *   symbol   "₹1,499.00"    -- the font has a glyph for CURRENCY.symbol
+ *   code     "INR 1,499.00" -- it does not, so the ISO 4217 code stands in
+ *
+ * Resolved once and passed down rather than recomputed at each call site, so a
+ * single invoice cannot print some amounts with the symbol and others with the
+ * code -- a document that does that is harder to read than one that
+ * consistently uses either.
+ *
+ * `usesSymbol` is returned alongside the prefix because a caller may want to
+ * know *which* answer it got -- the footer line ("Amounts in INR") is worth
+ * more when the symbol was dropped -- without having to re-derive it by
+ * inspecting the string.
+ *
+ * @param {object} doc pdfkit document, already using its final font
  * @returns {{ prefix: string, usesSymbol: boolean }}
  */
 const resolveMoneyStyle = (doc) => {
@@ -112,10 +125,30 @@ const resolveMoneyStyle = (doc) => {
  * @returns {string} digits, grouping and decimal separator only — no symbol
  */
 const formatAmount = (amount) => {
-    const value = Number(amount) || 0;
-    const digits = Number.isInteger(CURRENCY.minorUnitExponent)
-        ? CURRENCY.minorUnitExponent
+    const parsed = Number(amount);
+
+    // isFinite, not `Number(x) || 0`. That idiom catches NaN, null, undefined
+    // and "" but lets Infinity through, and Intl renders Infinity as "∞"
+    // (U+221E) -- which is itself outside WinAnsi, so the very glyph problem
+    // this module exists to avoid would come back on the one line nobody
+    // thought to check. A non-finite amount is not a price; it prints as zero.
+    const finite = Number.isFinite(parsed) ? parsed : 0;
+
+    // Clamped, because both Intl.NumberFormat and toFixed throw RangeError
+    // outside their accepted ranges -- and the fallback below would then throw
+    // *inside* the catch that exists to stop the first throw, taking the
+    // invoice download with it.
+    const configured = Number(CURRENCY.minorUnitExponent);
+    const digits = Number.isInteger(configured)
+        ? Math.min(Math.max(configured, 0), 20)
         : 2;
+
+    // Anything that rounds to zero prints as zero, without a sign. Both -0 and
+    // -0.001 would otherwise come out as "-0.00", and on an invoice that reads
+    // as a mistake -- "Discount: --0.00" reads as two. A genuinely negative
+    // amount keeps its sign; only a *displayed* zero loses one.
+    const roundsToZero = Math.abs(finite) < 0.5 / 10 ** digits;
+    const value = roundsToZero ? 0 : finite;
 
     try {
         return new Intl.NumberFormat(CURRENCY.locale || 'en-US', {

@@ -280,6 +280,40 @@ describe("invoice helpers", () => {
         expect(formatAmount("not a number")).toBe("0.00");
     });
 
+    it("treats anything that is not a finite amount as zero", () => {
+        // `Number(x) || 0` would let these two through, and Intl renders
+        // Infinity as "∞" (U+221E) -- outside WinAnsi, so the exact glyph
+        // problem this module exists to avoid would come back on the one line
+        // nobody thought to check.
+        expect(formatAmount(Infinity)).toBe("0.00");
+        expect(formatAmount(-Infinity)).toBe("0.00");
+        expect(formatAmount(NaN)).toBe("0.00");
+        expect(formatAmount(null)).toBe("0.00");
+        expect(formatAmount("")).toBe("0.00");
+        expect(formatAmount({})).toBe("0.00");
+        expect(formatAmount([])).toBe("0.00");
+    });
+
+    it("never prints a negative zero", () => {
+        // "Discount: --0.00" reads as two mistakes.
+        expect(formatAmount(-0)).toBe("0.00");
+        expect(formatAmount("-0")).toBe("0.00");
+        expect(formatAmount(-0.001)).toBe("0.00");
+    });
+
+    it("keeps a genuinely negative amount negative", () => {
+        // A credit note is a real thing; only the *sign of zero* is noise.
+        expect(formatAmount(-49)).toBe("-49.00");
+    });
+
+    it("prints nothing that a Latin-1 font would drop", () => {
+        const printable = /^[\u0020-\u007e\u00a0-\u00ff]*$/;
+
+        [0, -0, Infinity, NaN, 1234567.5, -49, "49"].forEach((value) => {
+            expect(formatAmount(value)).toMatch(printable);
+        });
+    });
+
     it("prefers the explicit column but keeps a recorded zero", () => {
         expect(resolveTotals({ total: 0, final_amount: undefined }).total).toBe(0);
         expect(resolveTotals({ total: 10, final_amount: 25 }).total).toBe(25);
