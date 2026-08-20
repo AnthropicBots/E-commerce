@@ -67,15 +67,17 @@ const settle = async () => {
 /**
  * A compare page with the real script running on it.
  *
- * The Web Worker is deliberately absent so the main-thread matrix path runs;
+ * By default the Web Worker is absent so the main-thread matrix path runs;
  * jsdom has no Worker and loading `scripts/compare-worker.js` over a file URL
- * would not work anyway.
+ * would not work anyway. Pass `worker` to install a stand-in and exercise the
+ * path a real browser takes instead.
  *
  * @param {object} [options]
  * @param {object} [options.storage] initial localStorage contents
  * @param {string[]} [options.knownIds] ids the fake API will resolve
+ * @param {{messages: Array, reply: Function}} [options.worker] fake worker
  */
-const mountCompare = async ({ storage = {}, knownIds = IDS } = {}) => {
+const mountCompare = async ({ storage = {}, knownIds = IDS, worker = null, brokenWorker = false } = {}) => {
     const dom = new JSDOM(PAGE, {
         url: 'https://shop.example/compare.html',
         runScripts: 'outside-only'
@@ -127,8 +129,34 @@ const mountCompare = async ({ storage = {}, knownIds = IDS } = {}) => {
         }
     };
 
-    // No Worker: exercise the main-thread matrix path.
-    window.Worker = undefined;
+    if (brokenWorker) {
+        // A Worker constructor that throws, the way a blocked or missing worker
+        // script behaves. compare.js catches it and uses the main thread.
+        window.Worker = function BrokenWorker() {
+            throw new Error('worker script blocked');
+        };
+    } else if (worker) {
+        // A stand-in for the real Web Worker. jsdom has none, and the browsers
+        // that shoppers actually use do -- so the worker path is the one most
+        // of them take, and the buttons are bound from the render it drives.
+        window.Worker = function FakeWorker() {
+            worker.instance = this;
+            this.postMessage = (payload) => {
+                worker.messages.push(payload);
+                // The real worker replies asynchronously; so does this.
+                Promise.resolve().then(() => {
+                    if (typeof this.onmessage === 'function') {
+                        this.onmessage({ data: worker.reply(payload) });
+                    }
+                });
+            };
+            this.terminate = () => {};
+        };
+    } else {
+        // No Worker: exercise the main-thread matrix path.
+        window.Worker = undefined;
+    }
+
     window.confirm = () => true;
 
     window.eval(source);
@@ -142,6 +170,7 @@ const mountCompare = async ({ storage = {}, knownIds = IDS } = {}) => {
         cart,
         notices,
         requested,
+        worker,
         readStored,
         removeButtons: () => [...window.document.querySelectorAll('.compare-remove-btn')],
         addButtons: () => [...window.document.querySelectorAll('.add-to-cart-btn')],
@@ -314,5 +343,102 @@ describe('sameId', () => {
 
         expect(normalizeIds([1, '1', 2])).toEqual(['1', '2']);
         expect(normalizeIds(null)).toEqual([]);
+    });
+});
+
+describe('the Web Worker path', () => {
+    // Everything above runs the main-thread fallback, but a real browser has a
+    // Worker and takes this branch -- so the buttons shoppers actually click
+    // are bound from the render the worker drives. The fake below answers the
+    // shape `compare-worker.js` posts back.
+
+    /** A worker double that sorts and builds a matrix the way the real one does. */
+    const fakeWorker = () => ({
+        messages: [],
+        instance: null,
+        reply: ({ products, sortBy }) => {
+            const sorted = [...products];
+            if (sortBy === 'price-desc') {
+                sorted.sort((a, b) => Number(b.price) - Number(a.price));
+            }
+
+            return {
+                action: 'PROCESS_COMPARISON_RESULT',
+                products: sorted,
+                specMatrix: [
+                    {
+                        key: 'price',
+                        label: 'Price',
+                        type: 'currency',
+                        values: sorted.map((p) => p.price),
+                        isDifferent: true,
+                        bestValue: Math.min(...sorted.map((p) => Number(p.price)))
+                    }
+                ]
+            };
+        }
+    });
+
+    it('renders from the worker reply', async () => {
+        const page = await mountCompare({ storage: { compareProducts: IDS }, worker: fakeWorker() });
+
+        expect(page.worker.messages).toHaveLength(1);
+        expect(page.worker.messages[0].action).toBe('PROCESS_COMPARISON');
+        expect(page.headerTitles()).toEqual(['Product 0', 'Product 1', 'Product 2']);
+    });
+
+    it('removes the product the button belongs to', async () => {
+        const page = await mountCompare({ storage: { compareProducts: IDS }, worker: fakeWorker() });
+
+        page.removeButtons()[1].click();
+        await settle();
+
+        expect(page.readStored('compareProducts')).toEqual([IDS[0], IDS[2]]);
+        expect(page.headerTitles()).toEqual(['Product 0', 'Product 2']);
+    });
+
+    it('adds the product the button belongs to', async () => {
+        const page = await mountCompare({ storage: { compareProducts: IDS }, worker: fakeWorker() });
+
+        page.addButtons()[1].click();
+        await settle();
+
+        expect(page.cart.map((item) => item.id)).toEqual([IDS[1]]);
+    });
+
+    it('binds against the order the worker returned, not the order stored', async () => {
+        // The worker sorts; the ids on the buttons come from its reply. If the
+        // handlers had closed over an index rather than reading the id back,
+        // sorting would silently rewire every button.
+        const page = await mountCompare({ storage: { compareProducts: IDS }, worker: fakeWorker() });
+
+        page.document.getElementById('compare-sort-select').innerHTML =
+            '<option value="price-desc" selected>Price high to low</option>';
+        page.document.getElementById('compare-sort-select').dispatchEvent(
+            new page.window.Event('change')
+        );
+        await settle();
+
+        expect(page.headerTitles()).toEqual(['Product 2', 'Product 1', 'Product 0']);
+
+        page.addButtons()[0].click();
+        await settle();
+
+        expect(page.cart.map((item) => item.id)).toEqual([IDS[2]]);
+    });
+
+    it('falls back to the main thread when the worker cannot be created', async () => {
+        // A blocked or missing worker script must not take the page with it --
+        // and the buttons have to work on the fallback render too.
+        const page = await mountCompare({ storage: { compareProducts: IDS }, brokenWorker: true });
+
+        expect(page.headerTitles()).toEqual(['Product 0', 'Product 1', 'Product 2']);
+
+        page.addButtons()[0].click();
+        page.removeButtons()[2].click();
+        await settle();
+
+        expect(page.cart.map((item) => item.id)).toEqual([IDS[0]]);
+        expect(page.readStored('compareProducts')).toEqual([IDS[0], IDS[1]]);
     });
 });
