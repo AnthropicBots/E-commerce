@@ -40,6 +40,10 @@ class CouponValidator extends BaseValidator {
             this.futureDate(data.endDate, 'endDate');
         }
 
+        if (data.startDate && data.endDate) {
+            this.dateAfter(data.endDate, 'endDate', data.startDate, 'startDate');
+        }
+
         if (data.usageLimit) {
             this.positive(data.usageLimit, 'usageLimit');
             this.integer(data.usageLimit, 'usageLimit');
@@ -84,6 +88,19 @@ class CouponValidator extends BaseValidator {
 
         if (data.discountValue !== undefined) {
             this.positive(data.discountValue, 'discountValue');
+        }
+
+        if (data.startDate !== undefined) {
+            this.date(data.startDate, 'startDate');
+        }
+
+        if (data.endDate !== undefined) {
+            this.date(data.endDate, 'endDate');
+            this.futureDate(data.endDate, 'endDate');
+        }
+
+        if (data.startDate && data.endDate) {
+            this.dateAfter(data.endDate, 'endDate', data.startDate, 'startDate');
         }
 
         return this;
