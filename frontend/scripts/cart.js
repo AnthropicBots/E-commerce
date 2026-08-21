@@ -834,7 +834,7 @@ function updateItemNote(index, note) {
 document.addEventListener("click", (event) => {
     // Quantity buttons
     const increaseBtn = event.target.closest(".increase-qty");
-    // const decreaseBtn = event.target.closest(".decrease-qty");
+    const decreaseBtn = event.target.closest(".decrease-qty");
     const removeBtn = event.target.closest(".remove-btn");
     const wishlistBtn = event.target.closest(".move-wishlist-btn");
     const saveLaterBtn = event.target.closest(".save-later-btn");
