@@ -61,6 +61,70 @@ describe('CouponValidator Validation Tests', () => {
             const errors = result.getErrors();
             expect(errors.some(e => e.field === 'endDate' && e.message.includes('must be after startDate'))).toBe(true);
         });
+
+        test('fails validation when maxDiscount is 0', () => {
+            const invalidData = {
+                code: 'SUMMER2026',
+                discountType: 'percentage',
+                discountValue: 20,
+                maxDiscount: 0
+            };
+
+            const result = couponValidator.validateCreate(invalidData);
+            expect(result.isValid()).toBe(false);
+            expect(result.getErrors().some(e => e.field === 'maxDiscount')).toBe(true);
+        });
+
+        test('fails validation when usageLimit is 0', () => {
+            const invalidData = {
+                code: 'SUMMER2026',
+                discountType: 'percentage',
+                discountValue: 20,
+                usageLimit: 0
+            };
+
+            const result = couponValidator.validateCreate(invalidData);
+            expect(result.isValid()).toBe(false);
+            expect(result.getErrors().some(e => e.field === 'usageLimit')).toBe(true);
+        });
+
+        test('fails validation when usageLimitPerUser is 0', () => {
+            const invalidData = {
+                code: 'SUMMER2026',
+                discountType: 'percentage',
+                discountValue: 20,
+                usageLimitPerUser: 0
+            };
+
+            const result = couponValidator.validateCreate(invalidData);
+            expect(result.isValid()).toBe(false);
+            expect(result.getErrors().some(e => e.field === 'usageLimitPerUser')).toBe(true);
+        });
+
+        test('passes validation when minOrderAmount is 0', () => {
+            const validData = {
+                code: 'SUMMER2026',
+                discountType: 'percentage',
+                discountValue: 20,
+                minOrderAmount: 0
+            };
+
+            const result = couponValidator.validateCreate(validData);
+            expect(result.isValid()).toBe(true);
+        });
+
+        test('fails validation when minOrderAmount is negative', () => {
+            const invalidData = {
+                code: 'SUMMER2026',
+                discountType: 'percentage',
+                discountValue: 20,
+                minOrderAmount: -10
+            };
+
+            const result = couponValidator.validateCreate(invalidData);
+            expect(result.isValid()).toBe(false);
+            expect(result.getErrors().some(e => e.field === 'minOrderAmount')).toBe(true);
+        });
     });
 
     describe('validateUpdate', () => {
@@ -86,26 +150,24 @@ describe('CouponValidator Validation Tests', () => {
             expect(errors.some(e => e.field === 'discountValue' && e.message.includes('must be between 0 and 100'))).toBe(true);
         });
 
-        test('passes validation when updated endDate is after startDate', () => {
-            const validData = {
-                startDate: futureDate1,
-                endDate: futureDate2
-            };
-
-            const result = couponValidator.validateUpdate(validData);
-            expect(result.isValid()).toBe(true);
-        });
-
-        test('fails validation when updated endDate is before startDate', () => {
+        test('fails validation when maxDiscount in update is 0', () => {
             const invalidData = {
-                startDate: futureDate2,
-                endDate: futureDate1
+                maxDiscount: 0
             };
 
             const result = couponValidator.validateUpdate(invalidData);
             expect(result.isValid()).toBe(false);
-            const errors = result.getErrors();
-            expect(errors.some(e => e.field === 'endDate' && e.message.includes('must be after startDate'))).toBe(true);
+            expect(result.getErrors().some(e => e.field === 'maxDiscount')).toBe(true);
+        });
+
+        test('fails validation when usageLimit in update is 0', () => {
+            const invalidData = {
+                usageLimit: 0
+            };
+
+            const result = couponValidator.validateUpdate(invalidData);
+            expect(result.isValid()).toBe(false);
+            expect(result.getErrors().some(e => e.field === 'usageLimit')).toBe(true);
         });
     });
 

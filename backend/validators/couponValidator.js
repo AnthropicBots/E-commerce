@@ -23,19 +23,19 @@ class CouponValidator extends BaseValidator {
             this.range(data.discountValue, 'discountValue', 0, 100);
         }
 
-        if (data.maxDiscount) {
+        if (data.maxDiscount !== undefined && data.maxDiscount !== null) {
             this.positive(data.maxDiscount, 'maxDiscount');
         }
 
-        if (data.minOrderAmount) {
+        if (data.minOrderAmount !== undefined && data.minOrderAmount !== null) {
             this.nonNegative(data.minOrderAmount, 'minOrderAmount');
         }
 
-        if (data.startDate) {
+        if (data.startDate !== undefined && data.startDate !== null) {
             this.date(data.startDate, 'startDate');
         }
 
-        if (data.endDate) {
+        if (data.endDate !== undefined && data.endDate !== null) {
             this.date(data.endDate, 'endDate');
             this.futureDate(data.endDate, 'endDate');
         }
@@ -44,12 +44,12 @@ class CouponValidator extends BaseValidator {
             this.dateAfter(data.endDate, 'endDate', data.startDate, 'startDate');
         }
 
-        if (data.usageLimit) {
+        if (data.usageLimit !== undefined && data.usageLimit !== null) {
             this.positive(data.usageLimit, 'usageLimit');
             this.integer(data.usageLimit, 'usageLimit');
         }
 
-        if (data.usageLimitPerUser) {
+        if (data.usageLimitPerUser !== undefined && data.usageLimitPerUser !== null) {
             this.positive(data.usageLimitPerUser, 'usageLimitPerUser');
             this.integer(data.usageLimitPerUser, 'usageLimitPerUser');
         }
@@ -76,17 +76,17 @@ class CouponValidator extends BaseValidator {
     validateUpdate(data) {
         this.validate(data);
 
-        if (data.code !== undefined) {
+        if (data.code !== undefined && data.code !== null) {
             this.pattern(data.code, 'code', /^[A-Z0-9-]+$/);
             this.minLength(data.code, 'code', 3);
             this.maxLength(data.code, 'code', 20);
         }
 
-        if (data.discountType !== undefined) {
+        if (data.discountType !== undefined && data.discountType !== null) {
             this.enum(data.discountType, 'discountType', ['percentage', 'fixed']);
         }
 
-        if (data.discountValue !== undefined) {
+        if (data.discountValue !== undefined && data.discountValue !== null) {
             this.positive(data.discountValue, 'discountValue');
         }
 
@@ -94,11 +94,29 @@ class CouponValidator extends BaseValidator {
             this.range(data.discountValue, 'discountValue', 0, 100);
         }
 
-        if (data.startDate !== undefined) {
+        if (data.maxDiscount !== undefined && data.maxDiscount !== null) {
+            this.positive(data.maxDiscount, 'maxDiscount');
+        }
+
+        if (data.minOrderAmount !== undefined && data.minOrderAmount !== null) {
+            this.nonNegative(data.minOrderAmount, 'minOrderAmount');
+        }
+
+        if (data.usageLimit !== undefined && data.usageLimit !== null) {
+            this.positive(data.usageLimit, 'usageLimit');
+            this.integer(data.usageLimit, 'usageLimit');
+        }
+
+        if (data.usageLimitPerUser !== undefined && data.usageLimitPerUser !== null) {
+            this.positive(data.usageLimitPerUser, 'usageLimitPerUser');
+            this.integer(data.usageLimitPerUser, 'usageLimitPerUser');
+        }
+
+        if (data.startDate !== undefined && data.startDate !== null) {
             this.date(data.startDate, 'startDate');
         }
 
-        if (data.endDate !== undefined) {
+        if (data.endDate !== undefined && data.endDate !== null) {
             this.date(data.endDate, 'endDate');
             this.futureDate(data.endDate, 'endDate');
         }
