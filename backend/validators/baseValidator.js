@@ -212,6 +212,19 @@ class BaseValidator {
     }
 
     /**
+     * Validate that date value is after target date value
+     */
+    dateAfter(value, field, targetValue, targetField = 'target date', message = null) {
+        if (value && targetValue && !isNaN(Date.parse(value)) && !isNaN(Date.parse(targetValue))) {
+            if (new Date(value) <= new Date(targetValue)) {
+                this.addError(field, message || `${field} must be after ${targetField}`);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Validate positive number
      */
     positive(value, field, message = null) {
