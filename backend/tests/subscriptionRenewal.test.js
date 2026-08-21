@@ -346,6 +346,22 @@ describe('resume', () => {
         expect(update).toMatch(/cancel_at_period_end = 0/);
     });
 
+    test('un-pauses a paused subscription that also had a pending cancellation', async () => {
+        mockConnectionQuery
+            .mockResolvedValueOnce([[ROW({ status: 'paused', cancel_at_period_end: 1 })]])
+            .mockResolvedValueOnce([{}])
+            .mockResolvedValueOnce([READBACK()]);
+
+        const result = await subscriptionService.resume(USER);
+
+        expect(result.status).toBe('active');
+        expect(result.withdrewCancellation).toBe(true);
+
+        const update = mockConnectionQuery.mock.calls[1][0];
+        expect(update).toMatch(/cancel_at_period_end = 0/);
+        expect(update).toMatch(/status = 'active'/);
+    });
+
     test('refuses when there is nothing to resume', async () => {
         mockConnectionQuery.mockResolvedValueOnce([
             [ROW({ status: 'active', cancel_at_period_end: 0 })]
