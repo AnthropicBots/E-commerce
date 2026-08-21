@@ -264,6 +264,15 @@ describe('subscribe', () => {
         expect(days).toBe(14);
     });
 
+    test('refuses a plan with an unsupported billing interval', async () => {
+        mockConnectionQuery.mockResolvedValueOnce([[{ ...PLAN, interval: 'fortnightly' }]]);
+
+        await expect(subscriptionService.subscribe(USER, 2)).rejects.toMatchObject({
+            status: 400,
+            code: 'UNSUPPORTED_INTERVAL'
+        });
+    });
+
     test('rejects an unusable plan id before touching the database', async () => {
         await expect(subscriptionService.subscribe(USER, 'abc')).rejects.toMatchObject({
             code: 'INVALID_PLAN'
