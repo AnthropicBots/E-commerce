@@ -107,7 +107,7 @@ function advancePeriod(from, interval, count = 1) {
         default:
             throw new SubscriptionError(
                 `Unsupported billing interval: ${interval}`,
-                500,
+                400,
                 'UNSUPPORTED_INTERVAL'
             );
     }
@@ -247,6 +247,15 @@ async function subscribe(userId, planId) {
         }
 
         const billingPlan = plans[0];
+
+        const ALLOWED_INTERVALS = ['daily', 'weekly', 'monthly', 'yearly'];
+        if (!ALLOWED_INTERVALS.includes(billingPlan.interval)) {
+            throw new SubscriptionError(
+                `Unsupported billing interval: ${billingPlan.interval}`,
+                400,
+                'UNSUPPORTED_INTERVAL'
+            );
+        }
 
         // FOR UPDATE so a second concurrent subscribe waits here rather than
         // reading the same empty result and inserting alongside this one.
