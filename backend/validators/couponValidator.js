@@ -90,6 +90,10 @@ class CouponValidator extends BaseValidator {
             this.positive(data.discountValue, 'discountValue');
         }
 
+        if (data.discountType === 'percentage') {
+            this.range(data.discountValue, 'discountValue', 0, 100);
+        }
+
         if (data.startDate !== undefined) {
             this.date(data.startDate, 'startDate');
         }
