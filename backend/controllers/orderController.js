@@ -220,12 +220,18 @@ const createOrder =
                 "paypal"
             ];
 
+            // Translation map from frontend short forms to service canonical forms
+            const PAYMENT_METHOD_TRANSLATION = {
+                cod: "cash_on_delivery",
+                card: "credit_card",
+                upi: "upi",
+                paypal: "paypal"
+            };
+
+            const normalizedPaymentMethod = sanitizeString(paymentMethod).toLowerCase();
+
             if (
-                !validPaymentMethods.includes(
-                    sanitizeString(
-                        paymentMethod
-                    ).toLowerCase()
-                )
+                !validPaymentMethods.includes(normalizedPaymentMethod)
             ) {
 
                 return res.status(400)
@@ -235,6 +241,9 @@ const createOrder =
                             "Invalid payment method"
                     });
             }
+
+            // Translate to canonical form expected by the service
+            const canonicalPaymentMethod = PAYMENT_METHOD_TRANSLATION[normalizedPaymentMethod];
 
             // begin transaction
             await connection.beginTransaction();
@@ -281,7 +290,7 @@ const createOrder =
                         zip: sanitizeString(address.zip),
                         full_address: sanitizeString(address.fullAddress),
                         address_id: addressId ? sanitizeString(addressId) : null,
-                        payment_method: sanitizeString(paymentMethod).toLowerCase(),
+                        payment_method: canonicalPaymentMethod,
                         total: safeNumber(total),
                         items,
                         promo_code: promoCode ? sanitizeString(promoCode) : null,
@@ -308,7 +317,7 @@ const createOrder =
                 changedBy: safeUUID(checkout.userId),
                 changedByName: sanitizeString(customer.name || ""),
                 reason: "Order placed",
-                metadata: { paymentMethod: sanitizeString(paymentMethod).toLowerCase() },
+                metadata: { paymentMethod: canonicalPaymentMethod },
                 request: req
             });
 
@@ -1011,7 +1020,7 @@ const createPaymentIntent = async (req, res) => {
             state: sanitizeString(address.state),
             zip: sanitizeString(address.zip),
             full_address: sanitizeString(address.fullAddress),
-            payment_method: 'card',
+            payment_method: 'credit_card',
             total: safeNumber(total),
             items,
             promo_code: promoCode ? sanitizeString(promoCode) : null,
