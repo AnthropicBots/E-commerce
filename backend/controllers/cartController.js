@@ -7,7 +7,8 @@ const {
     mergeCartLines,
     normalizeCartLine,
     normalizeCartLines,
-    resolveCartOwnership
+    resolveCartOwnership,
+    normalizeDbLines
 } = require("../services/cart.service");
 const cartLifecycle = require("../services/cartLifecycleService");
 const guestCart = require("../services/guestCartService");
@@ -200,6 +201,8 @@ const cartController = {
                 ORDER BY c.created_at DESC
             `, [cartId, ...visibility.params]);
 
+            const normalizedRows = normalizeDbLines(rows);
+
             // How many lines the basket holds versus how many are still
             // buyable. Silently returning fewer rows than the shopper put in
             // reads as data loss; naming the count lets the cart page say
@@ -211,12 +214,12 @@ const cartController = {
 
             const unavailableCount = Math.max(
                 0,
-                Number(held?.total || 0) - (rows?.length || 0)
+                Number(held?.total || 0) - (normalizedRows?.length || 0)
             );
 
             return res.status(200).json({
                 success: true,
-                cart: rows,
+                cart: normalizedRows,
                 unavailableCount
             });
 
@@ -407,10 +410,12 @@ const cartController = {
                 }
             }
 
-            const [existingLines] = await connection.query(
+            const [existingLinesRaw] = await connection.query(
                 "SELECT product_id, variant_id, color, size, quantity FROM cart_items WHERE cart_id = ? AND product_id = ?",
                 [cart.cartId, line.productId]
             );
+
+            const existingLines = normalizeDbLines(existingLinesRaw);
 
             // Adding to a line that is already in the cart is the one place
             // quantities are summed, and only for the very same line.
@@ -496,7 +501,9 @@ const cartController = {
             }
 
             const [result] = await connection.query(
-                "UPDATE cart_items SET quantity = ? WHERE cart_id = ? AND product_id = ? AND variant_id = ? AND color = ? AND size = ?",
+                `UPDATE cart_items SET quantity = ?
+                 WHERE cart_id = ? AND product_id = ? AND variant_id = ?
+                 AND COALESCE(color, '') = ? AND COALESCE(size, '') = ?`,
                 [line.quantity, cartId, line.productId, line.variantId, line.color, line.size]
             );
 
@@ -542,7 +549,9 @@ const cartController = {
             }
 
             const [result] = await promisePool.query(
-                "DELETE FROM cart_items WHERE cart_id = ? AND product_id = ? AND variant_id = ? AND color = ? AND size = ?",
+                `DELETE FROM cart_items
+                 WHERE cart_id = ? AND product_id = ? AND variant_id = ?
+                 AND COALESCE(color, '') = ? AND COALESCE(size, '') = ?`,
                 [cartId, line.productId, line.variantId, line.color, line.size]
             );
 
