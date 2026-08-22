@@ -23,8 +23,8 @@ const getDashboardStats = async () => {
             COUNT(*) as totalUsers,
             SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as activeUsers,
             SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) as blockedUsers,
-            SUM(CASE WHEN is_email_verified = 1 THEN 1 ELSE 0 END) as verifiedUsers,
-            SUM(CASE WHEN is_email_verified = 0 THEN 1 ELSE 0 END) as unverifiedUsers,
+            SUM(CASE WHEN is_verified = 1 THEN 1 ELSE 0 END) as verifiedUsers,
+            SUM(CASE WHEN is_verified = 0 THEN 1 ELSE 0 END) as unverifiedUsers,
             SUM(CASE WHEN MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE()) THEN 1 ELSE 0 END) as newUsersThisMonth
         FROM users
     `);
@@ -84,7 +84,7 @@ const getDashboardStats = async () => {
 // =====================
 const getUsers = async (filters, page, limit) => {
     const offset = (page - 1) * limit;
-    let query = `SELECT id, name, email, role, is_active, is_email_verified, created_at, updated_at FROM users WHERE 1=1`;
+    let query = `SELECT id, name, email, role, is_active, is_verified, created_at, updated_at FROM users WHERE 1=1`;
     const params = [];
 
     if (filters.search) {
@@ -108,7 +108,7 @@ const getUsers = async (filters, page, limit) => {
     }
 
     if (filters.emailVerified !== undefined) {
-        query += ` AND is_email_verified = ?`;
+        query += ` AND is_verified = ?`;
         params.push(filters.emailVerified ? 1 : 0);
     }
 
@@ -386,7 +386,7 @@ const verifyUserEmail = async (adminId, { email, userId }, ip, userAgent) => {
     try {
         await connection.beginTransaction();
         
-        let query = `SELECT id, email, is_email_verified FROM users WHERE `;
+        let query = `SELECT id, email, is_verified FROM users WHERE `;
         const params = [];
         
         if (email) {
@@ -404,12 +404,12 @@ const verifyUserEmail = async (adminId, { email, userId }, ip, userAgent) => {
             throw new Error("User not found");
         }
 
-        if (userCheck[0].is_email_verified === 1) {
+        if (userCheck[0].is_verified === 1) {
             throw new Error("Email is already verified");
         }
 
         await connection.query(
-            `UPDATE users SET is_email_verified = 1 WHERE id = ?`,
+            `UPDATE users SET is_verified = 1 WHERE id = ?`,
             [userCheck[0].id]
         );
         
