@@ -1,4 +1,8 @@
-#cart-header{
+/* ==========================================================================
+   Cart Page Styles & Dark Mode Support
+   ========================================================================== */
+
+#cart-header {
     background-image: url('../assets/images/banner.png');
     width: 100%;
     height: 35vh;
@@ -11,35 +15,35 @@
 }
 
 #cart-header h2,
-#cart-header p{
+#cart-header p {
     color: #fff;
 }
 
-#cart-page{
+#cart-page {
     display: flex;
     gap: 30px;
     align-items: flex-start;
 }
 
-.cart-items-container{
+.cart-items-container {
     flex: 2;
     background: #fff;
     padding: 25px;
     border-radius: 10px;
-    box-shadow: 0 5px 25px rgba(0,0,0,0.08);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.08);
 }
 
-.cart-summary{
+.cart-summary {
     width: 350px;
     background: #fff;
     padding: 25px;
     border-radius: 10px;
-    box-shadow: 0 5px 25px rgba(0,0,0,0.08);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.08);
     position: sticky;
     top: 120px;
 }
 
-.cart-item{
+.cart-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -48,34 +52,34 @@
     border-bottom: 1px solid #eee;
 }
 
-.cart-item img{
+.cart-item img {
     width: 110px;
     aspect-ratio: 1;
     object-fit: cover;
     border-radius: 10px;
 }
 
-.cart-item-info{
+.cart-item-info {
     flex: 1;
 }
 
-.cart-item-info h3{
+.cart-item-info h3 {
     margin-bottom: 10px;
 }
 
-.cart-item-info p{
+.cart-item-info p {
     margin-bottom: 6px;
     color: #555;
 }
 
-.cart-qty-controls{
+.cart-qty-controls {
     display: flex;
     align-items: center;
     gap: 12px;
     margin-top: 12px;
 }
 
-.cart-qty-controls button{
+.cart-qty-controls button {
     width: 34px;
     height: 34px;
     border: none;
@@ -86,19 +90,19 @@
     font-size: 18px;
 }
 
-.cart-qty-controls button:disabled{
+.cart-qty-controls button:disabled {
     background: #d8d8d8;
     color: #777;
     cursor: not-allowed;
 }
 
-.cart-qty-controls span{
+.cart-qty-controls span {
     font-weight: 600;
     min-width: 20px;
     text-align: center;
 }
 
-.cart-item-actions{
+.cart-item-actions {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
@@ -106,13 +110,13 @@
     min-width: 150px;
 }
 
-.cart-item-actions strong{
+.cart-item-actions strong {
     color: #088178;
 }
 
 .remove-btn,
 .move-wishlist-btn,
-.empty-cart-btn{
+.empty-cart-btn {
     background: red;
     color: #fff;
     border: none;
@@ -121,13 +125,13 @@
     cursor: pointer;
 }
 
-.move-wishlist-btn{
+.move-wishlist-btn {
     background: #f2f7f7;
     color: #088178;
     border: 1px solid #b8d8d5;
 }
 
-.empty-cart-btn{
+.empty-cart-btn {
     width: 100%;
     background: #f8eeee;
     color: #c62828;
@@ -136,43 +140,43 @@
 }
 
 .empty-cart-btn:disabled,
-#checkout-btn:disabled{
+#checkout-btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
     transform: none;
 }
 
-.summary-row{
+.summary-row {
     display: flex;
     justify-content: space-between;
     margin: 20px 0;
     font-size: 16px;
 }
 
-.discount-row span:last-child{
+.discount-row span:last-child {
     color: #088178;
     font-weight: 700;
 }
 
-.coupon-form{
+.coupon-form {
     border-top: 1px solid #eee;
     border-bottom: 1px solid #eee;
     padding: 18px 0;
     margin: 18px 0 6px;
 }
 
-.coupon-form label{
+.coupon-form label {
     display: block;
     font-weight: 700;
     margin-bottom: 10px;
 }
 
-.coupon-controls{
+.coupon-controls {
     display: flex;
     gap: 10px;
 }
 
-.coupon-controls input{
+.coupon-controls input {
     min-width: 0;
     flex: 1;
     border: 1px solid #d8d8d8;
@@ -181,7 +185,7 @@
     text-transform: uppercase;
 }
 
-.coupon-controls button{
+.coupon-controls button {
     border: none;
     border-radius: 6px;
     background: #088178;
@@ -190,26 +194,26 @@
     cursor: pointer;
 }
 
-.coupon-message{
+.coupon-message {
     min-height: 20px;
     margin-top: 10px;
     font-size: 14px;
 }
 
-.coupon-message.success{
+.coupon-message.success {
     color: #087c45;
 }
 
-.coupon-message.error{
+.coupon-message.error {
     color: #c62828;
 }
 
-.summary-row.total{
+.summary-row.total {
     font-size: 20px;
     font-weight: 700;
 }
 
-#checkout-btn{
+#checkout-btn {
     width: 100%;
     background: #088178;
     color: #fff;
@@ -222,9 +226,9 @@
     transition: 0.3s ease;
 }
 
-#checkout-btn:hover{
+#checkout-btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 10px 25px rgba(0,0,0,0.12);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
 }
 
 #continue-shopping-btn {
@@ -245,7 +249,7 @@
     background: #088178;
     color: #fff;
     transform: translateY(-2px);
-    box-shadow: 0 10px 25px rgba(0,0,0,0.12);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
 }
 
 body.dark-theme #continue-shopping-btn {
@@ -258,107 +262,9 @@ body.dark-theme #continue-shopping-btn:hover {
     color: #fff;
 }
 
-.empty-cart{
-    text-align: center;
-    padding: 50px 20px;
-}
-
-.empty-cart i{
-    color: #088178;
-    font-size: 42px;
-    margin-bottom: 16px;
-}
-
-@media (max-width: 1024px){
-
-    #cart-page{
-        flex-direction: column;
-    }
-
-    .cart-summary{
-        width: 100%;
-        position: static;
-    }
-
-}
-
-.continue-shopping-btn{
-    display: inline-block;
-    margin-top: 20px;
-    background: #088178;
-    color: #fff;
-    padding: 14px 22px;
-    border-radius: 8px;
-    text-decoration: none;
-    transition: 0.3s ease;
-}
-
-.continue-shopping-btn:hover{
-    opacity: 0.9;
-    transform: translateY(-2px);
-}
-
-.empty-cart-cta{
-    margin-top: 24px;
-    min-width: 220px;
-    padding: 16px 28px;
-    border-radius: 8px;
-    font-size: 16px;
-    font-weight: 700;
-    box-shadow: 0 12px 24px rgba(8, 129, 120, 0.2);
-}
-
-.empty-cart-cta:hover{
-    opacity: 1;
-    background: #066d66;
-    box-shadow: 0 16px 30px rgba(8, 129, 120, 0.26);
-}
-body.dark-theme .cart-container,
-body.dark-theme .cart-items,
-body.dark-theme .order-summary {
-    background-color: #1e1e1e ;
-    color: #0e0d0d ;
-    border: 1px solid #333 ;
-}
-
-body.dark-theme .cart-items h2,
-body.dark-theme .cart-items h3,
-body.dark-theme .cart-items p,
-body.dark-theme .order-summary h2,
-body.dark-theme .order-summary h3,
-body.dark-theme .order-summary p,
-body.dark-theme .order-summary span {
-    color: #f3f2f2 ;
-}
-body.dark-theme .cart-content,
-body.dark-theme .cart-left,
-body.dark-theme .cart-right,
-body.dark-theme .cart-box,
-body.dark-theme .empty-cart,
-body.dark-theme [class*="cart"] {
-    background-color: #1e1e1e !important;
-    color: #ffffff !important;
-}
-
-body.dark-theme .empty-cart p,
-body.dark-theme .cart-left p {
-    color: #e0e0e0 !important;
-}
-body.dark-theme h2 {
-    color: #ffffff !important;
-}
-
-body.dark-theme h3 {
-    color: #ffffff !important;
-}
-
-body.dark-theme p {
-    color: #e0e0e0 !important;
-}
-
-/* ========================================
+/* ==========================================================================
    EMPTY CART - Continue Shopping (Issue #1206)
-   ======================================== */
+   ========================================================================== */
 
 .empty-cart {
     text-align: center;
@@ -367,10 +273,10 @@ body.dark-theme p {
     border-radius: 16px;
 }
 
-.empty-cart-icon {
-    font-size: 64px;
-    color: #ccc;
-    margin-bottom: 20px;
+.empty-cart i {
+    color: #088178;
+    font-size: 42px;
+    margin-bottom: 16px;
 }
 
 .empty-cart h2 {
@@ -405,6 +311,7 @@ body.dark-theme p {
     cursor: pointer;
     transition: all 0.3s ease;
     text-decoration: none;
+    margin-top: 20px;
 }
 
 .continue-shopping-btn:hover {
@@ -417,7 +324,371 @@ body.dark-theme p {
     font-size: 18px;
 }
 
-/* Dark Mode */
+.empty-cart-cta {
+    margin-top: 24px;
+    min-width: 220px;
+    padding: 16px 28px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    box-shadow: 0 12px 24px rgba(8, 129, 120, 0.2);
+}
+
+.empty-cart-cta:hover {
+    background: #066d66;
+    box-shadow: 0 16px 30px rgba(8, 129, 120, 0.26);
+}
+
+/* ==========================================================================
+   Selection, Bulk Actions, Expiry Notice (#1584)
+   ========================================================================== */
+
+.cart-items-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #eee;
+}
+
+.cart-items-header h2 {
+    margin: 0;
+}
+
+.cart-items-header__tools {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+
+.select-all-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #444;
+    cursor: pointer;
+    user-select: none;
+}
+
+.select-all-label:has(input:disabled) {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.select-all-checkbox,
+.cart-item-select {
+    width: 18px;
+    height: 18px;
+    accent-color: #088178;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.cart-item-count {
+    font-size: 14px;
+    color: #777;
+    white-space: nowrap;
+}
+
+.cart-item-select-wrapper {
+    display: flex;
+    align-items: center;
+    padding-right: 4px;
+}
+
+.bulk-actions {
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin: 16px 0;
+    padding: 12px 16px;
+    background: #e8f5f3;
+    border: 1px solid #b8e0da;
+    border-radius: 8px;
+}
+
+.selected-count {
+    font-size: 14px;
+    font-weight: 600;
+    color: #066a63;
+}
+
+.bulk-actions__buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.bulk-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 16px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: 0.25s ease;
+}
+
+.bulk-action-btn:hover {
+    transform: translateY(-1px);
+}
+
+.bulk-action-btn:focus-visible {
+    outline: 2px solid #088178;
+    outline-offset: 2px;
+}
+
+.bulk-action-btn--secondary {
+    background: #fff;
+    border-color: #088178;
+    color: #088178;
+}
+
+.bulk-action-btn--secondary:hover {
+    background: #088178;
+    color: #fff;
+}
+
+.bulk-action-btn--danger {
+    background: #fff;
+    border-color: #d64545;
+    color: #d64545;
+}
+
+.bulk-action-btn--danger:hover {
+    background: #d64545;
+    color: #fff;
+}
+
+.cart-expiry-warning {
+    gap: 10px;
+    margin-bottom: 18px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.cart-expiry-warning i {
+    margin-right: 6px;
+}
+
+.cart-expiry-warning a {
+    color: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+}
+
+.cart-expiry-warning.warning {
+    background: #fff8e6;
+    border: 1px solid #f0d68a;
+    color: #85610a;
+}
+
+.cart-expiry-warning.urgent {
+    background: #fdecec;
+    border: 1px solid #f3bcbc;
+    color: #a12626;
+}
+
+#saved-for-later-section {
+    margin-top: 28px;
+    padding-top: 22px;
+    border-top: 1px solid #eee;
+}
+
+#saved-for-later-section h3 {
+    margin: 0 0 16px;
+    font-size: 18px;
+}
+
+.saved-items-container {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.saved-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px;
+    background: #fafafa;
+    border: 1px solid #eee;
+    border-radius: 8px;
+}
+
+.saved-item img {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 6px;
+    flex-shrink: 0;
+}
+
+.saved-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.saved-item-info h4 {
+    margin: 0 0 4px;
+    font-size: 15px;
+}
+
+.saved-item-info p {
+    margin: 0 0 2px;
+    color: #088178;
+    font-weight: 600;
+}
+
+.saved-item-info small {
+    color: #999;
+}
+
+.saved-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.move-to-cart-btn,
+.remove-saved-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border: 1px solid #088178;
+    border-radius: 6px;
+    background: #fff;
+    color: #088178;
+    font-size: 13px;
+    cursor: pointer;
+    transition: 0.25s ease;
+}
+
+.move-to-cart-btn:hover {
+    background: #088178;
+    color: #fff;
+}
+
+.remove-saved-btn {
+    border-color: #ddd;
+    color: #888;
+    padding: 8px 11px;
+}
+
+.remove-saved-btn:hover {
+    border-color: #d64545;
+    color: #d64545;
+}
+
+/* ==========================================================================
+   Responsive Styles
+   ========================================================================== */
+
+@media (max-width: 1024px) {
+    #cart-page {
+        flex-direction: column;
+    }
+
+    .cart-summary {
+        width: 100%;
+        position: static;
+    }
+}
+
+@media (max-width: 640px) {
+    .cart-items-header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .cart-items-header__tools {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .bulk-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .bulk-actions__buttons {
+        width: 100%;
+    }
+
+    .bulk-action-btn {
+        flex: 1;
+        justify-content: center;
+    }
+
+    .saved-item {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .saved-item-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+}
+
+/* ==========================================================================
+   Dark Theme Styles
+   ========================================================================== */
+
+body.dark-theme .cart-container,
+body.dark-theme .cart-items,
+body.dark-theme .order-summary {
+    background-color: #1e1e1e;
+    color: #0e0d0d;
+    border: 1px solid #333;
+}
+
+body.dark-theme .cart-items h2,
+body.dark-theme .cart-items h3,
+body.dark-theme .cart-items p,
+body.dark-theme .order-summary h2,
+body.dark-theme .order-summary h3,
+body.dark-theme .order-summary p,
+body.dark-theme .order-summary span {
+    color: #f3f2f2;
+}
+
+body.dark-theme .cart-content,
+body.dark-theme .cart-left,
+body.dark-theme .cart-right,
+body.dark-theme .cart-box,
+body.dark-theme .empty-cart,
+body.dark-theme [class*="cart"] {
+    background-color: #1e1e1e !important;
+    color: #ffffff !important;
+}
+
+body.dark-theme .empty-cart p,
+body.dark-theme .cart-left p {
+    color: #e0e0e0 !important;
+}
+
+body.dark-theme h2,
+body.dark-theme h3 {
+    color: #ffffff !important;
+}
+
+body.dark-theme p {
+    color: #e0e0e0 !important;
+}
+
 body.dark-theme .empty-cart {
     background: #1a1a2e;
 }
@@ -438,408 +709,99 @@ body.dark-theme .continue-shopping-btn:hover {
     background: #088178;
 }
 
-/* ==========================================================================
-   Selection, bulk actions, expiry notice  (#1584)
-
-   cart.js has rendered a checkbox on every cart line for some time and had
-   nowhere to put a toolbar, a select-all, an item count or an expiry notice --
-   none of those elements were in cart.html, so the code behind them was inert.
-   These are the styles for the markup that closes that.
-
-   Colours follow the rest of this file: #088178 for the accent, #0a9b8f as its
-   dark-theme counterpart, and body.dark-theme for the dark rules.
-   ========================================================================== */
-
-.cart-items-header{
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-    padding-bottom: 14px;
-    border-bottom: 1px solid #eee;
-}
-
-.cart-items-header h2{
-    margin: 0;
-}
-
-.cart-items-header__tools{
-    display: flex;
-    align-items: center;
-    gap: 18px;
-}
-
-.select-all-label{
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    color: #444;
-    cursor: pointer;
-    user-select: none;
-}
-
-.select-all-label:has(input:disabled){
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.select-all-checkbox,
-.cart-item-select{
-    width: 18px;
-    height: 18px;
-    accent-color: #088178;
-    cursor: pointer;
-    flex-shrink: 0;
-}
-
-.cart-item-count{
-    font-size: 14px;
-    color: #777;
-    white-space: nowrap;
-}
-
-.cart-item-select-wrapper{
-    display: flex;
-    align-items: center;
-    padding-right: 4px;
-}
-
-/* The toolbar. `display` is owned by updateBulkActions, which sets it to
-   `flex` or `none` -- so no display declaration here, or the inline style and
-   the stylesheet would be arguing about who decides. */
-.bulk-actions{
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-    margin: 16px 0;
-    padding: 12px 16px;
-    background: #e8f5f3;
-    border: 1px solid #b8e0da;
-    border-radius: 8px;
-}
-
-.selected-count{
-    font-size: 14px;
-    font-weight: 600;
-    color: #066a63;
-}
-
-.bulk-actions__buttons{
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-.bulk-action-btn{
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 9px 16px;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: 0.25s ease;
-}
-
-.bulk-action-btn:hover{
-    transform: translateY(-1px);
-}
-
-.bulk-action-btn:focus-visible{
-    outline: 2px solid #088178;
-    outline-offset: 2px;
-}
-
-.bulk-action-btn--secondary{
-    background: #fff;
-    border-color: #088178;
-    color: #088178;
-}
-
-.bulk-action-btn--secondary:hover{
-    background: #088178;
-    color: #fff;
-}
-
-.bulk-action-btn--danger{
-    background: #fff;
-    border-color: #d64545;
-    color: #d64545;
-}
-
-.bulk-action-btn--danger:hover{
-    background: #d64545;
-    color: #fff;
-}
-
-/* Expiry notice. `display` is owned by updateExpiryWarning for the same reason
-   as the toolbar above. */
-.cart-expiry-warning{
-    gap: 10px;
-    margin-bottom: 18px;
-    padding: 12px 16px;
-    border-radius: 8px;
-    font-size: 14px;
-    line-height: 1.5;
-}
-
-.cart-expiry-warning i{
-    margin-right: 6px;
-}
-
-.cart-expiry-warning a{
-    color: inherit;
-    font-weight: 600;
-    text-decoration: underline;
-}
-
-.cart-expiry-warning.warning{
-    background: #fff8e6;
-    border: 1px solid #f0d68a;
-    color: #85610a;
-}
-
-.cart-expiry-warning.urgent{
-    background: #fdecec;
-    border: 1px solid #f3bcbc;
-    color: #a12626;
-}
-
-/* Saved for later, in its own container outside #cart-items so a cart
-   re-render leaves it alone. */
-#saved-for-later-section{
-    margin-top: 28px;
-    padding-top: 22px;
-    border-top: 1px solid #eee;
-}
-
-#saved-for-later-section h3{
-    margin: 0 0 16px;
-    font-size: 18px;
-}
-
-.saved-items-container{
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-.saved-item{
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 14px;
-    background: #fafafa;
-    border: 1px solid #eee;
-    border-radius: 8px;
-}
-
-.saved-item img{
-    width: 64px;
-    height: 64px;
-    object-fit: cover;
-    border-radius: 6px;
-    flex-shrink: 0;
-}
-
-.saved-item-info{
-    flex: 1;
-    min-width: 0;
-}
-
-.saved-item-info h4{
-    margin: 0 0 4px;
-    font-size: 15px;
-}
-
-.saved-item-info p{
-    margin: 0 0 2px;
-    color: #088178;
-    font-weight: 600;
-}
-
-.saved-item-info small{
-    color: #999;
-}
-
-.saved-item-actions{
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-}
-
-.move-to-cart-btn,
-.remove-saved-btn{
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border: 1px solid #088178;
-    border-radius: 6px;
-    background: #fff;
-    color: #088178;
-    font-size: 13px;
-    cursor: pointer;
-    transition: 0.25s ease;
-}
-
-.move-to-cart-btn:hover{
-    background: #088178;
-    color: #fff;
-}
-
-.remove-saved-btn{
-    border-color: #ddd;
-    color: #888;
-    padding: 8px 11px;
-}
-
-.remove-saved-btn:hover{
-    border-color: #d64545;
-    color: #d64545;
-}
-
-/* On a phone the toolbar stacks and its buttons go full width, so neither is a
-   target you have to aim for. */
-@media (max-width: 640px){
-
-    .cart-items-header{
-        align-items: flex-start;
-        flex-direction: column;
-        gap: 10px;
-    }
-
-    .cart-items-header__tools{
-        width: 100%;
-        justify-content: space-between;
-    }
-
-    .bulk-actions{
-        align-items: stretch;
-        flex-direction: column;
-    }
-
-    .bulk-actions__buttons{
-        width: 100%;
-    }
-
-    .bulk-action-btn{
-        flex: 1;
-        justify-content: center;
-    }
-
-    .saved-item{
-        align-items: flex-start;
-        flex-wrap: wrap;
-    }
-
-    .saved-item-actions{
-        width: 100%;
-        justify-content: flex-end;
-    }
-
-}
-
-/* Dark Mode */
-body.dark-theme .cart-items-header{
+body.dark-theme .cart-items-header {
     border-bottom-color: #2a2a3e;
 }
 
-body.dark-theme .select-all-label{
+body.dark-theme .select-all-label {
     color: #ccc;
 }
 
 body.dark-theme .select-all-checkbox,
-body.dark-theme .cart-item-select{
+body.dark-theme .cart-item-select {
     accent-color: #0a9b8f;
 }
 
-body.dark-theme .cart-item-count{
+body.dark-theme .cart-item-count {
     color: #999;
 }
 
-body.dark-theme .bulk-actions{
+body.dark-theme .bulk-actions {
     background: #16323040;
     border-color: #0a9b8f;
 }
 
-body.dark-theme .selected-count{
+body.dark-theme .selected-count {
     color: #4fd1c5;
 }
 
-body.dark-theme .bulk-action-btn--secondary{
+body.dark-theme .bulk-action-btn--secondary {
     background: transparent;
     border-color: #0a9b8f;
     color: #4fd1c5;
 }
 
-body.dark-theme .bulk-action-btn--secondary:hover{
+body.dark-theme .bulk-action-btn--secondary:hover {
     background: #0a9b8f;
     color: #fff;
 }
 
-body.dark-theme .bulk-action-btn--danger{
+body.dark-theme .bulk-action-btn--danger {
     background: transparent;
     border-color: #e07070;
     color: #e07070;
 }
 
-body.dark-theme .bulk-action-btn--danger:hover{
+body.dark-theme .bulk-action-btn--danger:hover {
     background: #d64545;
     color: #fff;
 }
 
-body.dark-theme .cart-expiry-warning.warning{
+body.dark-theme .cart-expiry-warning.warning {
     background: #2e2611;
     border-color: #6b5518;
     color: #e8c766;
 }
 
-body.dark-theme .cart-expiry-warning.urgent{
+body.dark-theme .cart-expiry-warning.urgent {
     background: #331a1a;
     border-color: #7a2f2f;
     color: #f0a0a0;
 }
 
-body.dark-theme #saved-for-later-section{
+body.dark-theme #saved-for-later-section {
     border-top-color: #2a2a3e;
 }
 
-body.dark-theme .saved-item{
+body.dark-theme .saved-item {
     background: #1a1a2e;
     border-color: #2a2a3e;
 }
 
-body.dark-theme .saved-item-info h4{
+body.dark-theme .saved-item-info h4 {
     color: #e0e0e0;
 }
 
-body.dark-theme .saved-item-info p{
+body.dark-theme .saved-item-info p {
     color: #4fd1c5;
 }
 
-body.dark-theme .saved-item-info small{
+body.dark-theme .saved-item-info small {
     color: #777;
 }
 
-body.dark-theme .move-to-cart-btn{
+body.dark-theme .move-to-cart-btn {
     background: transparent;
     border-color: #0a9b8f;
     color: #4fd1c5;
 }
 
-body.dark-theme .move-to-cart-btn:hover{
+body.dark-theme .move-to-cart-btn:hover {
     background: #0a9b8f;
     color: #fff;
 }
 
-body.dark-theme .remove-saved-btn{
+body.dark-theme .remove-saved-btn {
     background: transparent;
     border-color: #3a3a4e;
     color: #999;
