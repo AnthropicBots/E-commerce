@@ -470,6 +470,11 @@ document.addEventListener(
                 "wishlist-btn"
             );
 
+        const compareBtn =
+            document.getElementById(
+                "compare-btn"
+            );
+
         const whatsappShareBtn =
             document.getElementById(
                 "whatsapp-share-btn"
@@ -524,9 +529,7 @@ document.addEventListener(
             );
         }
 
-        if (
-            wishlistBtn
-        ) {
+        if (wishlistBtn) {
 
             wishlistBtn.addEventListener(
                 "click",
@@ -537,6 +540,24 @@ document.addEventListener(
                     event.preventDefault();
 
                     toggleProductWishlist();
+                }
+            );
+        }
+
+        if (compareBtn) {
+            compareBtn.addEventListener(
+                "click",
+                (event) => {
+                    event.preventDefault();
+                    if (currentProduct && currentProduct.id) {
+                        AppUtils.addToCompare(currentProduct.id);
+                    } else {
+                        const params = new URLSearchParams(window.location.search);
+                        const id = params.get("id");
+                        if (id) {
+                            AppUtils.addToCompare(id);
+                        }
+                    }
                 }
             );
         }

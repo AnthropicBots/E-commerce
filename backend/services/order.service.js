@@ -9,6 +9,7 @@ const {
 const logger = require("../utils/logger");
 const { validatePromo } = require("./promo.service");
 const pricing = require("./pricing.service");
+const CURRENCY = require("../config/currency");
 // Order creation prices delivery, chooses the option and records the promised
 // window, so it uses `shipping` in three places -- and required it in none of
 // them. `shipping` was a free variable, so every order died on
@@ -689,7 +690,7 @@ const getOrderSummaryById = async (connection, orderId) => {
                 o.created_at,
                 o.updated_at,
                 GROUP_CONCAT(
-                    CONCAT(oi.name, ' (', oi.qty, ' x ₹', oi.price, ')')
+                    CONCAT(oi.name, ' (', oi.qty, ' x ', ?, oi.price, ')')
                     SEPARATOR ', '
                 ) as items_summary
             FROM orders o
@@ -698,7 +699,7 @@ const getOrderSummaryById = async (connection, orderId) => {
             GROUP BY o.id
         `;
         
-        const [results] = await connection.query(query, [orderId]);
+        const [results] = await connection.query(query, [CURRENCY.symbol, orderId]);
         return safeArray(results)[0] || null;
     } catch (error) {
         logger.error(`Error getting order summary: ${error.message}`);

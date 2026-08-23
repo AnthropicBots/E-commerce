@@ -647,46 +647,41 @@ body.dark-theme #continue-shopping-btn:hover {
    Dark Theme Styles
    ========================================================================== */
 
-body.dark-theme .cart-container,
-body.dark-theme .cart-items,
-body.dark-theme .order-summary {
+body.dark-theme .cart-items-container,
+body.dark-theme .cart-summary {
     background-color: #1e1e1e;
-    color: #0e0d0d;
+    color: #e0e0e0;
     border: 1px solid #333;
 }
 
-body.dark-theme .cart-items h2,
-body.dark-theme .cart-items h3,
-body.dark-theme .cart-items p,
-body.dark-theme .order-summary h2,
-body.dark-theme .order-summary h3,
-body.dark-theme .order-summary p,
-body.dark-theme .order-summary span {
+body.dark-theme .cart-items-container h2,
+body.dark-theme .cart-items-container h3,
+body.dark-theme .cart-summary h2,
+body.dark-theme .cart-summary h3,
+body.dark-theme .cart-summary span:not(.discount-row span:last-child),
+body.dark-theme .summary-row {
     color: #f3f2f2;
 }
 
-body.dark-theme .cart-content,
-body.dark-theme .cart-left,
-body.dark-theme .cart-right,
-body.dark-theme .cart-box,
-body.dark-theme .empty-cart,
-body.dark-theme [class*="cart"] {
-    background-color: #1e1e1e !important;
-    color: #ffffff !important;
+body.dark-theme .cart-item {
+    border-bottom-color: #333;
 }
 
-body.dark-theme .empty-cart p,
-body.dark-theme .cart-left p {
-    color: #e0e0e0 !important;
+body.dark-theme .cart-item-info p,
+body.dark-theme .cart-item-info .item-note {
+    color: #bbb;
 }
 
-body.dark-theme h2,
-body.dark-theme h3 {
-    color: #ffffff !important;
+body.dark-theme .note-input {
+    background-color: #2a2a2a;
+    color: #fff;
+    border: 1px solid #444;
 }
 
-body.dark-theme p {
-    color: #e0e0e0 !important;
+body.dark-theme .qty-input {
+    background-color: #2a2a2a;
+    color: #fff;
+    border: 1px solid #444;
 }
 
 body.dark-theme .empty-cart {
@@ -697,12 +692,14 @@ body.dark-theme .empty-cart h2 {
     color: #e0e0e0;
 }
 
-body.dark-theme .empty-cart p {
+body.dark-theme .empty-cart p,
+body.dark-theme .empty-cart-sub {
     color: #aaa;
 }
 
 body.dark-theme .continue-shopping-btn {
     background: #0a9b8f;
+    color: #fff;
 }
 
 body.dark-theme .continue-shopping-btn:hover {
@@ -805,4 +802,15 @@ body.dark-theme .remove-saved-btn {
     background: transparent;
     border-color: #3a3a4e;
     color: #999;
+}
+
+body.dark-theme .coupon-controls input {
+    background-color: #2a2a2a;
+    color: #fff;
+    border-color: #444;
+}
+
+body.dark-theme .coupon-form {
+    border-top-color: #333;
+    border-bottom-color: #333;
 }

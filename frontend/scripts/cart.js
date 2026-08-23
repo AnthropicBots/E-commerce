@@ -1,4 +1,4 @@
-// frontend/scripts/cart.js
+
 
 // ==================== CONFIGURATION ====================
 const CART_CONFIG = {
@@ -95,56 +95,6 @@ function getDaysUntilExpiry() {
     if (!expiry) return null;
     const diff = new Date(expiry) - new Date();
     return Math.ceil(diff / (1000 * 60 * 60 * 24));
-}
-
-// ========================================
-// EMPTY CART - FIXED Continue Shopping (Issue #1206)
-// ========================================
-function renderEmptyCart() {
-    if (
-        !elements.cartContainer
-    ) {
-        return;
-    }
-
-    elements.cartContainer.innerHTML =
-        `
-            <div class="empty-cart">
-                <i class="fas fa-shopping-cart empty-cart-icon"></i>
-                <h2>
-                    Your cart is empty
-                </h2>
-
-                <p>
-                    Looks like you haven't added any items to your cart yet.
-                </p>
-
-                <p class="empty-cart-sub">
-                    Start shopping to fill your cart with amazing products!
-                </p>
-
-                <button 
-                    id="continue-shopping-btn" 
-                    class="continue-shopping-btn"
-                >
-                    <i class="fas fa-arrow-left"></i>
-                    Continue Shopping
-                </button>
-            </div>
-        `;
-
-    // ✅ FIX: Add event listener to Continue Shopping button
-    const continueBtn = document.getElementById('continue-shopping-btn');
-    if (continueBtn) {
-        continueBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            window.location.href = 'shop.html';
-        });
-    }
-
-    updateCartTotals(
-        0
-    );
 }
 
 // Show the undo toast for a destructive action.
@@ -292,10 +242,10 @@ function saveAndRender(nextCart) {
 // ==================== UPDATE BUTTON STATES ====================
 function updateButtonStates() {
     document.querySelectorAll('.cart-item').forEach((itemEl) => {
-        const qtySpan = itemEl.querySelector('.cart-qty-controls span');
+        const qtySpan = itemEl.querySelector('.cart-qty-controls span') || itemEl.querySelector('.qty-input');
         const decreaseBtn = itemEl.querySelector('.decrease-qty');
         if (!qtySpan || !decreaseBtn) return;
-        const qty = parseInt(qtySpan.textContent, 10);
+        const qty = parseInt(qtySpan.value || qtySpan.textContent, 10);
         decreaseBtn.disabled = (qty <= 1);
         if (qty <= 1) {
             decreaseBtn.style.opacity = '0.5';
@@ -454,12 +404,6 @@ function removeSavedItem(index) {
 }
 
 // ==================== BULK OPERATIONS ====================
-//
-// The selection is keyed by product id, and product ids are CHAR(36) UUIDs
-// (AGENTS.md: users, products and orders all use them). `parseInt` on one is
-// NaN, so every row collapsed onto a single key and "select all" reported one
-// item selected however many there were (#1584). Ids are kept as strings here
-// and compared with String(), which is what the rest of this file already does.
 const itemKey = (value) => String(value);
 
 /** Is this cart line currently selected? */
@@ -469,10 +413,6 @@ function isSelected(item) {
 
 /**
  * Drop anything from the selection that is no longer in the cart.
- *
- * Removing a selected line used to leave its id in `selectedItems`, so the
- * count kept including it and a later bulk action operated on a set that no
- * longer matched what was on screen.
  */
 function pruneSelection() {
     const present = new Set(cart.map((item) => itemKey(item.id)));
@@ -516,10 +456,6 @@ function toggleSelectItem(itemId) {
 
 /**
  * Reflect the selection in the toolbar.
- *
- * `#bulk-actions`, `#selected-count` and `#select-all` were not in cart.html,
- * so the guard below was false on every call and this did nothing at all -- the
- * checkboxes rendered, ticked, and led nowhere (#1584).
  */
 function updateBulkActions() {
     const bulkActions = elements.bulkActions;
@@ -539,8 +475,6 @@ function updateBulkActions() {
     }
 
     if (selectAll) {
-        // Indeterminate rather than checked when only some are picked, so the
-        // control describes the selection instead of guessing at it.
         selectAll.checked = total > 0 && selected === total;
         selectAll.indeterminate = selected > 0 && selected < total;
         selectAll.disabled = total === 0;
@@ -550,18 +484,10 @@ function updateBulkActions() {
 function bulkRemove() {
     if (selectedItems.size === 0) return;
 
-    // Captured before the cart is filtered. Both callbacks run after
-    // `selectedItems` has been cleared, so one that re-derived the set from it
-    // would act on nothing.
     const removedItems = cart.filter(isSelected);
     const count = removedItems.length;
     const noun = count === 1 ? 'item' : 'items';
 
-    // Written through immediately rather than held in memory pending the
-    // toast. `renderCart` opens with `cart = AppUtils.getCart()`, so an
-    // optimistic in-memory filter is discarded by the very render meant to
-    // show it -- the rows would blink out and come straight back. Undo
-    // restores from `removedItems` below, which is what makes this safe.
     cart = cart.filter((item) => !isSelected(item));
     selectedItems.clear();
     saveAndRender(cart);
@@ -569,11 +495,9 @@ function bulkRemove() {
     showUndoToast(
         `Removing ${count} ${noun} from cart`,
         () => {
-            // Undo: put them back where the cart can see them again.
             saveAndRender([...cart, ...removedItems]);
         },
         () => {
-            // Confirm: already durable, so this only reports it.
             AppUtils.notify(`Removed ${count} ${noun} from cart`, 'success');
         }
     );
@@ -585,11 +509,8 @@ function bulkSaveForLater() {
     const itemsToSave = cart.filter(isSelected);
     const count = itemsToSave.length;
 
-    // Remove from cart
     cart = cart.filter((item) => !isSelected(item));
 
-    // Add to saved for later, skipping anything already there so a double
-    // click cannot list the same product twice.
     itemsToSave.forEach((item) => {
         const alreadySaved = savedForLater.some(
             (saved) =>
@@ -620,7 +541,6 @@ function calculateEstimatedDelivery() {
     const today = new Date();
     const deliveryDate = new Date(today);
     
-    // Add 3-5 business days
     let daysToAdd = 3;
     if (today.getDay() >= 4) { // Thursday or later
         daysToAdd = 5;
@@ -644,9 +564,6 @@ function renderCart() {
     loadSavedForLater();
     checkCartExpiry();
 
-    // The cart can change under the selection -- another tab, the drawer, an
-    // expiry sweep -- so anything no longer in it is dropped before the count
-    // is shown, rather than being counted and then acted on as a miss.
     pruneSelection();
 
     if (!cart.length && !savedForLater.length) {
@@ -762,9 +679,6 @@ function renderCart() {
                 `).join('')}
             </div>
         `;
-        // Into its own container when the page provides one, so the saved
-        // items sit outside #cart-items and survive a cart re-render intact.
-        // Falls back to the cart fragment on any page that has not got one.
         if (elements.savedForLaterContainer) {
             elements.savedForLaterContainer.replaceChildren(savedSection);
         } else {
@@ -776,7 +690,6 @@ function renderCart() {
 
     elements.cartContainer.replaceChildren(fragment);
 
-    // Update button states
     updateButtonStates();
     updateBulkActions();
     updateCartTotals();
@@ -787,14 +700,22 @@ function renderEmptyCart() {
     if (elements.cartContainer) {
         elements.cartContainer.innerHTML = `
             <div class="empty-cart">
-                <i class="fas fa-shopping-cart fa-3x"></i>
+                <i class="fas fa-shopping-cart empty-cart-icon"></i>
                 <h2>Your cart is empty</h2>
-                <p>Start shopping to add items to your cart</p>
-                <a href="shop.html" class="continue-shopping-btn empty-cart-cta">
-                    Continue Shopping
-                </a>
+                <p>Looks like you haven't added any items to your cart yet.</p>
+                <p class="empty-cart-sub">Start shopping to fill your cart with amazing products!</p>
+                <button id="continue-shopping-btn" class="continue-shopping-btn">
+                    <i class="fas fa-arrow-left"></i> Continue Shopping
+                </button>
             </div>
         `;
+        const continueBtn = document.getElementById('continue-shopping-btn');
+        if (continueBtn) {
+            continueBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                window.location.href = 'shop.html';
+            });
+        }
     }
     if (elements.checkoutBtn) {
         elements.checkoutBtn.disabled = true;
@@ -803,12 +724,10 @@ function renderEmptyCart() {
         elements.emptyCartBtn.disabled = true;
     }
 
-    // Nothing left to have selected. Without this the toolbar would stay on
-    // screen over an empty cart, offering to remove items that are gone.
     selectedItems.clear();
     updateBulkActions();
 
-    updateCartTotals();
+    updateCartTotals(0);
 }
 
 // ==================== QUANTITY UPDATE ====================
@@ -825,14 +744,11 @@ function updateItemNote(index, note) {
     if (!cart[index]) return;
     cart[index].note = note;
     AppUtils.saveCart(cart);
-    // Don't re-render, just update the note display
-    // Update totals to reflect any changes
     updateCartTotals();
 }
 
 // ==================== EVENT LISTENERS ====================
 document.addEventListener("click", (event) => {
-    // Quantity buttons
     const increaseBtn = event.target.closest(".increase-qty");
     const decreaseBtn = event.target.closest(".decrease-qty");
     const removeBtn = event.target.closest(".remove-btn");
@@ -877,19 +793,16 @@ document.addEventListener("click", (event) => {
         showUndoToast(
             `Removed ${itemName} from cart`,
             () => {
-                // Undo: restore item
                 cart.splice(index, 0, removedItem);
                 saveAndRender(cart);
             },
             () => {
-                // Confirm: actually remove
                 cart.splice(index, 1);
                 saveAndRender(cart);
                 AppUtils.notify("Item removed from cart", "success");
             }
         );
         
-        // Optimistic update
         cart.splice(index, 1);
         renderCart();
         updateCartTotals();
@@ -927,13 +840,11 @@ document.addEventListener("click", (event) => {
     // Move to cart from saved
     if (moveToCartBtn) {
         const index = Number(moveToCartBtn.dataset.savedIndex);
-        moveToCart(index).catch((error) => {
-            console.error("MOVE TO CART ERROR:", error);
-        });
+        moveToCart(index);
         return;
     }
 
-    // Remove from saved
+    // Remove saved item
     if (removeSavedBtn) {
         const index = Number(removeSavedBtn.dataset.savedIndex);
         removeSavedItem(index);
@@ -941,48 +852,80 @@ document.addEventListener("click", (event) => {
     }
 });
 
-// ==================== SELECTION AND BULK ACTIONS ====================
-//
-// The bindings that were missing (#1584). `toggleSelectItem`,
-// `toggleSelectAll`, `bulkRemove` and `bulkSaveForLater` have all been in this
-// file since the feature landed and none of them was called from anywhere:
-// there was no listener on `.cart-item-select` and no `#select-all` or bulk
-// buttons in the page to bind to. Shoppers got a checkbox per line that did
-// nothing when ticked.
-//
-// The rendered markup used to carry `onchange="window.toggleSelectItem(...)"`,
-// which could not have worked either -- this file is an IIFE and assigns
-// nothing to `window`, so the handler was `undefined`, and the id was
-// interpolated unquoted, which for a CHAR(36) UUID is not even valid syntax.
-// The same was true of the quantity and note inputs, whose `onchange` called
-// `window.updateQuantity` and `window.updateItemNote`. All three are delegated
-// here instead, which matches how the rest of this file binds and needs nothing
-// on the global object.
-
+// ==================== INPUT & CHANGE LISTENERS ====================
 document.addEventListener("change", (event) => {
-    const itemCheckbox = event.target.closest(".cart-item-select");
-
-    if (itemCheckbox) {
-        toggleSelectItem(itemCheckbox.dataset.itemId);
-        return;
+    if (event.target.classList.contains("qty-input")) {
+        const index = Number(event.target.dataset.index);
+        const newQty = parseInt(event.target.value, 10);
+        if (!isNaN(newQty)) {
+            updateQuantity(index, newQty);
+        }
     }
 
-    const qtyInput = event.target.closest(".qty-input");
-
-    if (qtyInput) {
-        updateQuantity(Number(qtyInput.dataset.index), parseInt(qtyInput.value, 10));
-        return;
+    if (event.target.classList.contains("cart-item-select")) {
+        const itemId = event.target.dataset.itemId;
+        toggleSelectItem(itemId);
+        updateBulkActions();
     }
 
-    const noteInput = event.target.closest(".note-input");
-
-    if (noteInput) {
-        updateItemNote(Number(noteInput.dataset.index), noteInput.value);
+    if (event.target.id === "select-all") {
+        toggleSelectAll();
     }
 });
 
-if (elements.selectAll) {
-    elements.selectAll.addEventListener("change", toggleSelectAll);
+document.addEventListener("input", (event) => {
+    if (event.target.classList.contains("note-input")) {
+        const index = Number(event.target.dataset.index);
+        updateItemNote(index, event.target.value);
+    }
+});
+
+// ==================== INITIALIZATION ====================
+if (elements.couponForm) {
+    elements.couponForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const code = elements.couponCode.value.trim();
+        if (!code) return;
+
+        showLoading("coupon-form");
+        try {
+            const result = await AppUtils.applyCoupon(code);
+            if (result.success) {
+                appliedCoupon = code;
+                AppUtils.setJSON("appliedCoupon", code);
+                setCouponMessage("Coupon applied successfully!", "success");
+                updateCartTotals();
+            } else {
+                setCouponMessage(result.message || "Invalid coupon code", "error");
+            }
+        } catch (error) {
+            setCouponMessage("Failed to apply coupon", "error");
+        } finally {
+            hideLoading("coupon-form");
+        }
+    });
+}
+
+if (elements.emptyCartBtn) {
+    elements.emptyCartBtn.addEventListener("click", () => {
+        if (cart.length === 0) return;
+        
+        const previousCart = [...cart];
+        showUndoToast(
+            "Cart emptied",
+            () => {
+                cart = previousCart;
+                saveAndRender(cart);
+            },
+            () => {
+                cart = [];
+                saveAndRender(cart);
+                AppUtils.notify("Cart emptied", "success");
+            }
+        );
+        cart = [];
+        renderEmptyCart();
+    });
 }
 
 if (elements.bulkRemoveBtn) {
@@ -993,133 +936,7 @@ if (elements.bulkSaveLaterBtn) {
     elements.bulkSaveLaterBtn.addEventListener("click", bulkSaveForLater);
 }
 
-// ==================== COUPON FORM ====================
-if (elements.couponForm) {
-    elements.couponForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const code = elements.couponCode ? elements.couponCode.value : "";
-        // Validate against the current subtotal so the server can enforce any
-        // minimum-cart-value rule on the promo.
-        const { subtotal } = await AppUtils.calculateCartTotals(cart);
-        const result = await AppUtils.validateCoupon(code, subtotal);
-        if (!result.valid) {
-            appliedCoupon = "";
-            setCouponMessage(result.message, "error");
-            await updateCartTotals();
-            return;
-        }
-        if (appliedCoupon === result.code) {
-            setCouponMessage(`${result.code} is already applied.`, "success");
-            return;
-        }
-        appliedCoupon = result.code;
-        if (elements.couponCode) {
-            elements.couponCode.value = result.code;
-        }
-        setCouponMessage(result.message, "success");
-        AppUtils.setJSON("appliedCoupon", appliedCoupon);
-        await updateCartTotals();
-    });
-}
-
-// ==================== EMPTY CART BUTTON ====================
-if (elements.emptyCartBtn) {
-    elements.emptyCartBtn.addEventListener("click", () => {
-        if (!cart.length) return;
-        const count = cart.length;
-        showUndoToast(
-            `Cleared ${count} items from cart`,
-            () => {
-                // Undo: restore cart from backup
-                const backup = JSON.parse(localStorage.getItem('cartBackup') || '[]');
-                if (backup.length) {
-                    cart = backup;
-                    saveAndRender(cart);
-                }
-            },
-            () => {
-                // Confirm: clear cart
-                appliedCoupon = "";
-                if (elements.couponCode) {
-                    elements.couponCode.value = "";
-                }
-                setCouponMessage();
-                // Backup cart before clearing
-                localStorage.setItem('cartBackup', JSON.stringify(cart));
-                saveAndRender([]);
-                AppUtils.notify("Cart emptied", "info");
-            }
-        );
-        // Optimistic update
-        const backup = JSON.parse(localStorage.getItem('cartBackup') || '[]');
-        if (!backup.length) {
-            localStorage.setItem('cartBackup', JSON.stringify(cart));
-        }
-        cart = [];
-        renderCart();
-        updateCartTotals();
-    });
-}
-
-// ==================== CHECKOUT BUTTON ====================
-if (elements.checkoutBtn) {
-    elements.checkoutBtn.addEventListener("click", () => {
-        if (!cart.length) {
-            AppUtils.notify("Your cart is empty.", "warning");
-            return;
-        }
-        AppUtils.setJSON("appliedCoupon", appliedCoupon);
-        window.location.href = "checkout.html";
-    });
-}
-
-// ========================================
-// CONTINUE SHOPPING - FIX (Issue #1206)
-// ========================================
-
-function setupContinueShopping() {
-    const continueBtn = document.getElementById('continue-shopping-btn');
-    
-    if (!continueBtn) {
-        // Button might not exist yet (empty cart not rendered)
-        return;
-    }
-    
-    // Remove existing listeners to avoid duplicates
-    const newBtn = continueBtn.cloneNode(true);
-    continueBtn.parentNode.replaceChild(newBtn, continueBtn);
-    
-    newBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        window.location.href = 'shop.html';
-    });
-}
-
-// Cross-tab synchronization & offline reconnection listeners
-window.addEventListener(AppUtils.CART_UPDATED_EVENT, (event) => {
-    cart = AppUtils.getCart();
-    renderCart();
-});
-
-window.addEventListener('online', () => {
-    cart = AppUtils.getCart();
-    renderCart();
-});
-
-// INIT
-document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-        renderCart();
-        setTimeout(setupContinueShopping, 100);
-    }
-);
-
-// Also setup when cart is rendered (for dynamic updates)
-const originalRenderCart = renderCart;
-renderCart = function() {
-    originalRenderCart();
-    setTimeout(setupContinueShopping, 100);
-};
-
+loadSavedForLater();
+checkCartExpiry();
+renderCart();
 })();

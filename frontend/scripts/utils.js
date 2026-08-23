@@ -2180,6 +2180,36 @@ const renderSkeletonState = (container, count = 4) => {
     container.innerHTML = getSkeletonCardHTML(count);
 };
 
+const addToCompare = (productId) => {
+    const id = String(productId ?? "").trim();
+    if (!id) return false;
+
+    const STORAGE_KEYS = ["compareProducts", "comparisonList"];
+    let currentCompare = getJSON("compareProducts", []);
+    if (!Array.isArray(currentCompare) || !currentCompare.length) {
+        currentCompare = getJSON("comparisonList", []);
+    }
+    if (!Array.isArray(currentCompare)) currentCompare = [];
+
+    const stringIds = currentCompare.map((item) => String(item ?? "").trim()).filter(Boolean);
+
+    if (stringIds.includes(id)) {
+        notify("Product already selected", "info");
+        return false;
+    }
+
+    if (stringIds.length >= 3) {
+        notify("You can compare up to 3 products only", "warning");
+        return false;
+    }
+
+    stringIds.push(id);
+    STORAGE_KEYS.forEach((key) => setJSON(key, stringIds));
+
+    notify("Added for comparison", "success");
+    return true;
+};
+
 // app utils assignment
 window.AppUtils = {
     CONFIG,
@@ -2234,6 +2264,8 @@ window.AppUtils = {
     formatFreeShippingProgress,
     getWishlist,
     saveWishlist,
+    addToCompare,
+    reorderOrder,
     getSkeletonCardHTML,
     renderSkeletonState,
     FALLBACK_PRODUCT_IMAGE,
@@ -2257,6 +2289,8 @@ window.FALLBACK_PRODUCT_IMAGE = FALLBACK_PRODUCT_IMAGE;
 window.handleImageError = handleImageError;
 window.safeForEach = safeForEach;
 window.safeMap = safeMap;
+window.addToCompare = addToCompare;
+window.reorderOrder = reorderOrder;
 
 // Side-by-side tabs converge instead of competing: whichever envelope carries
 // the later timestamp is the one that stands, and everything listening on
