@@ -2265,6 +2265,7 @@ window.AppUtils = {
     getWishlist,
     saveWishlist,
     addToCompare,
+    reorderOrder,
     getSkeletonCardHTML,
     renderSkeletonState,
     FALLBACK_PRODUCT_IMAGE,
@@ -2289,6 +2290,7 @@ window.handleImageError = handleImageError;
 window.safeForEach = safeForEach;
 window.safeMap = safeMap;
 window.addToCompare = addToCompare;
+window.reorderOrder = reorderOrder;
 
 // Side-by-side tabs converge instead of competing: whichever envelope carries
 // the later timestamp is the one that stands, and everything listening on
