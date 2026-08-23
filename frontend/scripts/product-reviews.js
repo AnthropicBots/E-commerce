@@ -338,16 +338,57 @@
     reviewContainer.innerHTML = productReviews.map(createReviewCard).join("");
   }
 
+  function checkCanReviewVisibility(productId) {
+    if (!reviewForm) return;
+    const canReviewList = AppUtils.getJSON("can-review", []);
+    const strId = String(productId ?? "").trim();
+    const hasBought = Array.isArray(canReviewList) && canReviewList.some(id => String(id).trim() === strId);
+    
+    const currentUser = getCurrentUser();
+    let promptEl = document.getElementById("review-purchase-prompt");
+
+    if (!currentUser) {
+        reviewForm.style.display = "none";
+        if (!promptEl) {
+            promptEl = document.createElement("p");
+            promptEl.id = "review-purchase-prompt";
+            promptEl.className = "review-prompt-text";
+            promptEl.style.color = "#777";
+            promptEl.style.margin = "15px 0";
+            reviewForm.parentNode.insertBefore(promptEl, reviewForm);
+        }
+        promptEl.textContent = "Please sign in and purchase this product to leave a review.";
+        promptEl.style.display = "block";
+    } else if (!hasBought && currentUser.role !== "admin") {
+        reviewForm.style.display = "none";
+        if (!promptEl) {
+            promptEl = document.createElement("p");
+            promptEl.id = "review-purchase-prompt";
+            promptEl.className = "review-prompt-text";
+            promptEl.style.color = "#777";
+            promptEl.style.margin = "15px 0";
+            reviewForm.parentNode.insertBefore(promptEl, reviewForm);
+        }
+        promptEl.textContent = "Only verified purchasers of this item can leave a review.";
+        promptEl.style.display = "block";
+    } else {
+        reviewForm.style.display = "block";
+        if (promptEl) promptEl.style.display = "none";
+    }
+  }
+
   async function loadProductReviews(productId) {
     if (!productId) {
       const urlParams = new URLSearchParams(window.location.search);
       productId = urlParams.get("id");
     }
-    activeProductId = Number(productId);
+    activeProductId = productId;
 
     if (!activeProductId || !reviewContainer) {
       return;
     }
+
+    checkCanReviewVisibility(activeProductId);
 
     reviewContainer.innerHTML = `
             <p class="empty-review-text">
