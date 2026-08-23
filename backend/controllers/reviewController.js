@@ -383,8 +383,14 @@ function normalizeReviewImages(value) {
 
     return value
         .slice(0, MAX_REVIEW_IMAGES)
-        .map((url) => sanitizeString(url || "").slice(0, 500))
-        .filter((url) => /^https?:\/\//i.test(url));
+        .map((url) => {
+            const str = sanitizeString(url || "");
+            if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(str)) {
+                return str.slice(0, 5000000);
+            }
+            return str.slice(0, 500);
+        })
+        .filter((url) => /^https?:\/\//i.test(url) || /^data:image\/(png|jpe?g|webp|gif);base64,/i.test(url));
 }
 
 /**
