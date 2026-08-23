@@ -59,4 +59,5 @@ module.exports = {
     "/api/contact": require("./contactRoutes"),
     "/api/interactions": require("./interactionRoutes"),
     "/api/newsletter": require("./newsletterRoutes"),
+    "/api/reviews": require("./reviewRoutes"),
 };

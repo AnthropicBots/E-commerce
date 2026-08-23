@@ -184,6 +184,21 @@ if (orderItemsList && Array.isArray(order.items) && order.items.length) {
             ${AppUtils.formatPrice(item.price || 0)}
         </li>
     `).join("");
+
+    // Set can-review flag for items user actually bought
+    try {
+        const canReview = AppUtils.getJSON("can-review", []);
+        const updatedCanReview = Array.isArray(canReview) ? [...canReview] : [];
+        order.items.forEach((item) => {
+            const pId = String(item.productId || item.product_id || item.id || "").trim();
+            if (pId && !updatedCanReview.includes(pId)) {
+                updatedCanReview.push(pId);
+            }
+        });
+        AppUtils.setJSON("can-review", updatedCanReview);
+    } catch (e) {
+        console.warn("Failed to set can-review flag:", e);
+    }
 } else if (orderItemsList) {
     orderItemsList.innerHTML = "<li>No item details available.</li>";
 }
