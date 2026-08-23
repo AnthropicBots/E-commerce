@@ -89,6 +89,8 @@ async function renderDashboardOrders() {
                 card.className =
                     "dashboard-order-card";
 
+                const reorderBtnHtml = `<button class="btn btn-sm reorder-btn" style="color:#088178; border:1px solid #088178; padding: 4px 8px; border-radius:4px; background:transparent; cursor:pointer;" onclick="reorderDashboardOrder('${order.id}')">Buy Again</button>`;
+
                 const isCancellable = ["pending", "processing"].includes((order.status || "").toLowerCase());
                 const cancelBtnHtml = isCancellable
                     ? `<button class="btn btn-sm" style="color:red; border:1px solid red; padding: 4px 8px; border-radius:4px; background:transparent; cursor:pointer;" onclick="cancelDashboardOrder(${order.id})">Cancel Order</button>`
@@ -99,7 +101,7 @@ async function renderDashboardOrders() {
                     ? `<button class="btn btn-sm" style="color:#111; border:1px solid #111; padding: 4px 8px; border-radius:4px; background:transparent; cursor:pointer;" onclick="openReturnModal('${order.id}')">Request Return</button>`
                     : "";
 
-                const actionsHtml = [cancelBtnHtml, returnBtnHtml].filter(Boolean).join(" ");
+                const actionsHtml = [reorderBtnHtml, cancelBtnHtml, returnBtnHtml].filter(Boolean).join(" ");
 
                 card.innerHTML = `
                     <div class="dashboard-order-top">
@@ -184,6 +186,14 @@ window.cancelDashboardOrder = async (orderId) => {
         }
     } catch (error) {
         AppUtils.notify(error.message || "An error occurred", "error");
+    }
+};
+
+window.reorderDashboardOrder = async (orderId) => {
+    if (typeof AppUtils !== "undefined" && typeof AppUtils.reorderOrder === "function") {
+        await AppUtils.reorderOrder(orderId);
+    } else if (typeof reorderOrder === "function") {
+        await reorderOrder(orderId);
     }
 };
 
