@@ -167,9 +167,14 @@
                 </div>
                 <h4>₹${Number(product.price).toFixed(2)}</h4>
             </div>
-            <button class="add-to-cart-btn" data-id="${product.id}">
-                <i class="fal fa-shopping-cart cart"></i>
-            </button>
+            <div class="card-action-btns" style="display: flex; gap: 6px; position: absolute; bottom: 20px; right: 10px; z-index: 2;">
+                <button class="compare-btn-card" data-id="${product.id}" title="Compare Product" style="background: #e8f6ea; color: #088178; border: none; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                    <i class="fas fa-balance-scale"></i>
+                </button>
+                <button class="add-to-cart-btn" data-id="${product.id}">
+                    <i class="fal fa-shopping-cart cart"></i>
+                </button>
+            </div>
         `;
         
         // Cart click setup helper
@@ -182,6 +187,19 @@
                 } else {
                     console.log(`Added product ${product.id} to cart (Simulated)`);
                     if (typeof showToast === 'function') showToast("Added to cart!");
+                }
+            });
+        }
+
+        // Compare click setup helper
+        const compareBtn = div.querySelector('.compare-btn-card');
+        if (compareBtn) {
+            compareBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (typeof AppUtils !== "undefined" && typeof AppUtils.addToCompare === "function") {
+                    AppUtils.addToCompare(product.id);
+                } else if (typeof addToCompare === "function") {
+                    addToCompare(product.id);
                 }
             });
         }

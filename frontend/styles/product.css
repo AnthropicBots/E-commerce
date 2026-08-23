@@ -146,7 +146,8 @@
 
 #add-to-cart-btn,
 #buy-now-btn,
-#wishlist-btn {
+#wishlist-btn,
+#compare-btn {
   background: #088178;
   color: #fff;
   border: none;
@@ -159,7 +160,8 @@
 
 #add-to-cart-btn:hover,
 #buy-now-btn:hover,
-#wishlist-btn:hover {
+#wishlist-btn:hover,
+#compare-btn:hover {
   transform: translateY(-2px);
   opacity: 0.9;
 }
@@ -170,6 +172,10 @@
 
 #buy-now-btn {
   background: #ff6b00;
+}
+
+#compare-btn {
+  background: #2563eb;
 }
 
 .single-product-details span {

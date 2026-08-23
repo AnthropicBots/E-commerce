@@ -194,6 +194,20 @@ function createProductCardHTML(
             >
                 Add Cart
             </button>
+
+            <button
+                type="button"
+
+                class="compare-btn"
+
+                data-id="${
+                    encodeURIComponent(
+                        product.id
+                    )
+                }"
+            >
+                Compare
+            </button>
         </div>
     `;
 }
@@ -229,6 +243,18 @@ function renderProductCard(
         createProductCardHTML(
             product
         );
+
+    const compareBtn = card.querySelector(".compare-btn");
+    if (compareBtn) {
+        compareBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (typeof AppUtils !== "undefined" && typeof AppUtils.addToCompare === "function") {
+                AppUtils.addToCompare(product.id);
+            } else if (typeof addToCompare === "function") {
+                addToCompare(product.id);
+            }
+        });
+    }
 
     container.appendChild(
         card
