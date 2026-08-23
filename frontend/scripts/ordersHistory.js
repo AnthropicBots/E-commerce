@@ -343,6 +343,8 @@ window.cancelHistoryOrder = async (orderId) => {
     } catch (error) {
         AppUtils.notify(error.message || "An error occurred", "error");
     }
+};
+
 window.reorderHistoryOrder = async (orderId) => {
     if (typeof AppUtils !== "undefined" && typeof AppUtils.reorderOrder === "function") {
         await AppUtils.reorderOrder(orderId);
