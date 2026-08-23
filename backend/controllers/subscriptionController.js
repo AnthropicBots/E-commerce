@@ -1,16 +1,7 @@
-
+// backend/controllers/subscriptionController.js
 //
-// This file used to hold the rules: a hand-taken pool connection, an existence
-// check and an insert issued outside any transaction, and its own copy of the
-// four-branch period arithmetic that the renewal job also carried. Both copies
-// fell through their `else if` chain on an unrecognised interval and produced a
-// period of zero length. The rules are in the service now, so there is one of
-// each, and the job and these handlers are both callers.
-//
-// There were also no reads. Four routes, all writes: a shopper could subscribe,
-// pause, resume and cancel, and had no way to see what they were subscribed to,
-// when the period ended, or that a cancellation was pending. `GET /me` and
-// `GET /plans` are the missing half.
+// Thin controllers handling HTTP request/response lifecycles for subscriptions,
+// leveraging subscriptionService for business logic and database operations.
 
 'use strict';
 
@@ -18,10 +9,7 @@ const subscriptionService = require('../services/subscriptionService');
 const { SubscriptionError } = require('../services/subscriptionService');
 
 /**
- * Map a thrown error onto a response.
- *
- * SubscriptionError carries the status it wants. Anything else is unexpected,
- * so the detail goes to the log and the caller gets a generic message.
+ * Maps a thrown error onto an appropriate HTTP response.
  *
  * @param {import('express').Response} res
  * @param {Error} error
@@ -44,7 +32,7 @@ function handleError(res, error, context) {
     });
 }
 
-/** The id on the token, under either of the two names login paths mint. */
+/** Extracts the caller's unique ID from the authenticated request object. */
 function callerId(req) {
     return req.user && (req.user.id || req.user.userId);
 }
@@ -52,9 +40,7 @@ function callerId(req) {
 const subscriptionController = {
     /**
      * GET /api/subscriptions/plans
-     *
-     * Public: you cannot choose a plan you cannot see, and choosing one is the
-     * step before having an account is required.
+     * Retrieves all active billing plans.
      */
     listPlans: async (req, res) => {
         try {
@@ -62,7 +48,7 @@ const subscriptionController = {
 
             return res.status(200).json({
                 success: true,
-                message: 'Billing plans retrieved',
+                message: 'Billing plans retrieved successfully',
                 data: { plans }
             });
         } catch (error) {
@@ -72,11 +58,7 @@ const subscriptionController = {
 
     /**
      * GET /api/subscriptions/me
-     *
-     * The caller's own subscription, or null. 200 with null rather than 404:
-     * "you have no subscription" is a successful answer to "what am I
-     * subscribed to", and a 404 here would be indistinguishable from a route
-     * that does not exist -- which is what this endpoint is fixing.
+     * Retrieves the caller's active subscription, or null if none exists.
      */
     getMine: async (req, res) => {
         try {
@@ -85,8 +67,8 @@ const subscriptionController = {
             return res.status(200).json({
                 success: true,
                 message: subscription
-                    ? 'Subscription retrieved'
-                    : 'No active subscription',
+                    ? 'Subscription retrieved successfully'
+                    : 'No active subscription found',
                 data: { subscription }
             });
         } catch (error) {
@@ -94,7 +76,10 @@ const subscriptionController = {
         }
     },
 
-    /** POST /api/subscriptions/subscribe */
+    /**
+     * POST /api/subscriptions/subscribe
+     * Subscribes the caller to a selected billing plan.
+     */
     subscribe: async (req, res) => {
         try {
             const subscription = await subscriptionService.subscribe(
@@ -106,8 +91,6 @@ const subscriptionController = {
                 success: true,
                 message: 'Subscribed successfully',
                 data: { subscription },
-                // The old handler answered with a bare `periodEnd` at the top
-                // level. Kept so an existing caller does not break.
                 periodEnd: subscription.currentPeriodEnd
             });
         } catch (error) {
@@ -115,14 +98,17 @@ const subscriptionController = {
         }
     },
 
-    /** POST /api/subscriptions/pause */
+    /**
+     * POST /api/subscriptions/pause
+     * Pauses the caller's active subscription.
+     */
     pause: async (req, res) => {
         try {
             const subscription = await subscriptionService.pause(callerId(req));
 
             return res.status(200).json({
                 success: true,
-                message: 'Subscription paused',
+                message: 'Subscription paused successfully',
                 data: { subscription }
             });
         } catch (error) {
@@ -130,7 +116,10 @@ const subscriptionController = {
         }
     },
 
-    /** POST /api/subscriptions/resume */
+    /**
+     * POST /api/subscriptions/resume
+     * Resumes a paused subscription or withdraws a pending cancellation.
+     */
     resume: async (req, res) => {
         try {
             const subscription = await subscriptionService.resume(callerId(req));
@@ -139,7 +128,7 @@ const subscriptionController = {
                 success: true,
                 message: subscription.withdrewCancellation
                     ? 'Subscription resumed and the pending cancellation withdrawn'
-                    : 'Subscription resumed',
+                    : 'Subscription resumed successfully',
                 data: { subscription }
             });
         } catch (error) {
@@ -147,18 +136,17 @@ const subscriptionController = {
         }
     },
 
-    /** POST /api/subscriptions/cancel */
+    /**
+     * POST /api/subscriptions/cancel
+     * Schedules a subscription for cancellation at the end of the current period.
+     */
     cancel: async (req, res) => {
         try {
             const subscription = await subscriptionService.cancel(callerId(req));
 
             return res.status(200).json({
                 success: true,
-                // Says when, which the old message did not -- and until the
-                // renewal job was fixed there was no "end of the billing
-                // period" at all, because nothing ever ended one.
-                message:
-                    'Subscription will end at the close of the current billing period',
+                message: 'Subscription will end at the close of the current billing period',
                 data: { subscription }
             });
         } catch (error) {
