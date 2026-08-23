@@ -1,6 +1,4 @@
-// backend/controllers/subscriptionController.js
-//
-// Thin handlers over subscriptionService (#1494).
+
 //
 // This file used to hold the rules: a hand-taken pool connection, an existence
 // check and an insert issued outside any transaction, and its own copy of the
