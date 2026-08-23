@@ -431,6 +431,9 @@ function createProductCard(
     // Action Buttons (disabled if out of stock)
     const actionButtons = isOutOfStock ? '' : `
         <div style="position: absolute; bottom: 20px; right: 12px; display: flex; gap: 8px; z-index: 2;">
+            <button class="compare-btn-shop cart" data-id="${product.id}" aria-label="Add to Compare" title="Compare product" style="position: relative; bottom: 0; right: 0;">
+                <i class="fas fa-balance-scale"></i>
+            </button>
             <button class="wishlist-btn-shop cart" data-id="${product.id}" aria-label="Add to Wishlist" style="position: relative; bottom: 0; right: 0;">
                 <i class="${ AppUtils.getWishlist().some(item => String(item.id) === String(product.id)) ? 'fas' : 'far' } fa-heart"></i>
             </button>
@@ -668,6 +671,20 @@ function setupProductCard(
                 await globalThis.toggleWishlist(product);
             } else {
                 await syncWishlistFallback(product);
+            }
+        });
+    }
+
+    // add to compare
+    const compareBtn = card.querySelector(".compare-btn-shop, .compare-btn");
+    if (compareBtn) {
+        compareBtn.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof AppUtils !== "undefined" && typeof AppUtils.addToCompare === "function") {
+                AppUtils.addToCompare(product.id);
+            } else if (typeof addToCompare === "function") {
+                addToCompare(product.id);
             }
         });
     }
