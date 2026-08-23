@@ -370,7 +370,7 @@ describe('shop.js has one of each', () => {
             'clearTimeout', 'console', 'document', 'window', 'globalThis', 'fetch',
             'localStorage', 'Event', 'CustomEvent',
             // utils.js, loaded before this script on every page that uses it
-            'escapeHTML',
+            'escapeHTML', 'addToCompare',
             // Guarded with `typeof x === "function"` at each call site
             'addToCartFromProduct', 'updateCartCount', 'renderCartDrawer',
         ]);
