@@ -121,6 +121,12 @@
     const safeUserName = sanitizeUserText(review.userName || "Customer");
     const safeComment = sanitizeUserText(review.comment);
     const safeDate = sanitizeUserText(review.createdAt || "");
+    const reviewImages = AppUtils.safeArray(review.images);
+    const imagesHtml = reviewImages.length > 0
+      ? `<div class="review-images">
+          ${reviewImages.map((img) => `<img src="${AppUtils.escapeHTML(img)}" alt="Review photo" loading="lazy" class="review-img" onclick="window.open(this.src, '_blank')">`).join("")}
+         </div>`
+      : "";
 
     return `
             <article class="review-box" data-review-id="${reviewId}">
@@ -155,6 +161,8 @@
                 </header>
 
                 <p class="review-message">${safeComment}</p>
+
+                ${imagesHtml}
 
                 <time class="review-date" datetime="${safeDate}">
                     ${formatReviewDate(review.createdAt)}
@@ -424,6 +432,7 @@
           body: JSON.stringify({
             rating,
             comment,
+            images: selectedReviewImages
           }),
         },
       );
@@ -434,6 +443,8 @@
 
       AppUtils.notify("Review submitted successfully", "success");
       reviewForm.reset();
+      selectedReviewImages = [];
+      renderImagePreviews();
       setSelectedRating(0);
       await loadProductReviews(activeProductId);
     } catch (error) {
@@ -500,6 +511,75 @@
   starInput?.addEventListener("mouseleave", () => {
     setSelectedRating(selectedRating);
   });
+
+  const reviewImagesInput = document.getElementById("review-images");
+  const reviewImagesPreview = document.getElementById("review-images-preview");
+  let selectedReviewImages = [];
+
+  function renderImagePreviews() {
+    if (!reviewImagesPreview) return;
+    if (!selectedReviewImages.length) {
+      reviewImagesPreview.innerHTML = "";
+      return;
+    }
+
+    reviewImagesPreview.innerHTML = selectedReviewImages
+      .map(
+        (src, index) => `
+        <div class="review-preview-thumb">
+          <img src="${AppUtils.escapeHTML(src)}" alt="Preview ${index + 1}">
+          <button type="button" class="remove-thumb-btn" data-index="${index}" title="Remove photo">&times;</button>
+        </div>
+      `
+      )
+      .join("");
+  }
+
+  if (reviewImagesPreview) {
+    reviewImagesPreview.addEventListener("click", (e) => {
+      const removeBtn = e.target.closest(".remove-thumb-btn");
+      if (removeBtn) {
+        const idx = Number(removeBtn.dataset.index);
+        selectedReviewImages.splice(idx, 1);
+        renderImagePreviews();
+      }
+    });
+  }
+
+  if (reviewImagesInput) {
+    reviewImagesInput.addEventListener("change", (e) => {
+      const files = Array.from(e.target.files || []);
+      if (!files.length) return;
+
+      if (selectedReviewImages.length + files.length > 5) {
+        AppUtils.notify("You can attach up to 5 photos per review", "warning");
+      }
+
+      const remainingSlots = 5 - selectedReviewImages.length;
+      const filesToRead = files.slice(0, remainingSlots);
+
+      filesToRead.forEach((file) => {
+        if (!file.type.startsWith("image/")) {
+          AppUtils.notify(`File ${file.name} is not a valid image`, "error");
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (loadEvent) => {
+          if (loadEvent.target?.result) {
+            selectedReviewImages.push(loadEvent.target.result);
+            renderImagePreviews();
+          }
+        };
+        reader.onerror = () => {
+          AppUtils.notify(`Failed to read file ${file.name}`, "error");
+        };
+        reader.readAsDataURL(file);
+      });
+
+      reviewImagesInput.value = "";
+    });
+  }
 
   reviewForm?.addEventListener("submit", submitReview);
 
