@@ -94,3 +94,39 @@
     }
 
 }
+
+/* ===== DARK THEME OVERRIDES ===== */
+body.dark-theme #success-page {
+    background: #121212;
+}
+
+body.dark-theme .success-box {
+    background: #1e1e1e;
+    color: #ffffff;
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.4);
+}
+
+body.dark-theme .success-box h2 {
+    color: #ffffff;
+}
+
+body.dark-theme .success-box p {
+    color: #cccccc;
+}
+
+body.dark-theme .order-info {
+    background: #2a2a2a;
+    color: #ffffff;
+}
+
+body.dark-theme .order-info p {
+    color: #e0e0e0;
+}
+
+body.dark-theme .order-info p strong {
+    color: #ffffff;
+}
+
+body.dark-theme #order-items-container {
+    color: #e0e0e0;
+}
