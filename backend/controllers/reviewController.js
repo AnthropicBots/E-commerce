@@ -603,13 +603,6 @@ const moderateReview = async (req, res) => {
 };
 
 module.exports = {
-    // Exported for the size and truncation rules to be tested directly. What
-    // goes wrong here is arithmetic against a request body limit, and reaching
-    // it through a full createProductReview round trip would test the mocking
-    // rather than the rule (#1654).
-    normalizeReviewImages,
-    MAX_REVIEW_IMAGES,
-    MAX_REVIEW_IMAGE_CHARS,
     getProductReviews,
     createProductReview,
     deleteProductReview,
@@ -619,5 +612,13 @@ module.exports = {
     getReportReasons,
     getModerationQueue,
     getReviewReports,
-    moderateReview
+    moderateReview,
+
+    // Exported for the size and truncation rules to be tested directly. What
+    // goes wrong here is arithmetic against a request body limit, and reaching
+    // it through a full createProductReview round trip would test the mocking
+    // rather than the rule (#1654).
+    normalizeReviewImages,
+    MAX_REVIEW_IMAGES,
+    MAX_REVIEW_IMAGE_CHARS
 };
