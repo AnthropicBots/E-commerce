@@ -40,6 +40,7 @@
 // database read, and only a complete entry may be served without one.
 
 const db = require('../config/db').promise;
+const { publicProductCondition } = require('../constants/productVisibility');
 
 const PLACEHOLDER_IMAGE = '/assets/images/placeholder.png';
 
@@ -189,13 +190,14 @@ class RecentlyViewedService {
         }
 
         try {
+            const visible = publicProductCondition('products');
             const [product] = await db.query(
-                'SELECT id, name, price, image, stock FROM products WHERE id = ? AND deleted_at IS NULL',
-                [productId]
+                `SELECT id, name, price, image, stock FROM products WHERE id = ? AND ${visible.sql}`,
+                [productId, ...visible.params]
             );
 
-            if (product.length === 0) {
-                console.warn(`Product ${productId} not found`);
+            if (!product || product.length === 0) {
+                console.warn(`Product ${productId} not found or not visible`);
                 return [];
             }
 
@@ -306,6 +308,7 @@ class RecentlyViewedService {
      * @returns {Promise<Array>}
      */
     async fetchFromDatabase(userId, limit) {
+        const visible = publicProductCondition('p');
         const [rows] = await db.query(
             `SELECT
                 p.id,
@@ -315,10 +318,10 @@ class RecentlyViewedService {
                 rv.viewed_at AS viewedAt
              FROM recently_viewed rv
              INNER JOIN products p ON p.id = rv.product_id
-             WHERE rv.user_id = ? AND p.stock > 0 AND p.deleted_at IS NULL
+             WHERE rv.user_id = ? AND p.stock > 0 AND ${visible.sql}
              ORDER BY rv.viewed_at DESC
              LIMIT ?`,
-            [PLACEHOLDER_IMAGE, userId, limit]
+            [PLACEHOLDER_IMAGE, userId, ...visible.params, limit]
         );
 
         return Array.isArray(rows) ? rows : [];
