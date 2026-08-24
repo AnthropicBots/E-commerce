@@ -2210,6 +2210,99 @@ const addToCompare = (productId) => {
     return true;
 };
 
+// Put every line of a past order back in the cart.
+//
+// The order is re-read from the server rather than trusted from whatever the
+// history page happens to be holding: `GET /orders/:id` is behind `ownsOrder`,
+// so this cannot be pointed at somebody else's order, and the lines it returns
+// are the ones that were actually billed.
+//
+// Quantities are merged into the existing cart rather than replacing it. A
+// shopper who clicks "Buy Again" while already holding something has asked for
+// both, and `mergeCartLines` is the same summing rule the sign-in merge uses,
+// so one product bought twice stays one line.
+//
+// `order_items.product_id` is nullable — a line whose product was hard-deleted
+// keeps its name and price for the receipt but can no longer be added to a
+// cart. Those lines are skipped and counted, because a basket that comes back
+// shorter than the order it came from has to say why.
+const reorderOrder = async (orderId) => {
+    const id = String(orderId ?? "").trim();
+
+    if (!id) {
+        return false;
+    }
+
+    if (!requireAuth()) {
+        return false;
+    }
+
+    try {
+        const response = await apiRequest(`/orders/${id}`);
+
+        const order = response?.order || response?.data || null;
+        const orderItems = safeArray(order?.items);
+
+        if (!orderItems.length) {
+            notify("That order has no items to reorder", "info");
+            return false;
+        }
+
+        const lines = orderItems
+            .map((item) =>
+                normalizeCartItem({
+                    id: item?.product_id ?? item?.productId ?? null,
+                    name: item?.name,
+                    price: item?.price,
+                    img: item?.img || item?.image || "",
+                    image: item?.image || item?.img || "",
+                    color: item?.color,
+                    size: item?.size,
+                    variantId: item?.variant_id ?? item?.variantId,
+                    qty: item?.qty ?? item?.quantity
+                })
+            )
+            .filter(Boolean);
+
+        const skipped = orderItems.length - lines.length;
+
+        if (!lines.length) {
+            notify(
+                "None of the items from that order are available any more",
+                "warning"
+            );
+            return false;
+        }
+
+        saveCart(mergeCartLines(getCart(), lines));
+
+        if (skipped > 0) {
+            notify(
+                skipped === 1
+                    ? "1 item from that order is no longer available and was not added."
+                    : `${skipped} items from that order are no longer available and were not added.`,
+                "warning"
+            );
+        } else {
+            notify(
+                lines.length === 1
+                    ? "Item added to your cart"
+                    : `${lines.length} items added to your cart`,
+                "success"
+            );
+        }
+
+        return true;
+    } catch (error) {
+        console.error("REORDER ERROR:", error);
+        notify(
+            error?.message || "Could not reorder that order right now",
+            "error"
+        );
+        return false;
+    }
+};
+
 // app utils assignment
 window.AppUtils = {
     CONFIG,
