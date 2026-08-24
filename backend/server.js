@@ -183,7 +183,6 @@ const { detectBot, addBotDetectionHeaders } = require('./middleware/botProtectio
 const { verifyAICrawler } = require('./middleware/aiCrawlerMiddleware');
 const fraudRoutes = require('./routes/fraudRoutes');
 const aiRoutes = require('./routes/aiRoutes');
-const giftCardRoutes = require('./routes/giftCardRoutes');
 
 // Back-in-stock & price-drop alerts (#1233)
 const stockAlertRoutes = require('./routes/stockAlertRoutes');
