@@ -98,12 +98,24 @@ function advancePeriod(from, interval, count = 1) {
         case 'weekly':
             end.setDate(end.getDate() + 7 * steps);
             break;
-        case 'monthly':
-            end.setMonth(end.getMonth() + steps);
+        case 'monthly': {
+            const desiredDay = start.getDate();
+            end.setDate(1);
+            end.setMonth(start.getMonth() + steps);
+            const maxDays = new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate();
+            end.setDate(Math.min(desiredDay, maxDays));
             break;
-        case 'yearly':
-            end.setFullYear(end.getFullYear() + steps);
+        }
+        case 'yearly': {
+            const desiredDay = start.getDate();
+            const desiredMonth = start.getMonth();
+            end.setDate(1);
+            end.setFullYear(start.getFullYear() + steps);
+            end.setMonth(desiredMonth);
+            const maxDays = new Date(end.getFullYear(), desiredMonth + 1, 0).getDate();
+            end.setDate(Math.min(desiredDay, maxDays));
             break;
+        }
         default:
             throw new SubscriptionError(
                 `Unsupported billing interval: ${interval}`,
