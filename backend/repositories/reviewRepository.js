@@ -45,6 +45,15 @@ class ReviewRepository extends BaseRepository {
 
     /**
      * Find reviews by product ID
+     *
+     * Visibility is decided by `moderation_status`, not by `is_approved`.
+     * `0026_review_moderation.sql` made the status the authority and kept the
+     * boolean only so a legacy reader still saw something sensible; every
+     * other reader in the codebase filters on the status -- reviewController
+     * and reviewModerationService alike. Two readers of one table disagreeing
+     * about which column decides what the public sees is the defect, whichever
+     * way they happen to agree today (#1653).
+     *
      * @param {string} productId
      * @param {Object} options
      * @returns {Promise<Object[]>}
@@ -55,7 +64,7 @@ class ReviewRepository extends BaseRepository {
             `SELECT r.*, u.name as user_name
              FROM ${this.tableName} r
              LEFT JOIN users u ON r.user_id = u.id
-             WHERE r.product_id = ? AND r.${LIVE} AND r.is_approved = 1
+             WHERE r.product_id = ? AND r.${LIVE} AND r.moderation_status = 'approved'
              ORDER BY r.created_at DESC
              LIMIT ? OFFSET ?`,
             [productId, Number(limit), Number(offset)]
