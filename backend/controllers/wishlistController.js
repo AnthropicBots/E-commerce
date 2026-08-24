@@ -27,7 +27,7 @@ const MAX_CACHE_ENTRIES = 1000;
  * Written once and applied by every read below, because the reason it was
  * missing from six of them is that each one had to remember it separately.
  */
-const LIVE_PRODUCT = "p.is_active = 1 AND p.deleted_at IS NULL";
+const LIVE_PRODUCT = "p.status = 'active' AND p.deleted_at IS NULL";
 
 // ==================== CACHE ====================
 const cache = new Map();
