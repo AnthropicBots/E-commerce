@@ -58,7 +58,7 @@
     "node-appwrite": "^26.2.0",
     "node-cache": "^5.1.2",
     "node-cron": "^4.6.0",
-    "nodemailer": "^9.0.0",
+    "nodemailer": "^9.0.5",
     "opossum": "^10.0.0",
     "otplib": "^13.4.1",
     "pdfkit": "^0.19.1",

@@ -317,7 +317,7 @@ describe('frontend/scripts/shop.js', () => {
         // The #1444 scar itself: `}\n);` closes the arrow function and the call
         // it is an argument to. Dropping the `);` merged the listener into the
         // next declaration.
-        const listener = source.search(/document\.addEventListener\(\s*\n?\s*["']DOMContentLoaded["']/);
+        const listener = source.search(/document\.addEventListener\(\s*["']DOMContentLoaded["']/);
         expect(listener).toBeGreaterThan(-1);
 
         expect(source.slice(listener)).toMatch(/\n\s*\}\n\s*\);/);

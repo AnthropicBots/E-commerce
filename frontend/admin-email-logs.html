@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Email Logs | AnthropicBots E-Commerce</title>
+    <link rel="icon" type="image/png" href="assets/images/logo.png">
+    <link rel="stylesheet" href="styles/base.css">
+    <link rel="stylesheet" href="styles/layout.css">
+    <link rel="stylesheet" href="styles/components.css">
+    <link rel="stylesheet" href="styles/admin.css">
+    <link rel="stylesheet" href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css">
+    <style>
+        .email-logs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: capitalize;
+        }
+        .status-badge.sent, .status-badge.logged {
+            background-color: #dcfce7;
+            color: #15803d;
+        }
+        .status-badge.failed {
+            background-color: #fee2e2;
+            color: #b91c1c;
+        }
+        .channel-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            background-color: #e2e8f0;
+            color: #475569;
+            font-weight: 500;
+        }
+        .channel-badge.smtp {
+            background-color: #dbeafe;
+            color: #1e40af;
+        }
+        .refresh-btn {
+            background-color: #0f172a;
+            color: #ffffff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .refresh-btn:hover {
+            background-color: #1e293b;
+        }
+    </style>
+</head>
+<body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <div id="navbar"></div>
+
+    <main id="main-content" tabindex="-1" class="section-p1" style="max-width: 1200px; margin: 40px auto; padding: 0 20px;">
+        <div class="email-logs-header">
+            <div>
+                <h1>Recent Email Confirmation Logs</h1>
+                <p style="color: #64748b; margin-top: 4px;">Troubleshooting audit trail for order confirmation emails.</p>
+            </div>
+            <button id="refresh-logs-btn" class="refresh-btn">
+                <i class="fas fa-sync-alt" aria-hidden="true"></i> Refresh Logs
+            </button>
+        </div>
+
+        <div style="background: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; overflow-x: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                    <tr style="background-color: #f8fafc; border-bottom: 2px solid #e2e8f0; color: #475569; font-size: 13px; text-transform: uppercase;">
+                        <th style="padding: 14px 16px;">Recipient</th>
+                        <th style="padding: 14px 16px;">Subject</th>
+                        <th style="padding: 14px 16px;">Order ID / Number</th>
+                        <th style="padding: 14px 16px;">Status</th>
+                        <th style="padding: 14px 16px;">Channel</th>
+                        <th style="padding: 14px 16px;">Sent At</th>
+                    </tr>
+                </thead>
+                <tbody id="email-logs-tbody">
+                    <tr>
+                        <td colspan="6" style="padding: 24px; text-align: center; color: #64748b;">
+                            <i class="fas fa-spinner fa-spin" style="margin-right: 8px;"></i> Loading email logs...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <div id="footer"></div>
+
+    <script src="scripts/config.js"></script>
+    <script src="scripts/toast.js"></script>
+    <script src="scripts/utils.js"></script>
+    <script src="scripts/auth.js"></script>
+
+    <script>
+        async function fetchEmailLogs() {
+            const tbody = document.getElementById("email-logs-tbody");
+            if (!tbody) return;
+
+            try {
+                const response = await AppUtils.apiRequest("/admin/email-logs?limit=50");
+                const logs = response?.data?.logs || response?.logs || [];
+
+                if (!logs.length) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="6" style="padding: 32px; text-align: center; color: #64748b;">
+                                No email logs recorded yet.
+                            </td>
+                        </tr>
+                    `;
+                    return;
+                }
+
+                tbody.innerHTML = logs.map(log => {
+                    const recipient = AppUtils.escapeHTML(log.recipient || 'N/A');
+                    const subject = AppUtils.escapeHTML(log.subject || 'N/A');
+                    const orderRef = AppUtils.escapeHTML(log.orderNumber || log.orderId || 'N/A');
+                    const status = AppUtils.escapeHTML(log.status || 'sent');
+                    const channel = AppUtils.escapeHTML(log.channel || 'log');
+                    const sentAt = log.sentAt ? new Date(log.sentAt).toLocaleString() : 'N/A';
+
+                    return `
+                        <tr style="border-bottom: 1px solid #f1f5f9;">
+                            <td style="padding: 14px 16px; font-weight: 500; color: #0f172a;">${recipient}</td>
+                            <td style="padding: 14px 16px; color: #334155;">${subject}</td>
+                            <td style="padding: 14px 16px; color: #64748b;">${orderRef}</td>
+                            <td style="padding: 14px 16px;">
+                                <span class="status-badge ${status}">${status}</span>
+                            </td>
+                            <td style="padding: 14px 16px;">
+                                <span class="channel-badge ${channel}">${channel}</span>
+                            </td>
+                            <td style="padding: 14px 16px; color: #64748b; font-size: 13px;">${sentAt}</td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (error) {
+                console.error("Fetch email logs error:", error);
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" style="padding: 32px; text-align: center; color: #ef4444;">
+                            Failed to load email logs. Please ensure you are logged in as an administrator.
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            fetchEmailLogs();
+            const btn = document.getElementById("refresh-logs-btn");
+            if (btn) {
+                btn.addEventListener("click", fetchEmailLogs);
+            }
+        });
+    </script>
+</body>
+</html>
