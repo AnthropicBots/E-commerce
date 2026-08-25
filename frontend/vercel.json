@@ -22,6 +22,15 @@
       ]
     },
     {
+      "source": "/admin-email-logs.html",
+      "headers": [
+        {
+          "key": "x-robots-tag",
+          "value": "noindex, nofollow"
+        }
+      ]
+    },
+    {
       "source": "/dashboard.html",
       "headers": [
         {

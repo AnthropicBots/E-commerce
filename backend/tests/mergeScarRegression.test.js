@@ -317,10 +317,10 @@ describe('frontend/scripts/shop.js', () => {
         // The #1444 scar itself: `}\n);` closes the arrow function and the call
         // it is an argument to. Dropping the `);` merged the listener into the
         // next declaration.
-        const listener = source.indexOf('document.addEventListener(\n    "DOMContentLoaded"');
+        const listener = source.search(/document\.addEventListener\(\s*["']DOMContentLoaded["']/);
         expect(listener).toBeGreaterThan(-1);
 
-        expect(source.slice(listener)).toMatch(/\n\s*\}\n\);/);
+        expect(source.slice(listener)).toMatch(/\n\s*\}\n\s*\);/);
     });
 
     it('declares no function twice', () => {
@@ -329,7 +329,7 @@ describe('frontend/scripts/shop.js', () => {
         // unreachable -- no error, no warning.
         const counts = new Map();
 
-        for (const match of source.matchAll(/^function\s+([A-Za-z_$][\w$]*)/gm)) {
+        for (const match of source.matchAll(/^\s*function\s+([A-Za-z_$][\w$]*)/gm)) {
             counts.set(match[1], (counts.get(match[1]) || 0) + 1);
         }
 
@@ -354,7 +354,7 @@ describe('frontend/scripts/shop.js', () => {
             'getReviewCount',
             'getRatingLabel'
         ]) {
-            expect(source).toMatch(new RegExp(`^function ${name}\\(`, 'm'));
+            expect(source).toMatch(new RegExp(`^\\s*function ${name}\\(`, 'm'));
         }
     });
 
