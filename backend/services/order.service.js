@@ -395,17 +395,23 @@ const createOrderService = async (connection, orderData) => {
         // arithmetic that follows belongs to the pricing engine, which is the
         // only place that knows the ordering of discount, tax and shipping.
         let appliedPromo = null;
+        const requestedCode = orderData.couponCode || promo_code || orderData.coupon_code;
 
-        if (promo_code) {
+        if (requestedCode) {
             const { subtotal } = pricing.priceLineItems(validatedItems);
-            const promoValidation = await validatePromo(promo_code, subtotal);
+            const couponService = require("./couponService");
+            const couponVal = await couponService.validateCoupon(requestedCode, subtotal, user_id, connection);
 
-            if (!promoValidation.valid) {
-                logger.error("Promo validation failed:", promoValidation.message);
-                throw new Error("Invalid promo code.");
+            if (couponVal.valid) {
+                appliedPromo = couponVal.coupon;
+            } else {
+                const promoValidation = await validatePromo(requestedCode, subtotal);
+                if (!promoValidation.valid) {
+                    logger.error("Promo validation failed:", promoValidation.message);
+                    throw new Error(promoValidation.message || "Invalid promo code.");
+                }
+                appliedPromo = promoValidation.promo;
             }
-
-            appliedPromo = promoValidation.promo;
         }
 
         // Priced against the address the parcel is actually going to, not
@@ -618,21 +624,26 @@ const createOrderService = async (connection, orderData) => {
             logger.info(`Cleared cart for user ${user_id}`);
         }
 
-        // Track promo usage
-        if (appliedPromoId) {
-            // Increment global usage count
-            await connection.query(
-                "UPDATE promo_codes SET usage_count = usage_count + 1 WHERE id = ?",
-                [appliedPromoId]
-            );
-            
-            // Record individual usage (if authenticated)
-            if (user_id) {
+        // Track promo / coupon usage
+        if (appliedPromoCode || appliedPromoId) {
+            const couponService = require("./couponService");
+            await couponService.recordCouponUsage(connection, appliedPromoId, appliedPromoCode);
+
+            if (appliedPromoId) {
+                // Increment global usage count for promo_codes table
                 await connection.query(
-                    "INSERT INTO promo_usage (promo_id, user_id, order_id, discount_amount, status) VALUES (?, ?, ?, ?, 'applied')",
-                    [appliedPromoId, safeUUID(user_id), orderId, discountAmount]
-                );
-                logger.info(`Recorded promo usage for user ${user_id} and promo ${appliedPromoId}`);
+                    "UPDATE promo_codes SET usage_count = usage_count + 1 WHERE id = ?",
+                    [appliedPromoId]
+                ).catch(() => {});
+                
+                // Record individual usage (if authenticated)
+                if (user_id) {
+                    await connection.query(
+                        "INSERT INTO promo_usage (promo_id, user_id, order_id, discount_amount, status) VALUES (?, ?, ?, ?, 'applied')",
+                        [appliedPromoId, safeUUID(user_id), orderId, discountAmount]
+                    ).catch(() => {});
+                    logger.info(`Recorded promo usage for user ${user_id} and promo ${appliedPromoId}`);
+                }
             }
         }
 

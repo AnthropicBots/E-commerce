@@ -2004,6 +2004,22 @@ const validateCoupon = async (
     }
 };
 
+const applyCoupon = async (couponCode, cartTotal) => {
+    const code = String(couponCode || "").trim();
+    if (!code) {
+        return { success: false, message: "Coupon code is required" };
+    }
+    const currentCart = getCart();
+    const subtotal = cartTotal || currentCart.reduce((sum, item) => sum + (safeNumber(item.price, 0) * safeInteger(item.qty, 1)), 0);
+    const result = await validateCoupon(code, subtotal);
+    if (result.valid) {
+        setJSON("appliedCoupon", result.code);
+        return { success: true, code: result.code, message: result.message };
+    } else {
+        return { success: false, message: result.message || "Invalid coupon code" };
+    }
+};
+
 const calculateCartTotals = async (
     cart = getCart(),
     couponCode = ""
@@ -2352,6 +2368,7 @@ window.AppUtils = {
     getRecoveryRef,
     clearRecoveryRef,
     validateCoupon,
+    applyCoupon,
     calculateCartTotals,
     fetchCartQuote,
     formatFreeShippingProgress,
