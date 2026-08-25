@@ -587,8 +587,90 @@
     });
   }
 
+  // Photos are inlined as base64 in the JSON body, so what the camera produced
+  // is not what can be sent. A phone photo is 4-12MB; five of those is far past
+  // the 10mb request body limit, and the server used to `slice()` anything over
+  // its own cap, storing a truncated data URI that renders as a broken image
+  // for as long as the review exists (#1654).
+  //
+  // So the resizing happens here, before anything is queued. A review photo is
+  // displayed a few hundred pixels wide; 1600px on the long edge is already
+  // more than the page can show.
+  const MAX_REVIEW_IMAGE_CHARS = 1500000; // mirrors the server's cap
+  const MAX_IMAGE_DIMENSION = 1600;
+  const JPEG_QUALITY_STEPS = [0.82, 0.7, 0.6, 0.5, 0.4];
+
+  const readFileAsDataURL = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (loadEvent) => resolve(loadEvent.target?.result || "");
+      reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+      reader.readAsDataURL(file);
+    });
+
+  const loadImage = (src) =>
+    new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("Unreadable image"));
+      image.src = src;
+    });
+
+  /**
+   * Scale a photo down until its data URI fits the cap.
+   *
+   * Quality is stepped down first because it costs the least visibly; only if
+   * the smallest quality is still too big does the pixel size halve. Returns
+   * null when even that cannot get it under, which is a real answer -- better
+   * than uploading something the server will refuse or, worse, store truncated.
+   */
+  const downscaleToLimit = async (file) => {
+    const original = await readFileAsDataURL(file);
+
+    if (original.length <= MAX_REVIEW_IMAGE_CHARS) {
+      return original;
+    }
+
+    const image = await loadImage(original);
+
+    let width = image.naturalWidth || image.width;
+    let height = image.naturalHeight || image.height;
+
+    const longestEdge = Math.max(width, height);
+
+    if (longestEdge > MAX_IMAGE_DIMENSION) {
+      const scale = MAX_IMAGE_DIMENSION / longestEdge;
+      width = Math.round(width * scale);
+      height = Math.round(height * scale);
+    }
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, width);
+      canvas.height = Math.max(1, height);
+
+      const context = canvas.getContext("2d");
+      if (!context) return null;
+
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      for (const quality of JPEG_QUALITY_STEPS) {
+        const candidate = canvas.toDataURL("image/jpeg", quality);
+
+        if (candidate.length <= MAX_REVIEW_IMAGE_CHARS) {
+          return candidate;
+        }
+      }
+
+      width = Math.round(width / 2);
+      height = Math.round(height / 2);
+    }
+
+    return null;
+  };
+
   if (reviewImagesInput) {
-    reviewImagesInput.addEventListener("change", (e) => {
+    reviewImagesInput.addEventListener("change", async (e) => {
       const files = Array.from(e.target.files || []);
       if (!files.length) return;
 
@@ -599,26 +681,35 @@
       const remainingSlots = 5 - selectedReviewImages.length;
       const filesToRead = files.slice(0, remainingSlots);
 
-      filesToRead.forEach((file) => {
+      // Cleared up front: the resizing below is async, and leaving the input
+      // populated lets the same file be picked again while it is still being
+      // processed.
+      reviewImagesInput.value = "";
+
+      for (const file of filesToRead) {
         if (!file.type.startsWith("image/")) {
           AppUtils.notify(`File ${file.name} is not a valid image`, "error");
-          return;
+          continue;
         }
 
-        const reader = new FileReader();
-        reader.onload = (loadEvent) => {
-          if (loadEvent.target?.result) {
-            selectedReviewImages.push(loadEvent.target.result);
-            renderImagePreviews();
-          }
-        };
-        reader.onerror = () => {
-          AppUtils.notify(`Failed to read file ${file.name}`, "error");
-        };
-        reader.readAsDataURL(file);
-      });
+        try {
+          const prepared = await downscaleToLimit(file);
 
-      reviewImagesInput.value = "";
+          if (!prepared) {
+            AppUtils.notify(
+              `${file.name} is too large to attach, even resized`,
+              "error"
+            );
+            continue;
+          }
+
+          selectedReviewImages.push(prepared);
+          renderImagePreviews();
+        } catch (error) {
+          console.error("REVIEW IMAGE ERROR:", error);
+          AppUtils.notify(`Failed to read file ${file.name}`, "error");
+        }
+      }
     });
   }
 

@@ -730,14 +730,68 @@ function renderEmptyCart() {
     updateCartTotals(0);
 }
 
-// ==================== QUANTITY UPDATE ====================
+// ==================== QUANTITY UPDATE (DEBOUNCED) ====================
+let quantityDebounceTimeout = null;
+
+function debouncedSaveAndRender(nextCart) {
+    if (quantityDebounceTimeout) {
+        clearTimeout(quantityDebounceTimeout);
+    }
+    quantityDebounceTimeout = setTimeout(() => {
+        saveAndRender(nextCart);
+        quantityDebounceTimeout = null;
+    }, 300);
+}
+
+function flushPendingQuantityUpdate() {
+    if (quantityDebounceTimeout) {
+        clearTimeout(quantityDebounceTimeout);
+        quantityDebounceTimeout = null;
+    }
+}
+
+function updateItemDOM(index) {
+    const itemEl = document.querySelector(`.cart-item[data-index="${index}"]`);
+    if (!itemEl || !cart[index]) return;
+
+    const qty = cart[index].qty;
+    const price = AppUtils.safeNumber(cart[index].price, 0);
+
+    const qtyInput = itemEl.querySelector('.qty-input');
+    if (qtyInput && parseInt(qtyInput.value, 10) !== qty) {
+        qtyInput.value = qty;
+    }
+
+    const decreaseBtn = itemEl.querySelector('.decrease-qty');
+    if (decreaseBtn) {
+        decreaseBtn.disabled = (qty <= 1);
+        decreaseBtn.style.opacity = qty <= 1 ? '0.5' : '1';
+        decreaseBtn.style.cursor = qty <= 1 ? 'not-allowed' : 'pointer';
+        decreaseBtn.title = qty <= 1 ? 'Minimum quantity is 1' : '';
+    }
+
+    const priceStrong = itemEl.querySelector('.cart-item-actions strong');
+    if (priceStrong) {
+        priceStrong.textContent = AppUtils.formatPrice(price * qty);
+    }
+}
+
 function updateQuantity(index, newQty) {
     if (!cart[index]) return;
     
     const qty = Math.max(CART_CONFIG.MIN_QUANTITY, Math.min(CART_CONFIG.MAX_QUANTITY, newQty));
+    if (cart[index].qty === qty) return;
+
     cart[index].qty = qty;
-    saveAndRender(cart);
+    updateItemDOM(index);
+    AppUtils.saveCart(cart, { sync: false });
+    debouncedSaveAndRender(cart);
 }
+
+// Expose handlers used in inline event attributes (e.g. onchange="window.updateQuantity(...)")
+window.updateQuantity = updateQuantity;
+window.toggleSelectItem = toggleSelectItem;
+window.updateItemNote = updateItemNote;
 
 // ==================== ITEM NOTE UPDATE ====================
 function updateItemNote(index, note) {
@@ -761,8 +815,14 @@ document.addEventListener("click", (event) => {
     if (increaseBtn) {
         const index = Number(increaseBtn.dataset.index);
         if (!cart[index]) return;
-        cart[index].qty = Math.min(CART_CONFIG.MAX_QUANTITY, (AppUtils.safeInteger(cart[index].qty, 1) + 1));
-        saveAndRender(cart);
+        const currentQty = AppUtils.safeInteger(cart[index].qty, 1);
+        const newQty = Math.min(CART_CONFIG.MAX_QUANTITY, currentQty + 1);
+        if (newQty !== currentQty) {
+            cart[index].qty = newQty;
+            updateItemDOM(index);
+            AppUtils.saveCart(cart, { sync: false });
+            debouncedSaveAndRender(cart);
+        }
         return;
     }
 
@@ -779,12 +839,15 @@ document.addEventListener("click", (event) => {
             return;
         }
         cart[index].qty = currentQty - 1;
-        saveAndRender(cart);
+        updateItemDOM(index);
+        AppUtils.saveCart(cart, { sync: false });
+        debouncedSaveAndRender(cart);
         return;
     }
 
     // Remove from cart with undo
     if (removeBtn) {
+        flushPendingQuantityUpdate();
         const index = Number(removeBtn.dataset.index);
         if (!cart[index]) return;
         const itemName = cart[index].name || "Item";
@@ -811,6 +874,7 @@ document.addEventListener("click", (event) => {
 
     // Move to wishlist
     if (wishlistBtn) {
+        flushPendingQuantityUpdate();
         const index = Number(wishlistBtn.dataset.index);
         if (!cart[index]) return;
         const wishlist = AppUtils.getWishlist();
@@ -832,6 +896,7 @@ document.addEventListener("click", (event) => {
 
     // Save for later
     if (saveLaterBtn) {
+        flushPendingQuantityUpdate();
         const index = Number(saveLaterBtn.dataset.index);
         saveForLater(index);
         return;
@@ -839,6 +904,7 @@ document.addEventListener("click", (event) => {
 
     // Move to cart from saved
     if (moveToCartBtn) {
+        flushPendingQuantityUpdate();
         const index = Number(moveToCartBtn.dataset.savedIndex);
         moveToCart(index);
         return;

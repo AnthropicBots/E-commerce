@@ -314,24 +314,38 @@ describe('frontend/scripts/shop.js', () => {
     });
 
     it('closes that listener rather than running on into what follows', () => {
-        // The #1444 scar itself: `}\n);` closes the arrow function and the call
-        // it is an argument to. Dropping the `);` merged the listener into the
-        // next declaration.
-        const listener = source.indexOf('document.addEventListener(\n    "DOMContentLoaded"');
+        // The #1444 scar itself: `}` then `);` closes the arrow function and the
+        // call it is an argument to. Dropping the `);` merged the listener into
+        // the next declaration.
+        //
+        // Matched by shape rather than by a literal with the indentation baked
+        // in. #1644 wrapped this file in an IIFE, which moved every line one
+        // level right and broke an assertion that was pinning the whitespace
+        // instead of the structure (#1655).
+        const listener = source.search(
+            /document\.addEventListener\(\s*["']DOMContentLoaded["']/
+        );
         expect(listener).toBeGreaterThan(-1);
 
-        expect(source.slice(listener)).toMatch(/\n\s*\}\n\);/);
+        expect(source.slice(listener)).toMatch(/\n\s*\}\n\s*\);/);
     });
 
     it('declares no function twice', () => {
         // `setupSearch` was declared twice, ~250 lines apart. Declarations
         // hoist, so the second silently replaced the first and the first became
         // unreachable -- no error, no warning.
+        //
+        // The leading `\s*` is load-bearing. Anchored at `^function` this
+        // matched nothing once #1644 indented the file inside an IIFE, so the
+        // check passed by finding no declarations at all rather than by finding
+        // no duplicates (#1655).
         const counts = new Map();
 
-        for (const match of source.matchAll(/^function\s+([A-Za-z_$][\w$]*)/gm)) {
+        for (const match of source.matchAll(/^\s*function\s+([A-Za-z_$][\w$]*)/gm)) {
             counts.set(match[1], (counts.get(match[1]) || 0) + 1);
         }
+
+        expect(counts.size).toBeGreaterThan(10);
 
         expect([...counts.entries()].filter(([, n]) => n > 1).map(([name]) => name)).toEqual([]);
     });
@@ -354,7 +368,9 @@ describe('frontend/scripts/shop.js', () => {
             'getReviewCount',
             'getRatingLabel'
         ]) {
-            expect(source).toMatch(new RegExp(`^function ${name}\\(`, 'm'));
+            // `\\s*` rather than an anchor: what matters is that the
+            // declaration is in the file, not what column it starts in.
+            expect(source).toMatch(new RegExp(`^\\s*function ${name}\\(`, 'm'));
         }
     });
 
@@ -364,10 +380,16 @@ describe('frontend/scripts/shop.js', () => {
         expect(html).toMatch(/id="clear-filters"/);
         expect(html).toMatch(/id="product-sort"/);
 
-        expect(source).not.toMatch(/getElementById\(['"]clear-filters-btn['"]\)/);
-        expect(source).not.toMatch(/getElementById\(['"]sort-select['"]\)/);
-        expect(source).toMatch(/getElementById\(["']clear-filters["']\)/);
-        expect(source).toMatch(/getElementById\(["']product-sort["']\)/);
+        // Whitespace-tolerant on both sides of the argument: this file now
+        // wraps the call across three lines, which a single-line pattern misses
+        // even though the id it asks for is exactly right (#1655).
+        const resolvesById = (id) =>
+            new RegExp(`getElementById\\(\\s*["']${id}["']\\s*\\)`);
+
+        expect(source).not.toMatch(resolvesById('clear-filters-btn'));
+        expect(source).not.toMatch(resolvesById('sort-select'));
+        expect(source).toMatch(resolvesById('clear-filters'));
+        expect(source).toMatch(resolvesById('product-sort'));
     });
 
     it('has one owner for the clear-filters click', () => {
