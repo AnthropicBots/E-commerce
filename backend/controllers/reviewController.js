@@ -8,6 +8,20 @@ const reviewModerationService = require("../services/reviewModerationService");
 
 /** Cap on photos per review. */
 const MAX_REVIEW_IMAGES = 5;
+
+// Cap on one inlined photo, in characters of data URI.
+//
+// Photos arrive as base64 in the JSON body rather than as an upload, so the
+// per-image cap and MAX_REVIEW_IMAGES together have to fit inside
+// appConfig.bodyLimit, which is 10mb. Five images at the old 5,000,000 was a
+// 25MB ceiling against a 10MB door: three ordinary photos already 413ed, and
+// the failure surfaced as a generic "Failed to submit review" (#1654).
+//
+// 1,500,000 characters is about 1.1MB of image. Five of them is 7.5MB, which
+// leaves the rest of the review room inside the limit. The frontend downscales
+// to fit this before it uploads, so the cap is a backstop rather than
+// something a shopper is expected to meet by choosing smaller photos.
+const MAX_REVIEW_IMAGE_CHARS = 1500000;
 const { ReviewError, REPORT_REASONS } = require("../services/reviewModerationService");
 const {
     safeArray,
@@ -381,16 +395,29 @@ const deleteProductReview = async (req, res) => {
 function normalizeReviewImages(value) {
     if (!Array.isArray(value)) return [];
 
+    const isDataImage = (url) =>
+        /^data:image\/(png|jpe?g|webp|gif);base64,/i.test(url);
+
     return value
         .slice(0, MAX_REVIEW_IMAGES)
         .map((url) => {
             const str = sanitizeString(url || "");
-            if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(str)) {
-                return str.slice(0, 5000000);
+
+            // An oversized data URI is dropped, not trimmed.
+            //
+            // `slice()` cut the payload mid-stream and the result still began
+            // `data:image/jpeg;base64,`, so it passed the filter below and was
+            // written to reviews.images -- a truncated, undecodable URI that
+            // renders as a broken image for as long as the review exists.
+            // Truncating turns a rejectable request into permanent bad data;
+            // rejecting is recoverable (#1654).
+            if (isDataImage(str)) {
+                return str.length > MAX_REVIEW_IMAGE_CHARS ? "" : str;
             }
+
             return str.slice(0, 500);
         })
-        .filter((url) => /^https?:\/\//i.test(url) || /^data:image\/(png|jpe?g|webp|gif);base64,/i.test(url));
+        .filter((url) => /^https?:\/\//i.test(url) || isDataImage(url));
 }
 
 /**
@@ -589,5 +616,13 @@ module.exports = {
     getReportReasons,
     getModerationQueue,
     getReviewReports,
-    moderateReview
+    moderateReview,
+
+    // Exported for the size and truncation rules to be tested directly. What
+    // goes wrong here is arithmetic against a request body limit, and reaching
+    // it through a full createProductReview round trip would test the mocking
+    // rather than the rule (#1654).
+    normalizeReviewImages,
+    MAX_REVIEW_IMAGES,
+    MAX_REVIEW_IMAGE_CHARS
 };
