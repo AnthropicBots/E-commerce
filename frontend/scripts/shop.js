@@ -2264,7 +2264,7 @@
     // ---------------------------------------------------------
 
     document.addEventListener(
-        "DOMContentLoaded",
+    "DOMContentLoaded",
         () => {
             elements.searchForm =
                 document.getElementById(
