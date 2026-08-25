@@ -61,6 +61,7 @@ const EXCLUDED = new Set([
     'admin.html',
     'admin-email-logs.html',
     'dashboard.html',
+    'profile.html',
     'cart.html',
     'checkout.html',
     'success.html',

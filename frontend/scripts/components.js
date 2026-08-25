@@ -1452,7 +1452,7 @@ function initNavbarSearch() {
 
         try {
             const response = await AppUtils.apiRequest(
-                `/search?q=${encodeURIComponent(query)}`
+                `/products/search-suggestions?q=${encodeURIComponent(query)}`
             );
 
             // Superseded while in flight: the user has typed since, so this
