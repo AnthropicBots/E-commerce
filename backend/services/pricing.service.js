@@ -109,7 +109,7 @@ const applyDiscount = (promo, baseAmount) => {
         return { amount: 0, isShippingWaived: false };
     }
 
-    const type = String(promo.discount_type ?? promo.discountType ?? "")
+    const type = String(promo.discount_type ?? promo.discountType ?? promo.type ?? "")
         .trim()
         .toLowerCase();
 
@@ -117,11 +117,12 @@ const applyDiscount = (promo, baseAmount) => {
         return { amount: 0, isShippingWaived: true };
     }
 
-    const value = toFiniteNumber(promo.discount_value ?? promo.discountValue);
-    let amount = type === DISCOUNT_TYPES.PERCENTAGE ? base * (value / 100) : value;
+    const isPercentage = type === "percentage" || type === "percent" || type === DISCOUNT_TYPES.PERCENTAGE;
+    const value = toFiniteNumber(promo.discount_value ?? promo.discountValue ?? promo.value);
+    let amount = isPercentage ? base * (value / 100) : value;
 
-    const cap = toFiniteNumber(promo.maximum_discount ?? promo.maximumDiscount);
-    if (type === DISCOUNT_TYPES.PERCENTAGE && cap > 0) {
+    const cap = toFiniteNumber(promo.maximum_discount ?? promo.maximumDiscount ?? promo.maximum_discount_amount);
+    if (isPercentage && cap > 0) {
         amount = Math.min(amount, cap);
     }
 

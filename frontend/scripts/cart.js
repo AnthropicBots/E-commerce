@@ -948,18 +948,30 @@ document.addEventListener("input", (event) => {
 
 // ==================== INITIALIZATION ====================
 if (elements.couponForm) {
+    if (appliedCoupon && elements.couponCode) {
+        elements.couponCode.value = appliedCoupon;
+        setCouponMessage(`Coupon ${appliedCoupon} applied.`, "success");
+    }
+
     elements.couponForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         const code = elements.couponCode.value.trim();
-        if (!code) return;
+        if (!code) {
+            appliedCoupon = "";
+            AppUtils.removeStorage("appliedCoupon");
+            setCouponMessage("", "");
+            updateCartTotals();
+            return;
+        }
 
         showLoading("coupon-form");
         try {
             const result = await AppUtils.applyCoupon(code);
             if (result.success) {
-                appliedCoupon = code;
-                AppUtils.setJSON("appliedCoupon", code);
-                setCouponMessage("Coupon applied successfully!", "success");
+                appliedCoupon = result.code || code;
+                AppUtils.setJSON("appliedCoupon", appliedCoupon);
+                elements.couponCode.value = appliedCoupon;
+                setCouponMessage(result.message || "Coupon applied successfully!", "success");
                 updateCartTotals();
             } else {
                 setCouponMessage(result.message || "Invalid coupon code", "error");
@@ -970,6 +982,17 @@ if (elements.couponForm) {
             hideLoading("coupon-form");
         }
     });
+
+    if (elements.couponCode) {
+        elements.couponCode.addEventListener("input", (e) => {
+            if (!e.target.value.trim()) {
+                appliedCoupon = "";
+                AppUtils.removeStorage("appliedCoupon");
+                setCouponMessage("", "");
+                updateCartTotals();
+            }
+        });
+    }
 }
 
 if (elements.emptyCartBtn) {
