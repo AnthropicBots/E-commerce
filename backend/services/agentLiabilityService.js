@@ -58,33 +58,34 @@ const CACHE_TTL = {
 
 const register = new prometheus.Registry();
 
-const agentCounter = new prometheus.Counter({
+const getOrCreateMetric = (MetricClass, config) => {
+    const existing = register.getSingleMetric(config.name);
+    if (existing) return existing;
+    return new MetricClass({ ...config, registers: [register] });
+};
+
+const agentCounter = getOrCreateMetric(prometheus.Counter, {
     name: 'agent_liability_registrations_total',
     help: 'Total number of agent registrations',
 });
 
-const liabilityGauge = new prometheus.Gauge({
+const liabilityGauge = getOrCreateMetric(prometheus.Gauge, {
     name: 'agent_liability_amount',
     help: 'Current liability amount by tier',
     labelNames: ['tier']
 });
 
-const claimCounter = new prometheus.Counter({
+const claimCounter = getOrCreateMetric(prometheus.Counter, {
     name: 'liability_claims_total',
     help: 'Total number of liability claims',
     labelNames: ['status']
 });
 
-const latencyHistogram = new prometheus.Histogram({
+const latencyHistogram = getOrCreateMetric(prometheus.Histogram, {
     name: 'liability_operation_duration_seconds',
     help: 'Duration of liability operations',
     labelNames: ['operation']
 });
-
-register.registerMetric(agentCounter);
-register.registerMetric(liabilityGauge);
-register.registerMetric(claimCounter);
-register.registerMetric(latencyHistogram);
 
 // ============================================
 // VALIDATION SCHEMAS
