@@ -28,6 +28,7 @@ Allow: /
 # make the directory form reachable too.
 Disallow: /admin/
 Disallow: /admin.html
+Disallow: /admin-email-logs.html
 Disallow: /dashboard/
 Disallow: /dashboard.html
 Disallow: /profile/
@@ -63,6 +64,7 @@ User-agent: ClaudeBot
 Allow: /
 Disallow: /admin/
 Disallow: /admin.html
+Disallow: /admin-email-logs.html
 Disallow: /dashboard/
 Disallow: /dashboard.html
 Disallow: /profile/
@@ -85,6 +87,7 @@ User-agent: ChatGPT-User
 Allow: /
 Disallow: /admin/
 Disallow: /admin.html
+Disallow: /admin-email-logs.html
 Disallow: /dashboard/
 Disallow: /dashboard.html
 Disallow: /profile/
@@ -107,6 +110,7 @@ User-agent: PerplexityBot
 Allow: /
 Disallow: /admin/
 Disallow: /admin.html
+Disallow: /admin-email-logs.html
 Disallow: /dashboard/
 Disallow: /dashboard.html
 Disallow: /profile/
@@ -133,6 +137,7 @@ User-agent: Googlebot
 Allow: /
 Disallow: /admin/
 Disallow: /admin.html
+Disallow: /admin-email-logs.html
 Disallow: /dashboard/
 Disallow: /dashboard.html
 Disallow: /profile/
@@ -154,6 +159,7 @@ User-agent: Bingbot
 Allow: /
 Disallow: /admin/
 Disallow: /admin.html
+Disallow: /admin-email-logs.html
 Disallow: /dashboard/
 Disallow: /dashboard.html
 Disallow: /profile/

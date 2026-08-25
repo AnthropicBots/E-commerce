@@ -200,11 +200,10 @@ async function subscribe(userId, planId) {
         throw new SubscriptionError('Authentication required', 401, 'UNAUTHENTICATED');
     }
 
-    // Both argument checks happen before the transaction, for the same reason.
-    // Neither depends on anything in the database, and an unusable argument
-    // that opens and rolls back a transaction to answer is paying for a
-    // connection to say no.
-    const plan = normalisePlanId(planId);
+    const plan = Math.trunc(safeNumber(planId));
+    if (plan < 1) {
+        throw new SubscriptionError('Invalid plan ID', 400, 'INVALID_PLAN');
+    }
 
     return withTransaction(async (connection) => {
         const billingPlan = await fetchAndValidatePlan(connection, plan);

@@ -478,7 +478,9 @@ function maybeAutoLoadMore() {
     }
 
     const sentinel =
-        document.getElementById("product-scroll-sentinel");
+        document.getElementById(
+            "product-scroll-sentinel"
+        );
 
     if (!sentinel) {
         return;
@@ -2081,7 +2083,9 @@ function updateResultsSummary() {
     `;
 
     const clearFiltersBtn =
-        document.getElementById("active-clear-filters");
+        document.getElementById(
+            "active-clear-filters"
+        );
 
     if (clearFiltersBtn) {
         const hasFilters =
@@ -2140,7 +2144,9 @@ function updateResultsSummary() {
 
 function renderScrollStatus() {
     let statusBar =
-        document.getElementById("pagination");
+        document.getElementById(
+            "pagination"
+        );
 
     if (!statusBar) {
         statusBar =
@@ -2213,7 +2219,9 @@ function observeSentinel() {
     }
 
     const sentinel =
-        document.getElementById("product-scroll-sentinel");
+        document.getElementById(
+            "product-scroll-sentinel"
+        );
 
     if (sentinel) {
         productObserver.observe(
@@ -2258,37 +2266,21 @@ document.addEventListener(
     "DOMContentLoaded",
     () => {
         elements.searchForm = document.getElementById("shop-search-form");
-
         elements.searchInput = document.getElementById("search-input");
-
         elements.suggestions = document.getElementById("search-suggestions");
-
         elements.categoryList = document.getElementById("category-filter-list");
-
         elements.minPriceRange = document.getElementById("min-price-range");
-
         elements.maxPriceRange = document.getElementById("max-price-range");
-
         elements.minPriceNumber = document.getElementById("min-price-number");
-
         elements.maxPriceNumber = document.getElementById("max-price-number");
-
         elements.priceOutput = document.getElementById("price-range-output");
-
         elements.sortSelect = document.getElementById("product-sort");
-
         elements.productContainer = document.getElementById("product-container");
-
         elements.resultsSummary = document.getElementById("results-summary");
-
         elements.filterSidebar = document.getElementById("filter-sidebar");
-
         elements.filterBackdrop = document.getElementById("filter-backdrop");
-
         elements.mobileFilterToggle = document.getElementById("mobile-filter-toggle");
-
         elements.closeFilterSidebar = document.getElementById("close-filter-sidebar");
-
         elements.clearFilters = document.getElementById("clear-filters");
 
         setupSearch();
@@ -2298,7 +2290,9 @@ document.addEventListener(
 
         // ACTIVE CLEAR FILTERS BUTTON
         const activeClearFiltersBtn =
-            document.getElementById("active-clear-filters");
+            document.getElementById(
+                "active-clear-filters"
+            );
 
         if (activeClearFiltersBtn) {
             activeClearFiltersBtn.addEventListener(
@@ -2416,7 +2410,10 @@ document.addEventListener(
                                 resetPage: true
                             });
 
-                            document.getElementById("product-container")
+                            document
+                                .getElementById(
+                                    "product-container"
+                                )
                                 ?.scrollIntoView(
                                     {
                                         behavior:

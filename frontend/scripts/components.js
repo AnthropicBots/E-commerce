@@ -1480,22 +1480,18 @@ function initNavbarSearch() {
                 return;
             }
 
-            // This endpoint answers with a bare array rather than the usual
-            // `{ success, ... }` envelope, so both shapes are accepted -- the
-            // widget should not break if the endpoint is ever standardised.
+            // Standard envelope `{ success, data, ... }` or array fallback
             const items = Array.isArray(response)
                 ? response
-                : AppUtils.safeArray(response && response.products);
+                : AppUtils.safeArray(response && (response.data || response.products));
 
-            renderList(items.slice(0, 8), query);
+            renderList(items.slice(0, 5), query);
         } catch (error) {
             if (sequence !== requestSequence) {
                 return;
             }
             // A failed lookup closes the list rather than leaving a stale one
-            // on screen. Nothing is shown to the shopper: the input still
-            // works -- Enter searches the shop page -- so there is nothing for
-            // them to do about it.
+            // on screen.
             console.error("Search suggestions failed:", error);
             closeList();
         }
@@ -1507,8 +1503,6 @@ function initNavbarSearch() {
         clearTimeout(debounceTimer);
 
         if (query.length < SEARCH_SUGGEST_MIN_LENGTH) {
-            // Bump the counter so a reply still in flight for a longer query
-            // cannot reopen the list the user has just emptied.
             requestSequence++;
             closeList();
             return;
@@ -1516,7 +1510,7 @@ function initNavbarSearch() {
 
         debounceTimer = setTimeout(
             () => fetchSuggestions(query),
-            SEARCH_SUGGEST_DEBOUNCE_MS
+            300
         );
     });
 
