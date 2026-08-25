@@ -314,17 +314,10 @@ describe('frontend/scripts/shop.js', () => {
     });
 
     it('closes that listener rather than running on into what follows', () => {
-        // The #1444 scar itself: `}` then `);` closes the arrow function and the
-        // call it is an argument to. Dropping the `);` merged the listener into
-        // the next declaration.
-        //
-        // Matched by shape rather than by a literal with the indentation baked
-        // in. #1644 wrapped this file in an IIFE, which moved every line one
-        // level right and broke an assertion that was pinning the whitespace
-        // instead of the structure (#1655).
-        const listener = source.search(
-            /document\.addEventListener\(\s*["']DOMContentLoaded["']/
-        );
+        // The #1444 scar itself: `}\n);` closes the arrow function and the call
+        // it is an argument to. Dropping the `);` merged the listener into the
+        // next declaration.
+        const listener = source.search(/document\.addEventListener\(\s*\n?\s*["']DOMContentLoaded["']/);
         expect(listener).toBeGreaterThan(-1);
 
         expect(source.slice(listener)).toMatch(/\n\s*\}\n\s*\);/);
@@ -368,8 +361,6 @@ describe('frontend/scripts/shop.js', () => {
             'getReviewCount',
             'getRatingLabel'
         ]) {
-            // `\\s*` rather than an anchor: what matters is that the
-            // declaration is in the file, not what column it starts in.
             expect(source).toMatch(new RegExp(`^\\s*function ${name}\\(`, 'm'));
         }
     });
@@ -397,11 +388,11 @@ describe('frontend/scripts/shop.js', () => {
         // that bound `clearFiltersBtn` is gone, and so is the legacy
         // `.filter-btn` state it reset.
         expect(source).toMatch(/elements\.clearFilters\?\.addEventListener\(/);
-        expect(source).not.toMatch(/^function clearAllFilters\(\)/m);
-        expect(source).not.toMatch(/^function setupClearFilters\(\)/m);
+        expect(source).not.toMatch(/^\s*function clearAllFilters\(\)/m);
+        expect(source).not.toMatch(/^\s*function setupClearFilters\(\)/m);
 
         for (const name of ['currentCategory', 'currentSearch', 'showAllHoodies']) {
-            expect(source).not.toMatch(new RegExp(`^let ${name} = `, 'm'));
+            expect(source).not.toMatch(new RegExp(`^\\s*let ${name} = `, 'm'));
         }
     });
 });

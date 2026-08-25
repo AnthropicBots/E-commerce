@@ -2306,12 +2306,67 @@ document.addEventListener(
                         elements.searchInput.value =
                             "";
                     }
+                },
+                {
+                    rootMargin:
+                        "200px 0px"
+                }
+            );
+    }
 
-                    const filterUrlParams =
-                        new URLSearchParams(
-                            window.location
-                                .search
-                        );
+    // ---------------------------------------------------------
+    // INITIALIZATION
+    // ---------------------------------------------------------
+
+    document.addEventListener(
+    "DOMContentLoaded",
+        () => {
+            elements.searchForm =
+                document.getElementById(
+                    "shop-search-form"
+                );
+
+            elements.searchInput =
+                document.getElementById(
+                    "search-input"
+                );
+
+            elements.suggestions =
+                document.getElementById(
+                    "search-suggestions"
+                );
+
+            elements.categoryList =
+                document.getElementById(
+                    "category-filter-list"
+                );
+
+            elements.minPriceRange =
+                document.getElementById(
+                    "min-price-range"
+                );
+
+            elements.maxPriceRange =
+                document.getElementById(
+                    "max-price-range"
+                );
+
+            elements.minPriceNumber =
+                document.getElementById(
+                    "min-price-number"
+                );
+
+            elements.maxPriceNumber =
+                document.getElementById(
+                    "max-price-number"
+                );
+
+            elements.priceOutput =
+                document.getElementById(
+                    "price-range-output"
+                );
+
+            elements.sortSelect = document.getElementById("product-sort");
 
                     filterUrlParams.delete(
                         "category"
@@ -2343,12 +2398,7 @@ document.addEventListener(
                     filters.megaSubcategory =
                         "";
 
-                    applyFilters({
-                        resetPage: true
-                    });
-                }
-            );
-        }
+            elements.clearFilters = document.getElementById("clear-filters");
 
         // CATEGORY CARD CLICK FILTER
         document
