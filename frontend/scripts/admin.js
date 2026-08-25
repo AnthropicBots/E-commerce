@@ -36,7 +36,7 @@ async function verifyAdminAccess() {
 
         const response =
             await AppUtils.apiRequest(
-                "/auth/me"
+                "/admin/verify"
             );
 
         if (
@@ -44,7 +44,7 @@ async function verifyAdminAccess() {
             ||
             !response.user
             ||
-            response.user.role !== "admin"
+            (response.user.role !== "admin" && response.user.role !== "superadmin")
         ) {
 
             redirectUnauthorized();
@@ -227,7 +227,7 @@ async function loadInitialData() {
 
         const productsRes =
             await AppUtils.apiRequest(
-                `/products?page=${currentProductPage}&limit=${PAGE_LIMIT}`
+                `/admin/products?page=${currentProductPage}&limit=${PAGE_LIMIT}`
             );
 
         if (
@@ -242,7 +242,7 @@ async function loadInitialData() {
 
         const ordersRes =
             await AppUtils.apiRequest(
-                `/orders?page=${currentOrderPage}&limit=${PAGE_LIMIT}`
+                `/admin/orders?page=${currentOrderPage}&limit=${PAGE_LIMIT}`
             );
 
         if (
@@ -442,7 +442,7 @@ if (
 
                 const response =
                     await AppUtils.apiRequest(
-                        "/products",
+                        "/admin/products",
                         {
 
                             method:
@@ -646,7 +646,7 @@ async function deleteProduct(
 
         const response =
             await AppUtils.apiRequest(
-                `/products/${id}`,
+                `/admin/products/${id}`,
                 {
                     method:
                         "DELETE"
@@ -753,7 +753,7 @@ function renderOrders() {
         elements.ordersTableBody.innerHTML =
             `
                 <tr>
-                    <td colspan="3">
+                    <td colspan="6">
                         No orders found
                     </td>
                 </tr>
@@ -784,6 +784,8 @@ function renderOrders() {
                     "tr"
                 );
 
+            const currentStatus = order.status || "pending";
+
             row.innerHTML =
                 `
                     <td>
@@ -791,13 +793,35 @@ function renderOrders() {
                     </td>
 
                     <td>
-                        ${escapeHTML(order.created_at || "-")}
+                        ${escapeHTML(order.customer_name || order.customer_email || order.user_id || "Customer")}
+                    </td>
+
+                    <td>
+                        ${escapeHTML(order.created_at ? new Date(order.created_at).toLocaleDateString() : "-")}
                     </td>
 
                     <td>
                         ${AppUtils.formatPrice(order.total || 0)}
                     </td>
+
+                    <td>
+                        <span class="badge ${currentStatus.toLowerCase()}">${escapeHTML(currentStatus)}</span>
+                    </td>
+
+                    <td>
+                        <select class="order-status-select" data-id="${order.id}" style="padding:4px 8px; font-size:12px; border-radius:4px; border:1px solid #ccc;">
+                            <option value="pending" ${currentStatus === 'pending' ? 'selected' : ''}>Pending</option>
+                            <option value="processing" ${currentStatus === 'processing' ? 'selected' : ''}>Processing</option>
+                            <option value="shipped" ${currentStatus === 'shipped' ? 'selected' : ''}>Shipped</option>
+                            <option value="delivered" ${currentStatus === 'delivered' ? 'selected' : ''}>Delivered</option>
+                            <option value="cancelled" ${currentStatus === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+                        </select>
+                    </td>
                 `;
+
+            row.querySelector('.order-status-select')?.addEventListener('change', (e) => {
+                updateAdminOrderStatus(order.id, e.target.value);
+            });
 
             fragment.appendChild(
                 row
@@ -808,6 +832,24 @@ function renderOrders() {
     elements.ordersTableBody.appendChild(
         fragment
     );
+}
+
+async function updateAdminOrderStatus(orderId, newStatus) {
+    try {
+        const response = await AppUtils.apiRequest(`/admin/orders/${orderId}/status`, {
+            method: "PATCH",
+            body: JSON.stringify({ status: newStatus })
+        });
+        if (response.success) {
+            AppUtils.notify("Order status updated successfully!", "success");
+            await loadInitialData();
+        } else {
+            AppUtils.notify(response.message || "Failed to update order status.", "error");
+        }
+    } catch (error) {
+        console.error("UPDATE ORDER STATUS ERROR:", error);
+        AppUtils.notify("Failed to update order status.", "error");
+    }
 }
 
 // init
@@ -1204,7 +1246,7 @@ document.addEventListener("DOMContentLoaded", () => {
             };
 
             try {
-                const response = await AppUtils.apiRequest(`/products/${id}`, {
+                const response = await AppUtils.apiRequest(`/admin/products/${id}`, {
                     method: "PUT",
                     body: JSON.stringify(updatedData)
                 });
