@@ -2346,10 +2346,7 @@
                     "close-filter-sidebar"
                 );
 
-            elements.clearFilters =
-                document.getElementById(
-                    "clear-filters"
-                );
+            elements.clearFilters = document.getElementById("clear-filters");
 
             setupSearch();
             setupFilterControls();

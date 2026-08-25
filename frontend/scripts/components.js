@@ -1478,12 +1478,10 @@ function initNavbarSearch() {
         }
     };
 
-    const debouncedFetch = AppUtils.debounce((query) => {
-        fetchSuggestions(query);
-    }, 300);
-
     input.addEventListener("input", () => {
         const query = input.value.trim();
+
+        clearTimeout(debounceTimer);
 
         if (query.length < SEARCH_SUGGEST_MIN_LENGTH) {
             requestSequence++;
@@ -1491,7 +1489,10 @@ function initNavbarSearch() {
             return;
         }
 
-        debouncedFetch(query);
+        debounceTimer = setTimeout(
+            () => fetchSuggestions(query),
+            300
+        );
     });
 
     input.addEventListener("keydown", (event) => {

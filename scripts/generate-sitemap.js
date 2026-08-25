@@ -59,8 +59,8 @@ const SITE_ORIGIN = 'https://e-commerce-git-main-bhuvanshs-projects.vercel.app';
 const EXCLUDED = new Set([
     // Behind a sign-in, or personal to one shopper.
     'admin.html',
+    'admin-email-logs.html',
     'dashboard.html',
-    'profile.html',
     'cart.html',
     'checkout.html',
     'success.html',
