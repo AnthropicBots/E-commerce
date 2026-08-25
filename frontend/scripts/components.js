@@ -1281,13 +1281,31 @@ async function initializeComponents() {
     document.dispatchEvent(new CustomEvent("componentsLoaded"));
 }
 
-const user = JSON.parse(localStorage.getItem("user"));
+// The account menu's open-on-hover rule (components.css) is keyed on
+// data-loggedin, so something has to set it.
+//
+// This used to run here, at the top level of the module, and could not work for
+// three separate reasons (#1672):
+//
+//   1. #profile-dropdown existed in no markup at all, so the lookup was null;
+//   2. even once it exists, this code runs before loadComponent() has injected
+//      navbar.html, so the lookup would still be null;
+//   3. JSON.parse was unguarded. A non-JSON value under the "user" key -- a
+//      partial write, or anything left by an older build -- threw a SyntaxError
+//      at the top level, which aborted the rest of this file, taking the navbar
+//      search combobox defined below down with it on all 28 pages that load it.
+//
+// So it waits for the navbar, and reads the user through AppUtils.getUser(),
+// which already parses defensively and answers null on junk.
+document.addEventListener("componentsLoaded", () => {
+    const profileDropdown = document.getElementById("profile-dropdown");
 
-const profileDropdown = document.getElementById("profile-dropdown");
+    if (!profileDropdown) return;
 
-if (user && profileDropdown) {
-    profileDropdown.setAttribute("data-loggedin", "true");
-}
+    const user = window.AppUtils?.getUser ? AppUtils.getUser() : null;
+
+    profileDropdown.setAttribute("data-loggedin", user ? "true" : "false");
+});
 
 
 // ===== NAVBAR SEARCH =====

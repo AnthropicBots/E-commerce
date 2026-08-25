@@ -839,6 +839,74 @@ function syncNavbarAuth() {
     });
 }
 
+// The account menu lives in navbar.html, which loadComponent() injects, so
+// nothing here can be resolved at module load -- initializeAuthUI runs on the
+// componentsLoaded event instead. auth.js caches these ids into `elements` at
+// the top of the file for the signin/signup forms; those lookups are null on
+// every other page and are not used for the menu.
+
+/** Open or close the account menu, keeping the trigger's ARIA state in step. */
+function setProfileMenuOpen(dropdown, trigger, open) {
+    if (!dropdown) return;
+
+    dropdown.classList.toggle("active", open);
+    trigger?.setAttribute("aria-expanded", String(open));
+}
+
+/**
+ * Wire the account menu.
+ *
+ * The markup, the ids and the CSS already agreed with each other; what was
+ * missing was the markup itself (#1672), so the click handler toggled a class
+ * on null and the logout button was never bound. With the menu present this
+ * adds the behaviour a menu is expected to have: it closes on Escape, on a
+ * click outside it, and after any item inside it is chosen.
+ */
+function bindProfileMenu(authLink, dropdown) {
+    if (!authLink || !dropdown) return;
+
+    authLink.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const willOpen = !dropdown.classList.contains("active");
+        setProfileMenuOpen(dropdown, authLink, willOpen);
+
+        if (willOpen) {
+            // Move focus into the menu so it is usable without a pointer. The
+            // desktop CSS opens this on hover too; that path needs no focus
+            // management because the pointer is already there.
+            dropdown.querySelector("a, button")?.focus();
+        }
+    });
+
+    // A click anywhere else closes it. Bound on the document, so it also
+    // catches clicks on other navbar controls.
+    document.addEventListener("click", (event) => {
+        if (!dropdown.classList.contains("active")) return;
+        if (dropdown.contains(event.target) || authLink.contains(event.target)) return;
+
+        setProfileMenuOpen(dropdown, authLink, false);
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        if (!dropdown.classList.contains("active")) return;
+
+        setProfileMenuOpen(dropdown, authLink, false);
+        authLink.focus();
+    });
+
+    // Choosing an item closes the menu. The links navigate anyway; the button
+    // does not, and leaving it open behind the logout toast looks like the
+    // click did nothing.
+    dropdown.addEventListener("click", (event) => {
+        if (event.target.closest("a, button")) {
+            setProfileMenuOpen(dropdown, authLink, false);
+        }
+    });
+}
+
 function initializeAuthUI() {
     syncNavbarAuth();
 
@@ -850,19 +918,24 @@ function initializeAuthUI() {
 
     const user = AppUtils.getUser();
 
+    // The desktop hover rule in components.css is keyed on this attribute, so
+    // it is what decides whether the menu can open at all.
+    dropdown?.setAttribute("data-loggedin", user ? "true" : "false");
+
     if (user) {
         authLink.innerHTML = `<i class="fas fa-user"></i>`;
         authLink.href = "#";
         authLink.classList.add("profile-active");
+        authLink.setAttribute(
+            "aria-label",
+            `Account menu for ${user.name || user.email || "your account"}`
+        );
 
-        authLink.addEventListener("click", (event) => {
-            event.preventDefault();
-            dropdown?.classList.toggle("active");
-        });
+        bindProfileMenu(authLink, dropdown);
 
         logoutBtn?.addEventListener("click", async () => {
             await clearAuthSession();
-            dropdown?.classList.remove("active");
+            setProfileMenuOpen(dropdown, authLink, false);
             AppUtils.notify("Logged out successfully!", "success");
             setTimeout(() => {
                 window.location.href = document.referrer?.includes(window.location.hostname)
@@ -874,7 +947,8 @@ function initializeAuthUI() {
         authLink.innerHTML = "Sign In";
         authLink.href = "signin.html";
         authLink.classList.remove("profile-active");
-        dropdown?.classList.remove("active");
+        authLink.removeAttribute("aria-label");
+        setProfileMenuOpen(dropdown, authLink, false);
     }
 }
 
