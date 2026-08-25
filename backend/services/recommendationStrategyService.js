@@ -1,5 +1,24 @@
 // backend/services/recommendationStrategyService.js
-const db = require('../config/db').promise;
+//
+// The strategies behind GET /api/recommendations (#1525).
+//
+// Every one of them was written against a schema this project does not have:
+// `products.image_url` and `products.category` (the columns are `image` and
+// `category_id`), `products.discount_price` and `products.discount_percentage`
+// (there are none -- a discount is `compare_price` above `price`), and, in four
+// separate queries, `orders.product_id`. Orders have never carried a product;
+// what was bought lives in `order_items`.
+//
+// Each strategy then caught the resulting `ER_BAD_FIELD_ERROR` and returned an
+// empty array, so the endpoint answered `200 {"count": 0}` and the homepage
+// rendered "Explore more products to get personalized recommendations!" to
+// every shopper, forever. Failing loudly is why the catches below rethrow.
+//
+// The queries here go through `order_items`, `product_views`, `wishlist_items`
+// and `categories`, which is where this data actually is.
+
+const db = require("../config/db");
+const logger = require("../utils/logger");
 
 // ============================================
 // STRATEGY TYPES
@@ -16,6 +35,107 @@ const STRATEGY_TYPES = {
 };
 
 // ============================================
+// SHARED SQL
+// ============================================
+
+/**
+ * A product that may be recommended.
+ *
+ * Recommending something the shop has withdrawn wastes the slot and sends the
+ * shopper to a product page that will not load.
+ */
+const LIVE_PRODUCT = "p.is_active = 1 AND p.deleted_at IS NULL";
+
+/**
+ * The columns every strategy returns, so one mapper can shape all of them.
+ *
+ * `p.image`, not `p.image_url`. `c.name` through `categories`, because a
+ * product carries a `category_id` and not a category name.
+ */
+const PRODUCT_COLUMNS = `
+    p.id,
+    p.name,
+    p.price,
+    p.compare_price,
+    p.image,
+    p.stock,
+    p.rating,
+    p.num_reviews,
+    p.category_id,
+    c.name AS category
+`;
+
+const PRODUCT_SOURCE = `
+    FROM products p
+    LEFT JOIN categories c ON c.id = p.category_id
+`;
+
+/**
+ * Orders that count as a purchase.
+ *
+ * Cancelled and refunded orders say nothing about what somebody wanted, and a
+ * soft-deleted one should not be read at all.
+ */
+const PURCHASED = `
+    o.status NOT IN ('cancelled', 'refunded') AND o.deleted_at IS NULL
+`;
+
+/**
+ * Shape a product row for the client.
+ *
+ * `discount` is derived rather than stored: `compare_price` is the "was" price,
+ * so a compare price above the selling price is the discount. The columns the
+ * old code read (`discount_price`, `discount_percentage`) have never existed.
+ *
+ * @param {Object} row
+ * @param {Object} [extra] strategy-specific fields (score, reason, viewedAt)
+ * @returns {Object}
+ */
+function toRecommendation(row, extra = {}) {
+    const price = Number(row.price) || 0;
+    const comparePrice = Number(row.compare_price) || 0;
+    const hasDiscount = comparePrice > price && price > 0;
+
+    return {
+        id: row.id,
+        name: row.name,
+        price,
+        // The card reads `original_price` and `discount`; both are absent
+        // rather than zero when the product is not on offer, so no badge is
+        // rendered for a product that is simply at its normal price.
+        original_price: hasDiscount ? comparePrice : null,
+        discount: hasDiscount
+            ? Math.round(((comparePrice - price) / comparePrice) * 100)
+            : null,
+        image: row.image,
+        imageUrl: row.image,
+        stock: Number(row.stock) || 0,
+        rating: Number(row.rating) || 0,
+        review_count: Number(row.num_reviews) || 0,
+        categoryId: row.category_id,
+        category: row.category,
+        ...extra
+    };
+}
+
+/**
+ * Clamp a caller-supplied limit.
+ *
+ * `parseInt(req.query.limit)` reaches these straight from the query string, so
+ * without this `?limit=1000000` is a LIMIT clause.
+ */
+const MAX_LIMIT = 50;
+const DEFAULT_LIMIT = 10;
+
+function clampLimit(limit) {
+    const parsed = Number.parseInt(limit, 10);
+
+    if (!Number.isInteger(parsed) || parsed < 1) return DEFAULT_LIMIT;
+
+    return Math.min(parsed, MAX_LIMIT);
+}
+
+// ============================================
 // BASE STRATEGY CLASS
 // ============================================
 
@@ -25,8 +145,22 @@ class RecommendationStrategy {
         this.type = type;
     }
 
-    async getRecommendations(userId, limit = 10) {
+    async getRecommendations(userId, limit = DEFAULT_LIMIT) {
         throw new Error('getRecommendations must be implemented');
+    }
+
+    /**
+     * Report a failure and let it travel.
+     *
+     * The previous version logged and returned `[]`, which turned "the query
+     * does not compile" into "we have nothing to suggest" -- indistinguishable
+     * from the ordinary empty case, and the reason a broken file sat in the
+     * request path unnoticed. The route turns a thrown error into a 500, which
+     * is what a failed lookup is.
+     */
+    fail(error) {
+        logger.error(`${this.name} strategy failed: ${error.message}`);
+        throw error;
     }
 }
 
@@ -36,7 +170,10 @@ class RecommendationStrategy {
 
 /**
  * Trending Products Strategy
- * Returns most popular products based on sales/views
+ *
+ * Popularity over the last 30 days: units sold, views logged, and how many
+ * people have saved it. Bounded to a window because "most sold ever" is a
+ * list that stops moving.
  */
 class TrendingStrategy extends RecommendationStrategy {
     constructor() {
@@ -49,223 +186,238 @@ class TrendingStrategy extends RecommendationStrategy {
         };
     }
 
-    async getRecommendations(userId, limit = 10) {
-        try {
-            const [products] = await db.query(`
-                SELECT 
-                    p.id,
-                    p.name,
-                    p.price,
-                    p.image_url,
-                    p.category,
-                    COUNT(o.id) as sales_count,
-                    COUNT(v.id) as view_count,
-                    COUNT(w.id) as wishlist_count,
-                    DATEDIFF(NOW(), p.created_at) as days_old
-                FROM products p
-                LEFT JOIN orders o ON o.product_id = p.id
-                LEFT JOIN product_views v ON v.product_id = p.id
-                LEFT JOIN wishlist_items w ON w.product_id = p.id
-                WHERE p.stock > 0
-                GROUP BY p.id
-                ORDER BY 
-                    (COUNT(o.id) * 0.4 + COUNT(v.id) * 0.3 + COUNT(w.id) * 0.2 + 1/DATEDIFF(NOW(), p.created_at) * 0.1) DESC
-                LIMIT ?
-            `, [limit]);
+    async getRecommendations(userId, limit = DEFAULT_LIMIT) {
+        const safeLimit = clampLimit(limit);
 
-            return products.map(p => ({
-                id: p.id,
-                name: p.name,
-                price: p.price,
-                imageUrl: p.image_url,
-                category: p.category,
-                score: (p.sales_count * 0.4 + p.view_count * 0.3 + p.wishlist_count * 0.2 + 1/(p.days_old+1) * 0.1),
+        try {
+            // Counted in subqueries rather than three JOINs against one row.
+            // Joining sales, views and wishlist rows together multiplies them
+            // -- a product with 4 sales and 10 views counts 40 of each -- and
+            // the original did exactly that, then divided by DATEDIFF, which
+            // is a division by zero on anything added today.
+            const [rows] = await db.query(`
+                SELECT
+                    ${PRODUCT_COLUMNS},
+                    COALESCE(sales.units, 0) AS sales_count,
+                    COALESCE(views.total, 0) AS view_count,
+                    COALESCE(saves.total, 0) AS wishlist_count,
+                    DATEDIFF(NOW(), p.created_at) AS days_old
+                ${PRODUCT_SOURCE}
+                LEFT JOIN (
+                    SELECT oi.product_id, SUM(oi.qty) AS units
+                    FROM order_items oi
+                    JOIN orders o ON o.id = oi.order_id
+                    WHERE ${PURCHASED}
+                      AND o.created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
+                    GROUP BY oi.product_id
+                ) sales ON sales.product_id = p.id
+                LEFT JOIN (
+                    SELECT product_id, COUNT(*) AS total
+                    FROM product_views
+                    WHERE viewed_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
+                    GROUP BY product_id
+                ) views ON views.product_id = p.id
+                LEFT JOIN (
+                    SELECT product_id, COUNT(*) AS total
+                    FROM wishlist_items
+                    GROUP BY product_id
+                ) saves ON saves.product_id = p.id
+                WHERE p.stock > 0 AND ${LIVE_PRODUCT}
+                ORDER BY
+                    COALESCE(sales.units, 0) * 0.4
+                    + COALESCE(views.total, 0) * 0.3
+                    + COALESCE(saves.total, 0) * 0.2
+                    + (1 / (DATEDIFF(NOW(), p.created_at) + 1)) * 0.1 DESC
+                LIMIT ?
+            `, [safeLimit]);
+
+            return rows.map((row) => toRecommendation(row, {
+                score:
+                    Number(row.sales_count) * this.weight.sales
+                    + Number(row.view_count) * this.weight.views
+                    + Number(row.wishlist_count) * this.weight.wishlist
+                    + (1 / (Number(row.days_old) + 1)) * this.weight.recency,
                 reason: 'Trending product'
             }));
         } catch (error) {
-            console.error('Trending strategy error:', error);
-            return [];
+            return this.fail(error);
         }
     }
 }
 
 /**
  * Recently Viewed Strategy
- * Returns products based on user's viewing history
+ *
+ * The last few products this shopper looked at, one row per product rather
+ * than one per view -- `product_views` is an append-only log, so a product
+ * looked at five times filled five of the ten slots.
  */
 class RecentlyViewedStrategy extends RecommendationStrategy {
     constructor() {
         super('Recently Viewed', STRATEGY_TYPES.RECENTLY_VIEWED);
     }
 
-    async getRecommendations(userId, limit = 10) {
-        try {
-            const [products] = await db.query(`
-                SELECT 
-                    p.id,
-                    p.name,
-                    p.price,
-                    p.image_url,
-                    p.category,
-                    v.viewed_at
-                FROM product_views v
-                JOIN products p ON p.id = v.product_id
-                WHERE v.user_id = ?
-                AND p.stock > 0
-                ORDER BY v.viewed_at DESC
-                LIMIT ?
-            `, [userId, limit]);
+    async getRecommendations(userId, limit = DEFAULT_LIMIT) {
+        const safeLimit = clampLimit(limit);
 
-            return products.map(p => ({
-                id: p.id,
-                name: p.name,
-                price: p.price,
-                imageUrl: p.image_url,
-                category: p.category,
-                viewedAt: p.viewed_at,
+        try {
+            const [rows] = await db.query(`
+                SELECT
+                    ${PRODUCT_COLUMNS},
+                    MAX(v.viewed_at) AS viewed_at
+                ${PRODUCT_SOURCE}
+                JOIN product_views v ON v.product_id = p.id
+                WHERE v.user_id = ? AND p.stock > 0 AND ${LIVE_PRODUCT}
+                GROUP BY p.id
+                ORDER BY viewed_at DESC
+                LIMIT ?
+            `, [userId, safeLimit]);
+
+            return rows.map((row) => toRecommendation(row, {
+                viewedAt: row.viewed_at,
                 reason: 'Recently viewed'
             }));
         } catch (error) {
-            console.error('Recently viewed strategy error:', error);
-            return [];
+            return this.fail(error);
         }
     }
 }
 
 /**
  * Collaborative Filtering Strategy
- * Finds products based on similar users' preferences
+ *
+ * What people who bought what this shopper bought also bought.
  */
 class CollaborativeStrategy extends RecommendationStrategy {
     constructor() {
         super('Collaborative Filtering', STRATEGY_TYPES.COLLABORATIVE);
     }
 
-    async getRecommendations(userId, limit = 10) {
+    async getRecommendations(userId, limit = DEFAULT_LIMIT) {
+        const safeLimit = clampLimit(limit);
+
         try {
-            // Find similar users based on purchase history
+            // Shoppers who bought at least one of the same products, ordered
+            // by how much overlap there is. The join is order_items to
+            // order_items through orders, because that is where a product id
+            // on a purchase can be found.
             const [similarUsers] = await db.query(`
-                SELECT DISTINCT o2.user_id
-                FROM orders o1
-                JOIN orders o2 ON o1.product_id = o2.product_id
+                SELECT o2.user_id, COUNT(DISTINCT oi2.product_id) AS shared
+                FROM order_items oi1
+                JOIN orders o1 ON o1.id = oi1.order_id
+                JOIN order_items oi2 ON oi2.product_id = oi1.product_id
+                JOIN orders o2 ON o2.id = oi2.order_id
                 WHERE o1.user_id = ?
-                AND o2.user_id != ?
+                  AND o2.user_id IS NOT NULL
+                  AND o2.user_id <> ?
+                  AND o1.status NOT IN ('cancelled', 'refunded')
+                  AND o1.deleted_at IS NULL
+                  AND o2.status NOT IN ('cancelled', 'refunded')
+                  AND o2.deleted_at IS NULL
                 GROUP BY o2.user_id
-                ORDER BY COUNT(o2.product_id) DESC
+                ORDER BY shared DESC
                 LIMIT 5
             `, [userId, userId]);
 
-            if (similarUsers.length === 0) {
+            if (!similarUsers.length) {
                 return [];
             }
 
-            const userIds = similarUsers.map(u => u.user_id);
+            const userIds = similarUsers.map((row) => row.user_id);
             const placeholders = userIds.map(() => '?').join(',');
 
-            const [products] = await db.query(`
-                SELECT 
-                    p.id,
-                    p.name,
-                    p.price,
-                    p.image_url,
-                    p.category,
-                    COUNT(o.id) as purchase_count
-                FROM orders o
-                JOIN products p ON p.id = o.product_id
+            const [rows] = await db.query(`
+                SELECT
+                    ${PRODUCT_COLUMNS},
+                    COUNT(*) AS purchase_count
+                ${PRODUCT_SOURCE}
+                JOIN order_items oi ON oi.product_id = p.id
+                JOIN orders o ON o.id = oi.order_id
                 WHERE o.user_id IN (${placeholders})
-                AND p.id NOT IN (
-                    SELECT product_id FROM orders WHERE user_id = ?
-                )
-                AND p.stock > 0
+                  AND ${PURCHASED}
+                  AND p.stock > 0 AND ${LIVE_PRODUCT}
+                  AND p.id NOT IN (
+                      SELECT oi_own.product_id
+                      FROM order_items oi_own
+                      JOIN orders o_own ON o_own.id = oi_own.order_id
+                      WHERE o_own.user_id = ?
+                  )
                 GROUP BY p.id
                 ORDER BY purchase_count DESC
                 LIMIT ?
-            `, [...userIds, userId, limit]);
+            `, [...userIds, userId, safeLimit]);
 
-            return products.map(p => ({
-                id: p.id,
-                name: p.name,
-                price: p.price,
-                imageUrl: p.image_url,
-                category: p.category,
-                score: p.purchase_count,
+            return rows.map((row) => toRecommendation(row, {
+                score: Number(row.purchase_count),
                 reason: 'Users like you also bought'
             }));
         } catch (error) {
-            console.error('Collaborative strategy error:', error);
-            return [];
+            return this.fail(error);
         }
     }
 }
 
 /**
  * Content-Based Strategy
- * Recommends products similar to what user has viewed/purchased
+ *
+ * More of the categories this shopper buys from.
  */
 class ContentBasedStrategy extends RecommendationStrategy {
     constructor() {
         super('Content-Based', STRATEGY_TYPES.CONTENT_BASED);
     }
 
-    async getRecommendations(userId, limit = 10) {
+    async getRecommendations(userId, limit = DEFAULT_LIMIT) {
+        const safeLimit = clampLimit(limit);
+
         try {
-            // Get user's preferred categories
             const [preferences] = await db.query(`
-                SELECT 
-                    p.category,
-                    COUNT(*) as count
-                FROM orders o
-                JOIN products p ON p.id = o.product_id
-                WHERE o.user_id = ?
-                GROUP BY p.category
-                ORDER BY count DESC
+                SELECT p.category_id, COUNT(*) AS purchases
+                FROM order_items oi
+                JOIN orders o ON o.id = oi.order_id
+                JOIN products p ON p.id = oi.product_id
+                WHERE o.user_id = ? AND ${PURCHASED} AND p.category_id IS NOT NULL
+                GROUP BY p.category_id
+                ORDER BY purchases DESC
                 LIMIT 3
             `, [userId]);
 
-            if (preferences.length === 0) {
-                // Fallback to trending
-                const trending = new TrendingStrategy();
-                return trending.getRecommendations(userId, limit);
+            if (!preferences.length) {
+                // Nothing bought yet, so nothing to be similar to.
+                return new TrendingStrategy().getRecommendations(userId, safeLimit);
             }
 
-            const categories = preferences.map(p => p.category);
-            const placeholders = categories.map(() => '?').join(',');
+            const categoryIds = preferences.map((row) => row.category_id);
+            const placeholders = categoryIds.map(() => '?').join(',');
 
-            const [products] = await db.query(`
-                SELECT 
-                    p.id,
-                    p.name,
-                    p.price,
-                    p.image_url,
-                    p.category
-                FROM products p
-                WHERE p.category IN (${placeholders})
-                AND p.id NOT IN (
-                    SELECT product_id FROM orders WHERE user_id = ?
-                )
-                AND p.stock > 0
-                ORDER BY RAND()
+            const [rows] = await db.query(`
+                SELECT ${PRODUCT_COLUMNS}
+                ${PRODUCT_SOURCE}
+                WHERE p.category_id IN (${placeholders})
+                  AND p.stock > 0 AND ${LIVE_PRODUCT}
+                  AND p.id NOT IN (
+                      SELECT oi.product_id
+                      FROM order_items oi
+                      JOIN orders o ON o.id = oi.order_id
+                      WHERE o.user_id = ?
+                  )
+                ORDER BY p.rating DESC, p.sold_count DESC
                 LIMIT ?
-            `, [...categories, userId, limit]);
+            `, [...categoryIds, userId, safeLimit]);
 
-            return products.map(p => ({
-                id: p.id,
-                name: p.name,
-                price: p.price,
-                imageUrl: p.image_url,
-                category: p.category,
+            return rows.map((row) => toRecommendation(row, {
                 reason: 'Based on your preferences'
             }));
         } catch (error) {
-            console.error('Content-based strategy error:', error);
-            return [];
+            return this.fail(error);
         }
     }
 }
 
 /**
  * Hybrid Strategy
- * Combines multiple strategies for better recommendations
+ *
+ * The four above, weighted and deduplicated.
  */
 class HybridStrategy extends RecommendationStrategy {
     constructor() {
@@ -284,153 +436,164 @@ class HybridStrategy extends RecommendationStrategy {
         };
     }
 
-    async getRecommendations(userId, limit = 10) {
-        try {
-            const allRecommendations = [];
-            const seen = new Set();
+    async getRecommendations(userId, limit = DEFAULT_LIMIT) {
+        const safeLimit = clampLimit(limit);
+        const allRecommendations = [];
+        const seen = new Set();
+        let succeeded = 0;
+        let lastError = null;
 
-            // Get recommendations from each strategy
-            for (const strategy of this.strategies) {
-                const results = await strategy.getRecommendations(userId, Math.ceil(limit / this.strategies.length));
-                
-                // Score and deduplicate
-                for (const item of results) {
-                    if (!seen.has(item.id)) {
-                        seen.add(item.id);
-                        const weight = this.weights[strategy.type] || 0.25;
-                        item.weightedScore = (item.score || 0) * weight;
-                        allRecommendations.push(item);
-                    }
-                }
+        for (const strategy of this.strategies) {
+            let results;
+
+            // The one place a failure is absorbed, and only because this is
+            // four independent lookups: one of them failing should cost its
+            // share of the list, not the whole response. If every one fails
+            // the error is rethrown below rather than reported as "nothing to
+            // suggest".
+            try {
+                results = await strategy.getRecommendations(
+                    userId,
+                    Math.ceil(safeLimit / this.strategies.length)
+                );
+                succeeded += 1;
+            } catch (error) {
+                lastError = error;
+                continue;
             }
 
-            // Sort by weighted score and limit
-            return allRecommendations
-                .sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0))
-                .slice(0, limit)
-                .map(item => ({
+            for (const item of results) {
+                if (seen.has(item.id)) continue;
+
+                seen.add(item.id);
+                allRecommendations.push({
                     ...item,
-                    reason: item.reason || 'Recommended for you'
-                }));
-        } catch (error) {
-            console.error('Hybrid strategy error:', error);
-            return [];
+                    weightedScore:
+                        (item.score || 0) * (this.weights[strategy.type] || 0.25)
+                });
+            }
         }
+
+        if (!succeeded && lastError) {
+            logger.error(`Hybrid strategy failed: every strategy errored`);
+            throw lastError;
+        }
+
+        return allRecommendations
+            .sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0))
+            .slice(0, safeLimit)
+            .map((item) => ({
+                ...item,
+                reason: item.reason || 'Recommended for you'
+            }));
     }
 }
 
 /**
  * Promotional Strategy
- * Recommends products with active promotions/discounts
+ *
+ * Products currently marked down. A discount is `compare_price` standing above
+ * `price` -- the "was" price the product page already shows. The columns the
+ * previous version read, `discount_price` and `discount_percentage`, do not
+ * exist on `products` and never have.
  */
 class PromotionalStrategy extends RecommendationStrategy {
     constructor() {
         super('Promotional', STRATEGY_TYPES.PROMOTIONAL);
     }
 
-    async getRecommendations(userId, limit = 10) {
-        try {
-            const [products] = await db.query(`
-                SELECT 
-                    p.id,
-                    p.name,
-                    p.price,
-                    p.image_url,
-                    p.category,
-                    p.discount_price,
-                    p.discount_percentage
-                FROM products p
-                WHERE p.discount_percentage > 0
-                AND p.stock > 0
-                ORDER BY p.discount_percentage DESC
-                LIMIT ?
-            `, [limit]);
+    async getRecommendations(userId, limit = DEFAULT_LIMIT) {
+        const safeLimit = clampLimit(limit);
 
-            return products.map(p => ({
-                id: p.id,
-                name: p.name,
-                price: p.price,
-                discountPrice: p.discount_price,
-                discountPercentage: p.discount_percentage,
-                imageUrl: p.image_url,
-                category: p.category,
-                reason: `${p.discount_percentage}% OFF - Special deal!`
+        try {
+            const [rows] = await db.query(`
+                SELECT
+                    ${PRODUCT_COLUMNS},
+                    ROUND(((p.compare_price - p.price) / p.compare_price) * 100) AS discount_percentage
+                ${PRODUCT_SOURCE}
+                WHERE p.compare_price > p.price
+                  AND p.price > 0
+                  AND p.stock > 0
+                  AND ${LIVE_PRODUCT}
+                ORDER BY discount_percentage DESC
+                LIMIT ?
+            `, [safeLimit]);
+
+            return rows.map((row) => toRecommendation(row, {
+                score: Number(row.discount_percentage) || 0,
+                reason: `${Number(row.discount_percentage) || 0}% OFF - Special deal!`
             }));
         } catch (error) {
-            console.error('Promotional strategy error:', error);
-            return [];
+            return this.fail(error);
         }
     }
 }
 
 /**
  * Personalized Strategy
- * Uses user data for personalized recommendations
+ *
+ * A shopper who has bought before gets collaborative and content-based
+ * suggestions, which are the two that can use a purchase history; everyone
+ * else gets the hybrid mix.
+ *
+ * The previous version read `users.preferences` -- a column that does not
+ * exist -- to decide which strategies to combine, and read `total_orders` off
+ * the rows *array* rather than off a row, so the check for a new shopper was
+ * `undefined === 0` and never true.
  */
 class PersonalizedStrategy extends RecommendationStrategy {
     constructor() {
         super('Personalized', STRATEGY_TYPES.PERSONALIZED);
     }
 
-    async getRecommendations(userId, limit = 10) {
+    async getRecommendations(userId, limit = DEFAULT_LIMIT) {
+        const safeLimit = clampLimit(limit);
+
         try {
-            // Get user's purchase history and preferences
-            const [userData] = await db.query(`
-                SELECT 
-                    u.id,
-                    u.preferences,
-                    COUNT(o.id) as total_orders,
-                    AVG(o.total_amount) as avg_order_value
-                FROM users u
-                LEFT JOIN orders o ON o.user_id = u.id
-                WHERE u.id = ?
-                GROUP BY u.id
+            const [rows] = await db.query(`
+                SELECT COUNT(*) AS total_orders
+                FROM orders o
+                WHERE o.user_id = ? AND ${PURCHASED}
             `, [userId]);
 
-            if (!userData || userData.total_orders === 0) {
-                // New user - use hybrid
-                const hybrid = new HybridStrategy();
-                return hybrid.getRecommendations(userId, limit);
+            const totalOrders = Number(rows[0]?.total_orders) || 0;
+
+            if (totalOrders === 0) {
+                return new HybridStrategy().getRecommendations(userId, safeLimit);
             }
 
-            // Use combined approach based on user preferences
-            const preferences = JSON.parse(userData.preferences || '{}');
-            const strategies = [];
+            const strategies = [
+                new CollaborativeStrategy(),
+                new ContentBasedStrategy()
+            ];
 
-            if (preferences.trending) {
-                strategies.push(new TrendingStrategy());
-            }
-            if (preferences.collaborative) {
-                strategies.push(new CollaborativeStrategy());
-            }
-            if (preferences.content_based) {
-                strategies.push(new ContentBasedStrategy());
-            }
-
-            if (strategies.length === 0) {
-                // Default to hybrid
-                const hybrid = new HybridStrategy();
-                return hybrid.getRecommendations(userId, limit);
-            }
-
-            // Combine selected strategies
-            const allRecommendations = [];
+            const combined = [];
             const seen = new Set();
 
             for (const strategy of strategies) {
-                const results = await strategy.getRecommendations(userId, Math.ceil(limit / strategies.length));
+                const results = await strategy.getRecommendations(
+                    userId,
+                    Math.ceil(safeLimit / strategies.length)
+                );
+
                 for (const item of results) {
-                    if (!seen.has(item.id)) {
-                        seen.add(item.id);
-                        allRecommendations.push(item);
-                    }
+                    if (seen.has(item.id)) continue;
+
+                    seen.add(item.id);
+                    combined.push(item);
                 }
             }
 
-            return allRecommendations.slice(0, limit);
+            // Both of those need a purchase history to say anything, and a
+            // shopper can have orders and still produce nothing from either --
+            // one order of a product nobody else bought, in no category.
+            if (!combined.length) {
+                return new HybridStrategy().getRecommendations(userId, safeLimit);
+            }
+
+            return combined.slice(0, safeLimit);
         } catch (error) {
-            console.error('Personalized strategy error:', error);
-            return [];
+            return this.fail(error);
         }
     }
 }
@@ -481,7 +644,12 @@ class RecommendationStrategyFactory {
 module.exports = {
     RecommendationStrategyFactory,
     STRATEGY_TYPES,
+    MAX_LIMIT,
+    DEFAULT_LIMIT,
+    clampLimit,
+    toRecommendation,
     // Individual strategies for testing
+    RecommendationStrategy,
     TrendingStrategy,
     RecentlyViewedStrategy,
     CollaborativeStrategy,

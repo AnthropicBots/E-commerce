@@ -142,6 +142,24 @@ const resolveCartOwnership = (cartOwner, viewerOwner) => {
     return CART_OWNERSHIP.DISCARD;
 };
 
+// Normalize database rows to match application-side normalization.
+// DB may store NULL for color/size, but app normalizes to ''.
+const normalizeDbLine = (row) => {
+    if (!row) return row;
+    return {
+        ...row,
+        color: sanitizeString(row.color),
+        size: sanitizeString(row.size),
+        variantId: safeInteger(row.variant_id ?? row.variantId, NO_VARIANT_ID),
+        productId: safeUUID(row.product_id ?? row.productId),
+        quantity: safeInteger(row.quantity ?? row.qty)
+    };
+};
+
+const normalizeDbLines = (rows) => {
+    return safeArray(rows).map(normalizeDbLine);
+};
+
 module.exports = {
     NO_VARIANT_ID,
     GUEST_CART_OWNER,
@@ -150,5 +168,7 @@ module.exports = {
     normalizeCartLines,
     cartLineKey,
     mergeCartLines,
-    resolveCartOwnership
+    resolveCartOwnership,
+    normalizeDbLine,
+    normalizeDbLines
 };

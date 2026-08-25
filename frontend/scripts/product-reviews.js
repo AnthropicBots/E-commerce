@@ -121,6 +121,12 @@
     const safeUserName = sanitizeUserText(review.userName || "Customer");
     const safeComment = sanitizeUserText(review.comment);
     const safeDate = sanitizeUserText(review.createdAt || "");
+    const reviewImages = AppUtils.safeArray(review.images);
+    const imagesHtml = reviewImages.length > 0
+      ? `<div class="review-images">
+          ${reviewImages.map((img) => `<img src="${AppUtils.escapeHTML(img)}" alt="Review photo" loading="lazy" class="review-img" onclick="window.open(this.src, '_blank')">`).join("")}
+         </div>`
+      : "";
 
     return `
             <article class="review-box" data-review-id="${reviewId}">
@@ -155,6 +161,8 @@
                 </header>
 
                 <p class="review-message">${safeComment}</p>
+
+                ${imagesHtml}
 
                 <time class="review-date" datetime="${safeDate}">
                     ${formatReviewDate(review.createdAt)}
@@ -330,16 +338,57 @@
     reviewContainer.innerHTML = productReviews.map(createReviewCard).join("");
   }
 
+  function checkCanReviewVisibility(productId) {
+    if (!reviewForm) return;
+    const canReviewList = AppUtils.getJSON("can-review", []);
+    const strId = String(productId ?? "").trim();
+    const hasBought = Array.isArray(canReviewList) && canReviewList.some(id => String(id).trim() === strId);
+    
+    const currentUser = getCurrentUser();
+    let promptEl = document.getElementById("review-purchase-prompt");
+
+    if (!currentUser) {
+        reviewForm.style.display = "none";
+        if (!promptEl) {
+            promptEl = document.createElement("p");
+            promptEl.id = "review-purchase-prompt";
+            promptEl.className = "review-prompt-text";
+            promptEl.style.color = "#777";
+            promptEl.style.margin = "15px 0";
+            reviewForm.parentNode.insertBefore(promptEl, reviewForm);
+        }
+        promptEl.textContent = "Please sign in and purchase this product to leave a review.";
+        promptEl.style.display = "block";
+    } else if (!hasBought && currentUser.role !== "admin") {
+        reviewForm.style.display = "none";
+        if (!promptEl) {
+            promptEl = document.createElement("p");
+            promptEl.id = "review-purchase-prompt";
+            promptEl.className = "review-prompt-text";
+            promptEl.style.color = "#777";
+            promptEl.style.margin = "15px 0";
+            reviewForm.parentNode.insertBefore(promptEl, reviewForm);
+        }
+        promptEl.textContent = "Only verified purchasers of this item can leave a review.";
+        promptEl.style.display = "block";
+    } else {
+        reviewForm.style.display = "block";
+        if (promptEl) promptEl.style.display = "none";
+    }
+  }
+
   async function loadProductReviews(productId) {
     if (!productId) {
       const urlParams = new URLSearchParams(window.location.search);
       productId = urlParams.get("id");
     }
-    activeProductId = Number(productId);
+    activeProductId = productId;
 
     if (!activeProductId || !reviewContainer) {
       return;
     }
+
+    checkCanReviewVisibility(activeProductId);
 
     reviewContainer.innerHTML = `
             <p class="empty-review-text">
@@ -424,6 +473,7 @@
           body: JSON.stringify({
             rating,
             comment,
+            images: selectedReviewImages
           }),
         },
       );
@@ -434,6 +484,8 @@
 
       AppUtils.notify("Review submitted successfully", "success");
       reviewForm.reset();
+      selectedReviewImages = [];
+      renderImagePreviews();
       setSelectedRating(0);
       await loadProductReviews(activeProductId);
     } catch (error) {
@@ -501,6 +553,166 @@
     setSelectedRating(selectedRating);
   });
 
+  const reviewImagesInput = document.getElementById("review-images");
+  const reviewImagesPreview = document.getElementById("review-images-preview");
+  let selectedReviewImages = [];
+
+  function renderImagePreviews() {
+    if (!reviewImagesPreview) return;
+    if (!selectedReviewImages.length) {
+      reviewImagesPreview.innerHTML = "";
+      return;
+    }
+
+    reviewImagesPreview.innerHTML = selectedReviewImages
+      .map(
+        (src, index) => `
+        <div class="review-preview-thumb">
+          <img src="${AppUtils.escapeHTML(src)}" alt="Preview ${index + 1}">
+          <button type="button" class="remove-thumb-btn" data-index="${index}" title="Remove photo">&times;</button>
+        </div>
+      `
+      )
+      .join("");
+  }
+
+  if (reviewImagesPreview) {
+    reviewImagesPreview.addEventListener("click", (e) => {
+      const removeBtn = e.target.closest(".remove-thumb-btn");
+      if (removeBtn) {
+        const idx = Number(removeBtn.dataset.index);
+        selectedReviewImages.splice(idx, 1);
+        renderImagePreviews();
+      }
+    });
+  }
+
+  // Photos are inlined as base64 in the JSON body, so what the camera produced
+  // is not what can be sent. A phone photo is 4-12MB; five of those is far past
+  // the 10mb request body limit, and the server used to `slice()` anything over
+  // its own cap, storing a truncated data URI that renders as a broken image
+  // for as long as the review exists (#1654).
+  //
+  // So the resizing happens here, before anything is queued. A review photo is
+  // displayed a few hundred pixels wide; 1600px on the long edge is already
+  // more than the page can show.
+  const MAX_REVIEW_IMAGE_CHARS = 1500000; // mirrors the server's cap
+  const MAX_IMAGE_DIMENSION = 1600;
+  const JPEG_QUALITY_STEPS = [0.82, 0.7, 0.6, 0.5, 0.4];
+
+  const readFileAsDataURL = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (loadEvent) => resolve(loadEvent.target?.result || "");
+      reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+      reader.readAsDataURL(file);
+    });
+
+  const loadImage = (src) =>
+    new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("Unreadable image"));
+      image.src = src;
+    });
+
+  /**
+   * Scale a photo down until its data URI fits the cap.
+   *
+   * Quality is stepped down first because it costs the least visibly; only if
+   * the smallest quality is still too big does the pixel size halve. Returns
+   * null when even that cannot get it under, which is a real answer -- better
+   * than uploading something the server will refuse or, worse, store truncated.
+   */
+  const downscaleToLimit = async (file) => {
+    const original = await readFileAsDataURL(file);
+
+    if (original.length <= MAX_REVIEW_IMAGE_CHARS) {
+      return original;
+    }
+
+    const image = await loadImage(original);
+
+    let width = image.naturalWidth || image.width;
+    let height = image.naturalHeight || image.height;
+
+    const longestEdge = Math.max(width, height);
+
+    if (longestEdge > MAX_IMAGE_DIMENSION) {
+      const scale = MAX_IMAGE_DIMENSION / longestEdge;
+      width = Math.round(width * scale);
+      height = Math.round(height * scale);
+    }
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, width);
+      canvas.height = Math.max(1, height);
+
+      const context = canvas.getContext("2d");
+      if (!context) return null;
+
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      for (const quality of JPEG_QUALITY_STEPS) {
+        const candidate = canvas.toDataURL("image/jpeg", quality);
+
+        if (candidate.length <= MAX_REVIEW_IMAGE_CHARS) {
+          return candidate;
+        }
+      }
+
+      width = Math.round(width / 2);
+      height = Math.round(height / 2);
+    }
+
+    return null;
+  };
+
+  if (reviewImagesInput) {
+    reviewImagesInput.addEventListener("change", async (e) => {
+      const files = Array.from(e.target.files || []);
+      if (!files.length) return;
+
+      if (selectedReviewImages.length + files.length > 5) {
+        AppUtils.notify("You can attach up to 5 photos per review", "warning");
+      }
+
+      const remainingSlots = 5 - selectedReviewImages.length;
+      const filesToRead = files.slice(0, remainingSlots);
+
+      // Cleared up front: the resizing below is async, and leaving the input
+      // populated lets the same file be picked again while it is still being
+      // processed.
+      reviewImagesInput.value = "";
+
+      for (const file of filesToRead) {
+        if (!file.type.startsWith("image/")) {
+          AppUtils.notify(`File ${file.name} is not a valid image`, "error");
+          continue;
+        }
+
+        try {
+          const prepared = await downscaleToLimit(file);
+
+          if (!prepared) {
+            AppUtils.notify(
+              `${file.name} is too large to attach, even resized`,
+              "error"
+            );
+            continue;
+          }
+
+          selectedReviewImages.push(prepared);
+          renderImagePreviews();
+        } catch (error) {
+          console.error("REVIEW IMAGE ERROR:", error);
+          AppUtils.notify(`Failed to read file ${file.name}`, "error");
+        }
+      }
+    });
+  }
+
   reviewForm?.addEventListener("submit", submitReview);
 
   /**
@@ -531,6 +743,51 @@
   }
 
   /**
+   * The reasons a review may be reported.
+   *
+   * Fetched from the server, which owns the list, and cached for the page.
+   * This used to be a hardcoded string inside the prompt below, which is
+   * exactly the drift `GET /products/reviews/moderation/reasons` exists to
+   * prevent — it was unreachable until #1493, so the copy was the only option.
+   *
+   * The hardcoded list stays as the fallback and nothing more: a shopper who
+   * wants to report a review should not be stopped by one failed request.
+   */
+  const FALLBACK_REPORT_REASONS = [
+    "spam",
+    "offensive",
+    "off_topic",
+    "fake",
+    "personal_info",
+    "other",
+  ];
+
+  let reportReasonsCache = null;
+
+  async function getReportReasons() {
+    if (reportReasonsCache) return reportReasonsCache;
+
+    try {
+      const response = await AppUtils.apiRequest(
+        "/products/reviews/moderation/reasons",
+      );
+
+      const reasons = AppUtils.safeArray(response?.reasons)
+        .map((reason) =>
+          typeof reason === "string" ? reason : reason?.value || reason?.id,
+        )
+        .filter(Boolean);
+
+      reportReasonsCache = reasons.length ? reasons : FALLBACK_REPORT_REASONS;
+    } catch (error) {
+      console.error("REVIEW REPORT REASONS ERROR:", error);
+      reportReasonsCache = FALLBACK_REPORT_REASONS;
+    }
+
+    return reportReasonsCache;
+  }
+
+  /**
    * Report a review.
    *
    * The confirmation names what reporting does — sends it to a moderator —
@@ -540,11 +797,13 @@
   async function reportReview(reviewId) {
     if (!AppUtils.requireAuth()) return;
 
+    const reasons = await getReportReasons();
+
     const reason = window.prompt(
       "Why are you reporting this review?\n\n" +
-        "spam, offensive, off_topic, fake, personal_info, or other\n\n" +
+        `${reasons.join(", ")}\n\n` +
         "It will be sent to a moderator to look at.",
-      "spam",
+      reasons[0],
     );
 
     if (reason === null) return;

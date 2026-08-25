@@ -58,33 +58,34 @@ const CACHE_TTL = {
 
 const register = new prometheus.Registry();
 
-const agentCounter = new prometheus.Counter({
+const getOrCreateMetric = (MetricClass, config) => {
+    const existing = register.getSingleMetric(config.name);
+    if (existing) return existing;
+    return new MetricClass({ ...config, registers: [register] });
+};
+
+const agentCounter = getOrCreateMetric(prometheus.Counter, {
     name: 'agent_liability_registrations_total',
     help: 'Total number of agent registrations',
 });
 
-const liabilityGauge = new prometheus.Gauge({
+const liabilityGauge = getOrCreateMetric(prometheus.Gauge, {
     name: 'agent_liability_amount',
     help: 'Current liability amount by tier',
     labelNames: ['tier']
 });
 
-const claimCounter = new prometheus.Counter({
+const claimCounter = getOrCreateMetric(prometheus.Counter, {
     name: 'liability_claims_total',
     help: 'Total number of liability claims',
     labelNames: ['status']
 });
 
-const latencyHistogram = new prometheus.Histogram({
+const latencyHistogram = getOrCreateMetric(prometheus.Histogram, {
     name: 'liability_operation_duration_seconds',
     help: 'Duration of liability operations',
     labelNames: ['operation']
 });
-
-register.registerMetric(agentCounter);
-register.registerMetric(liabilityGauge);
-register.registerMetric(claimCounter);
-register.registerMetric(latencyHistogram);
 
 // ============================================
 // VALIDATION SCHEMAS
@@ -946,11 +947,20 @@ class AgentLiabilityService {
      */
     async storeClaim(claim, transaction = null) {
         const query = transaction || db;
+        // Thirteen columns, thirteen placeholders, fifteen values: `resolvedAt`
+        // and `resolution` were each bound twice, once guarded with `|| null`
+        // and once raw. Every value after them lined up against the wrong
+        // column, and mysql2 rejected the statement on the count before it got
+        // that far -- so filing a liability claim always threw.
+        //
+        // The guarded pair is the one kept: a claim being stored is usually
+        // unresolved, and `undefined` is not a bindable value.
+        //
+        // Found by the same check that caught #1583, not reported separately.
         await query.query(
-
-            `INSERT INTO liability_claims 
-             (id, agent_id, authorization_id, amount, reason, evidence, 
-              status, created_at, resolved_at, resolution, insurance_used, 
+            `INSERT INTO liability_claims
+             (id, agent_id, authorization_id, amount, reason, evidence,
+              status, created_at, resolved_at, resolution, insurance_used,
               liability_amount, liable_party)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
@@ -964,9 +974,6 @@ class AgentLiabilityService {
                 claim.createdAt,
                 claim.resolvedAt || null,
                 claim.resolution || null,
-
-                claim.resolvedAt,
-                claim.resolution,
                 claim.insuranceUsed || 0,
                 claim.liabilityAmount || 0,
                 claim.liableParty || null

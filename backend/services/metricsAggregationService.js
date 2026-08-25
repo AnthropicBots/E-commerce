@@ -37,6 +37,75 @@ const TIME_PERIODS = {
 // do with trading.
 const EXCLUDE_MERGED_CARTS = "AND c.status <> 'merged'";
 
+/**
+ * An order that counts towards revenue (#1529).
+ *
+ * The money metrics filtered on `status = 'completed'`, which is not a member
+ * of the `orders.status` ENUM -- pending, processing, shipped, delivered,
+ * cancelled, refunded, on_hold -- so each of them matched no rows even before
+ * the column they summed turned out not to exist either.
+ *
+ * A cancelled or refunded order is not revenue; everything else that has been
+ * placed is, which is the rule `admin.service` already reads its dashboard by.
+ */
+const REVENUE_ORDERS = `
+    o.status NOT IN ('cancelled', 'refunded') AND o.deleted_at IS NULL
+`;
+
+/**
+ * The column holding what an order was worth.
+ *
+ * `orders.total_amount` does not exist. `total` is the figure the order path
+ * writes and verifies the shopper's claimed total against (`order.service`).
+ */
+const ORDER_VALUE = 'o.total';
+
+/**
+ * A caller-supplied filter this service does not implement.
+ *
+ * Carries the status the route should answer with, so an unsupported filter is
+ * a 400 rather than a 500 -- and, more to the point, rather than a whole-store
+ * number quietly returned to somebody who asked for a slice of it.
+ */
+class MetricsError extends Error {
+    constructor(message, status = 400, code = 'METRICS_ERROR') {
+        super(message);
+        this.name = 'MetricsError';
+        this.status = status;
+        this.code = code;
+    }
+}
+
+/**
+ * Refuse a filter this metric does not understand.
+ *
+ * Several metrics appended conditions over columns that have never existed
+ * (`orders.category`, `orders.user_segment`). Those queries could not run at
+ * all, but the failure worth guarding against is the quiet one: a dashboard
+ * that answers a filtered question with an unfiltered number.
+ *
+ * @param {Object} filters
+ * @param {string[]} supported
+ * @throws {MetricsError}
+ */
+function assertSupportedFilters(filters = {}, supported = []) {
+    const unsupported = Object.keys(filters).filter(
+        (key) =>
+            filters[key] !== undefined
+            && filters[key] !== ''
+            && !supported.includes(key)
+    );
+
+    if (unsupported.length) {
+        throw new MetricsError(
+            `Unsupported filter(s): ${unsupported.join(', ')}. `
+            + `This metric supports: ${supported.join(', ') || 'none'}`,
+            400,
+            'UNSUPPORTED_FILTER'
+        );
+    }
+}
+
 // ============================================
 // METRICS AGGREGATION SERVICE
 // ============================================
@@ -50,6 +119,8 @@ class MetricsAggregationService extends EventEmitter {
         this.lastAggregation = null;
         this.isAggregating = false;
         this.cacheTTL = 300; // 5 minutes
+        // Handle for the hourly aggregation, so shutdown can stop it.
+        this.aggregationTimer = null;
     }
 
     /**
@@ -59,8 +130,14 @@ class MetricsAggregationService extends EventEmitter {
         // Load historical metrics
         await this.loadHistoricalMetrics();
 
-        // Start periodic aggregation
-        setInterval(() => this.aggregateMetrics(), 3600000); // 1 hour
+        // Start periodic aggregation. The handle is retained so shutdown can
+        // stop it, and unref'd so a pending timer does not keep the process
+        // alive on its own -- the interval was previously created and dropped,
+        // which is the leak #1294 fixed in the recommendation service.
+        this.aggregationTimer = setInterval(() => this.aggregateMetrics(), 3600000); // 1 hour
+        if (typeof this.aggregationTimer.unref === 'function') {
+            this.aggregationTimer.unref();
+        }
 
         console.log('✅ Metrics Aggregation Service initialized');
         return this;
@@ -131,24 +208,30 @@ class MetricsAggregationService extends EventEmitter {
         const dateRange = this.getDateRange(period);
         const params = [dateRange.start, dateRange.end];
 
+        assertSupportedFilters(filters, ['category']);
+
         let query = `
-            SELECT 
-                AVG(total_amount) as avg_order_value,
+            SELECT
+                AVG(${ORDER_VALUE}) as avg_order_value,
                 COUNT(*) as order_count,
-                SUM(total_amount) as total_revenue
-            FROM orders
-            WHERE status = 'completed'
-            AND created_at BETWEEN ? AND ?
+                SUM(${ORDER_VALUE}) as total_revenue
+            FROM orders o
+            WHERE ${REVENUE_ORDERS}
+            AND o.created_at BETWEEN ? AND ?
         `;
 
+        // An order has no category of its own; the category of what was in it
+        // is the question being asked. `orders.category` and
+        // `orders.user_segment` were both filtered on here and neither exists.
         if (filters.category) {
-            query += ' AND category = ?';
+            query += `
+                AND EXISTS (
+                    SELECT 1 FROM order_items oi
+                    JOIN products p ON p.id = oi.product_id
+                    WHERE oi.order_id = o.id AND p.category_id = ?
+                )
+            `;
             params.push(filters.category);
-        }
-
-        if (filters.userSegment) {
-            query += ' AND user_segment = ?';
-            params.push(filters.userSegment);
         }
 
         const [rows] = await db.query(query, params);
@@ -239,36 +322,32 @@ class MetricsAggregationService extends EventEmitter {
         const cached = this.getFromCache(cacheKey);
         if (cached) return cached;
 
-        const dateRange = this.getDateRange(period);
-        const params = [dateRange.start, dateRange.end];
-
-        let query = `
-            SELECT 
-                COUNT(*) as total_impressions,
-                SUM(CASE WHEN clicked = 1 THEN 1 ELSE 0 END) as clicks,
-                (SUM(CASE WHEN clicked = 1 THEN 1 ELSE 0 END) / COUNT(*)) * 100 as ctr,
-                SUM(CASE WHEN purchased = 1 THEN 1 ELSE 0 END) as purchases
-            FROM recommendation_interactions
-            WHERE created_at BETWEEN ? AND ?
-        `;
-
-        if (filters.recommendationType) {
-            query += ' AND recommendation_type = ?';
-            params.push(filters.recommendationType);
-        }
-
-        if (filters.userSegment) {
-            query += ' AND user_segment = ?';
-            params.push(filters.userSegment);
-        }
-
-        const [rows] = await db.query(query, params);
+        // Reported as unavailable rather than computed.
+        //
+        // This read `recommendation_interactions`, a table that appears in no
+        // migration and in no other file -- so the query failed and, because
+        // `getDashboard` awaits this alongside the rest, took the whole
+        // dashboard down with it.
+        //
+        // It cannot be computed from what is recorded either: a click-through
+        // rate needs impressions, and nothing logs that a recommendation was
+        // *shown*. `user_interactions` holds view, cart_add, wishlist_add,
+        // purchase and share, all of which are clicks or better.
+        //
+        // Saying so is the honest answer. Inventing a denominator out of
+        // product views would produce a number that looks like a CTR, moves
+        // when the catalogue changes, and means nothing. Recording impressions
+        // is a feature, and belongs in its own change.
         const result = {
             metric: 'recommendation_ctr',
-            value: parseFloat(rows[0]?.ctr || 0),
-            impressions: parseInt(rows[0]?.total_impressions || 0),
-            clicks: parseInt(rows[0]?.clicks || 0),
-            purchases: parseInt(rows[0]?.purchases || 0),
+            available: false,
+            reason:
+                'Recommendation impressions are not recorded, so a '
+                + 'click-through rate cannot be computed.',
+            value: null,
+            impressions: null,
+            clicks: null,
+            purchases: null,
             period,
             filters,
             timestamp: new Date().toISOString()
@@ -289,27 +368,67 @@ class MetricsAggregationService extends EventEmitter {
         const dateRange = this.getDateRange(period);
         const params = [dateRange.start, dateRange.end];
 
-        let query = `
-            SELECT 
-                c.code,
-                c.discount_type,
-                c.discount_value,
-                COUNT(o.id) as usage_count,
-                SUM(o.total_amount) as revenue_generated,
-                AVG(o.total_amount) as avg_order_value,
-                (SUM(o.total_amount) / NULLIF(COUNT(o.id), 0)) - c.discount_value as net_value
-            FROM coupons c
-            LEFT JOIN orders o ON o.coupon_code = c.code AND o.status = 'completed'
-            WHERE c.created_at BETWEEN ? AND ?
+        assertSupportedFilters(filters, ['couponType']);
+
+        // The filter is applied where a filter goes.
+        //
+        // It used to be appended after `GROUP BY c.id ORDER BY ...`, producing
+        // `... ORDER BY revenue_generated DESC AND c.discount_type = ?`, which
+        // is a syntax error -- so asking for one type of coupon was a 500, and
+        // asking for none returned figures summed over a column that does not
+        // exist.
+        let conditions = `
+            c.created_at BETWEEN ? AND ?
+            AND c.is_deleted = 0
             AND c.usage_count > 0
-            GROUP BY c.id
-            ORDER BY revenue_generated DESC
         `;
 
         if (filters.couponType) {
-            query += ' AND c.discount_type = ?';
+            conditions += ' AND c.discount_type = ?';
             params.push(filters.couponType);
         }
+
+        // Two things this query used to get wrong about where a coupon lives.
+        //
+        // `orders.coupon_code` does not exist. The order path writes the code
+        // it applied to `promo_code` and `discount_code` (`order.service`).
+        //
+        // And `coupons` is the wrong table (#1581). It is a baseline table with
+        // no writer anywhere in the codebase, and it names its columns `type`,
+        // `value` and `used_count` -- so `c.discount_type`, `c.discount_value`
+        // and `c.usage_count` were all ER_BAD_FIELD_ERROR and this metric could
+        // not return a row under any filter. Those three names are exactly the
+        // ones on `promo_codes` (migrations/0002_promo_schema.sql), which is
+        // the table `promo.service` validates against and the one whose `code`
+        // the join above is matching `orders.promo_code` to. The query was
+        // written for `promo_codes` and pointed at its dormant namesake.
+        //
+        // `is_deleted` is how the rest of the promo path filters this table; a
+        // withdrawn code should not appear in an effectiveness report.
+        //
+        // The COUNT is aliased `redemption_count` rather than `usage_count`:
+        // the latter is also a real column on `c`, and having the same name
+        // mean the lifetime counter in the WHERE clause and the in-period
+        // total in the select list is what made the mismatch hard to see. The
+        // response key below is unchanged.
+        const query = `
+            SELECT
+                c.code,
+                c.discount_type,
+                c.discount_value,
+                COUNT(o.id) as redemption_count,
+                COALESCE(SUM(${ORDER_VALUE}), 0) as revenue_generated,
+                COALESCE(AVG(${ORDER_VALUE}), 0) as avg_order_value,
+                (COALESCE(SUM(${ORDER_VALUE}), 0) / NULLIF(COUNT(o.id), 0))
+                    - c.discount_value as net_value
+            FROM promo_codes c
+            LEFT JOIN orders o
+                ON o.promo_code = c.code
+                AND ${REVENUE_ORDERS}
+            WHERE ${conditions}
+            GROUP BY c.id
+            ORDER BY revenue_generated DESC
+        `;
 
         const [rows] = await db.query(query, params);
         const result = {
@@ -318,7 +437,7 @@ class MetricsAggregationService extends EventEmitter {
                 code: row.code,
                 discountType: row.discount_type,
                 discountValue: parseFloat(row.discount_value),
-                usageCount: parseInt(row.usage_count || 0),
+                usageCount: parseInt(row.redemption_count || 0, 10),
                 revenueGenerated: parseFloat(row.revenue_generated || 0),
                 avgOrderValue: parseFloat(row.avg_order_value || 0),
                 netValue: parseFloat(row.net_value || 0)
@@ -345,28 +464,39 @@ class MetricsAggregationService extends EventEmitter {
         const dateRange = this.getDateRange(period);
         const params = [dateRange.start, dateRange.end];
 
-        let query = `
-            SELECT 
+        assertSupportedFilters(filters, ['minOrders']);
+
+        // One HAVING, and the threshold is a parameter.
+        //
+        // The previous version bolted a second one on with
+        // `query.replace('ORDER BY', 'HAVING order_count >= ${filters.minOrders} ORDER BY')`.
+        // Two HAVING clauses is a syntax error, and `filters` is `req.query`
+        // spread straight from the URL -- so `?minOrders=1 UNION SELECT ...`
+        // was concatenated into the statement. Every other query in this
+        // service parameterises; this one interpolated.
+        const minOrders = Math.max(1, parseInt(filters.minOrders, 10) || 1);
+
+        const query = `
+            SELECT
                 u.id,
                 u.name,
                 COUNT(o.id) as order_count,
-                SUM(o.total_amount) as total_spent,
-                AVG(o.total_amount) as avg_order_value,
+                COALESCE(SUM(${ORDER_VALUE}), 0) as total_spent,
+                COALESCE(AVG(${ORDER_VALUE}), 0) as avg_order_value,
                 DATEDIFF(NOW(), MAX(o.created_at)) as days_since_last_order,
                 DATEDIFF(NOW(), u.created_at) as customer_age_days,
-                (SUM(o.total_amount) / NULLIF(DATEDIFF(NOW(), u.created_at), 0)) * 30 as monthly_value
+                (COALESCE(SUM(${ORDER_VALUE}), 0)
+                    / NULLIF(DATEDIFF(NOW(), u.created_at), 0)) * 30 as monthly_value
             FROM users u
-            LEFT JOIN orders o ON o.user_id = u.id AND o.status = 'completed'
+            LEFT JOIN orders o ON o.user_id = u.id AND ${REVENUE_ORDERS}
             WHERE u.created_at BETWEEN ? AND ?
             GROUP BY u.id
-            HAVING order_count > 0
+            HAVING order_count >= ?
             ORDER BY total_spent DESC
             LIMIT 100
         `;
 
-        if (filters.minOrders) {
-            query = query.replace('ORDER BY', `HAVING order_count >= ${filters.minOrders} ORDER BY`);
-        }
+        params.push(minOrders);
 
         const [rows] = await db.query(query, params);
         const result = {
@@ -403,12 +533,14 @@ class MetricsAggregationService extends EventEmitter {
         const dateRange = this.getDateRange(period);
         const params = [dateRange.start, dateRange.end];
 
+        assertSupportedFilters(filters, []);
+
         // Get current period revenue
         const [currentRevenue] = await db.query(
-            `SELECT SUM(total_amount) as revenue, COUNT(*) as orders 
-             FROM orders 
-             WHERE status = 'completed' 
-             AND created_at BETWEEN ? AND ?`,
+            `SELECT SUM(${ORDER_VALUE}) as revenue, COUNT(*) as orders
+             FROM orders o
+             WHERE ${REVENUE_ORDERS}
+             AND o.created_at BETWEEN ? AND ?`,
             params
         );
 
@@ -418,10 +550,10 @@ class MetricsAggregationService extends EventEmitter {
         const previousEnd = new Date(dateRange.end - periodDuration);
 
         const [previousRevenue] = await db.query(
-            `SELECT SUM(total_amount) as revenue 
-             FROM orders 
-             WHERE status = 'completed' 
-             AND created_at BETWEEN ? AND ?`,
+            `SELECT SUM(${ORDER_VALUE}) as revenue
+             FROM orders o
+             WHERE ${REVENUE_ORDERS}
+             AND o.created_at BETWEEN ? AND ?`,
             [previousStart, previousEnd]
         );
 
@@ -455,27 +587,43 @@ class MetricsAggregationService extends EventEmitter {
         const dateRange = this.getDateRange(period);
         const params = [dateRange.start, dateRange.end];
 
-        // Get active users at start of period
+        assertSupportedFilters(filters, []);
+
+        // Who was buying in the thirty days before the window opened.
         const [activeUsers] = await db.query(
-            `SELECT COUNT(DISTINCT user_id) as active 
-             FROM orders 
-             WHERE status = 'completed' 
-             AND created_at < ? 
-             AND created_at > DATE_SUB(?, INTERVAL 30 DAY)`,
+            `SELECT COUNT(DISTINCT o.user_id) as active
+             FROM orders o
+             WHERE ${REVENUE_ORDERS}
+             AND o.user_id IS NOT NULL
+             AND o.created_at < ?
+             AND o.created_at > DATE_SUB(?, INTERVAL 30 DAY)`,
             [dateRange.start, dateRange.start]
         );
 
-        // Get users who churned (no activity in period)
+        // How many of *those* did not come back during the window.
+        //
+        // The previous version counted every user account older than the
+        // window that had not ordered inside it -- which is almost the whole
+        // register, most of whom were never active and so cannot have churned.
+        // Divided by the active count it produced churn rates far above 100%.
+        //
+        // `NOT IN` was also unsafe against NULL: a guest order carries a null
+        // `user_id`, and `id NOT IN (… NULL …)` is never true for any row, so
+        // one guest order in the window made the churned count zero.
         const [churnedUsers] = await db.query(
-            `SELECT COUNT(DISTINCT user_id) as churned 
-             FROM users u
-             WHERE u.created_at < ?
-             AND u.id NOT IN (
-                 SELECT DISTINCT user_id 
-                 FROM orders 
-                 WHERE created_at BETWEEN ? AND ?
+            `SELECT COUNT(DISTINCT prior.user_id) as churned
+             FROM orders prior
+             WHERE prior.status NOT IN ('cancelled', 'refunded')
+             AND prior.deleted_at IS NULL
+             AND prior.user_id IS NOT NULL
+             AND prior.created_at < ?
+             AND prior.created_at > DATE_SUB(?, INTERVAL 30 DAY)
+             AND NOT EXISTS (
+                 SELECT 1 FROM orders during
+                 WHERE during.user_id = prior.user_id
+                 AND during.created_at BETWEEN ? AND ?
              )`,
-            [dateRange.start, dateRange.start, dateRange.end]
+            [dateRange.start, dateRange.start, dateRange.start, dateRange.end]
         );
 
         const active = parseInt(activeUsers[0]?.active || 0);
@@ -637,6 +785,19 @@ class MetricsAggregationService extends EventEmitter {
     }
 
     /**
+     * Stop the periodic aggregation.
+     *
+     * Every other service with a timer in this repo exposes one of these; this
+     * one created an interval it kept no handle to, so nothing could.
+     */
+    shutdown() {
+        if (this.aggregationTimer) {
+            clearInterval(this.aggregationTimer);
+            this.aggregationTimer = null;
+        }
+    }
+
+    /**
      * Database operations
      */
     async loadHistoricalMetrics() {
@@ -702,7 +863,11 @@ class MetricsAggregationService extends EventEmitter {
 
 module.exports = {
     MetricsAggregationService,
+    MetricsError,
     METRIC_TYPES,
     TIME_PERIODS,
+    REVENUE_ORDERS,
+    ORDER_VALUE,
+    assertSupportedFilters,
     metricsAggregationService: new MetricsAggregationService()
 };

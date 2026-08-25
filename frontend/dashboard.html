@@ -139,7 +139,7 @@
 
                     <img
                         id="profile-avatar"
-                        src="assets/images/user.png"
+                        src="assets/images/user.svg"
                         alt="User Avatar"
                         loading="lazy"
                     >
@@ -420,6 +420,8 @@
 
                 <form id="settings-form">
 
+                    <label for="settings-name">Full Name</label>
+
                     <input
                         type="text"
                         id="settings-name"
@@ -427,11 +429,32 @@
                         required
                     >
 
+                    <label for="settings-email">Email Address</label>
+
+                    <!-- Read-only. Changing the address on an account is an
+                         identity change and goes through verification, not
+                         through a profile save (#1548). -->
                     <input
                         type="email"
                         id="settings-email"
                         placeholder="Email Address"
-                        required
+                        readonly
+                        aria-readonly="true"
+                    >
+
+                    <small class="settings-hint">
+
+                        Your email address cannot be changed here.
+
+                    </small>
+
+                    <label for="settings-phone">Phone Number</label>
+
+                    <input
+                        type="tel"
+                        id="settings-phone"
+                        placeholder="Phone Number"
+                        autocomplete="tel"
                     >
 
                     <button type="submit">

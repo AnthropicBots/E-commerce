@@ -11,6 +11,10 @@ const dashboardOrderElements = {
         )
 };
 
+// How many orders the dashboard panel shows. It is a summary, not the history
+// -- the full paged list lives on the orders page.
+const DASHBOARD_ORDERS_LIMIT = 5;
+
 // order badge color
 function getOrderStatusClass(
     status = "pending"
@@ -41,14 +45,23 @@ async function renderDashboardOrders() {
     }
 
     try {
-        const data = await AppUtils.apiRequest("/orders/my-orders");
+        // The endpoint is paginated (#1545), so ask for a page explicitly
+        // rather than relying on whatever the server's default happens to be.
+        const data = await AppUtils.apiRequest(
+            `/orders/my-orders?page=1&limit=${DASHBOARD_ORDERS_LIMIT}`
+        );
+
         const orders = data.orders || [];
 
         if (
             dashboardOrderElements.ordersCount
         ) {
+            // `total` is every order the account has; `orders.length` is only
+            // how many fit on this panel. The badge means the former.
             dashboardOrderElements.ordersCount.innerText =
-                orders.length;
+                Number.isFinite(Number(data.total))
+                    ? Number(data.total)
+                    : orders.length;
         }
 
         if (
@@ -76,6 +89,8 @@ async function renderDashboardOrders() {
                 card.className =
                     "dashboard-order-card";
 
+                const reorderBtnHtml = `<button class="btn btn-sm reorder-btn" style="color:#088178; border:1px solid #088178; padding: 4px 8px; border-radius:4px; background:transparent; cursor:pointer;" onclick="reorderDashboardOrder('${order.id}')">Buy Again</button>`;
+
                 const isCancellable = ["pending", "processing"].includes((order.status || "").toLowerCase());
                 const cancelBtnHtml = isCancellable
                     ? `<button class="btn btn-sm" style="color:red; border:1px solid red; padding: 4px 8px; border-radius:4px; background:transparent; cursor:pointer;" onclick="cancelDashboardOrder(${order.id})">Cancel Order</button>`
@@ -86,7 +101,7 @@ async function renderDashboardOrders() {
                     ? `<button class="btn btn-sm" style="color:#111; border:1px solid #111; padding: 4px 8px; border-radius:4px; background:transparent; cursor:pointer;" onclick="openReturnModal('${order.id}')">Request Return</button>`
                     : "";
 
-                const actionsHtml = [cancelBtnHtml, returnBtnHtml].filter(Boolean).join(" ");
+                const actionsHtml = [reorderBtnHtml, cancelBtnHtml, returnBtnHtml].filter(Boolean).join(" ");
 
                 card.innerHTML = `
                     <div class="dashboard-order-top">
@@ -171,6 +186,14 @@ window.cancelDashboardOrder = async (orderId) => {
         }
     } catch (error) {
         AppUtils.notify(error.message || "An error occurred", "error");
+    }
+};
+
+window.reorderDashboardOrder = async (orderId) => {
+    if (typeof AppUtils !== "undefined" && typeof AppUtils.reorderOrder === "function") {
+        await AppUtils.reorderOrder(orderId);
+    } else if (typeof reorderOrder === "function") {
+        await reorderOrder(orderId);
     }
 };
 

@@ -1,3 +1,4 @@
+const AgentIdentity = require('../models/AgentIdentity');
 const AgentIdentityService = require('../services/agentIdentityService');
 const TrustScoringService = require('../services/trustScoringService');
 const ReputationService = require('../services/reputationService');
@@ -62,16 +63,24 @@ exports.getAgent = async (req, res) => {
     try {
         const { agentId } = req.params;
 
-        const agent = await AgentIdentityService.getAgentIdentity(agentId);
+        const agentData = await AgentIdentityService.getAgentIdentity(agentId);
+        if (!agentData || !agentData.agent) {
+            return res.status(404).json({ error: "Agent not found" });
+        }
+
+        if (req.user.role !== 'admin' && String(agentData.agent.ownerId) !== String(req.user.id)) {
+            return res.status(403).json({ error: "Access denied. You do not own this agent." });
+        }
 
         res.status(200).json({
             success: true,
-            data: agent
+            data: agentData
         });
     } catch (error) {
         console.error("Get agent error:", error);
-        res.status(500).json({
-            error: "Failed to get agent"
+        const status = error.message === 'Agent not found' ? 404 : 500;
+        res.status(status).json({
+            error: error.message || "Failed to get agent"
         });
     }
 };
@@ -82,6 +91,15 @@ exports.getAgent = async (req, res) => {
 exports.getTrustScore = async (req, res) => {
     try {
         const { agentId } = req.params;
+
+        const agent = await AgentIdentity.findOne({ agentId });
+        if (!agent) {
+            return res.status(404).json({ error: "Agent not found" });
+        }
+
+        if (req.user.role !== 'admin' && String(agent.ownerId) !== String(req.user.id)) {
+            return res.status(403).json({ error: "Access denied. You do not own this agent." });
+        }
 
         const score = await TrustScoringService.getTrustScoreDetails(agentId);
 
@@ -104,6 +122,15 @@ exports.getReputation = async (req, res) => {
     try {
         const { agentId } = req.params;
 
+        const agent = await AgentIdentity.findOne({ agentId });
+        if (!agent) {
+            return res.status(404).json({ error: "Agent not found" });
+        }
+
+        if (req.user.role !== 'admin' && String(agent.ownerId) !== String(req.user.id)) {
+            return res.status(403).json({ error: "Access denied. You do not own this agent." });
+        }
+
         const reputation = await ReputationService.getAgentReputation(agentId);
 
         res.status(200).json({
@@ -125,6 +152,15 @@ exports.getTransactions = async (req, res) => {
     try {
         const { agentId } = req.params;
         const { limit = 50 } = req.query;
+
+        const agent = await AgentIdentity.findOne({ agentId });
+        if (!agent) {
+            return res.status(404).json({ error: "Agent not found" });
+        }
+
+        if (req.user.role !== 'admin' && String(agent.ownerId) !== String(req.user.id)) {
+            return res.status(403).json({ error: "Access denied. You do not own this agent." });
+        }
 
         const transactions = await AgentTransaction.find({ agentId })
             .sort({ timestamp: -1 })

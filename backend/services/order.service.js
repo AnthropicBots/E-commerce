@@ -9,17 +9,84 @@ const {
 const logger = require("../utils/logger");
 const { validatePromo } = require("./promo.service");
 const pricing = require("./pricing.service");
+const CURRENCY = require("../config/currency");
+// Order creation prices delivery, chooses the option and records the promised
+// window, so it uses `shipping` in three places -- and required it in none of
+// them. `shipping` was a free variable, so every order died on
+// `ReferenceError: shipping is not defined` before it reached the INSERT. Same
+// class as the missing `stockCounter` below, and from the same cause: a merge
+// that took the calls and left the import (#1521).
+const shipping = require("./shipping.service");
 const cartLifecycle = require("./cartLifecycleService");
+// Abandoned-cart recovery attribution (#1429). Same casualty as `shipping`
+// above: the call site survived the merge and the import did not (#1521).
+const cartRecoveryAttribution = require("./cartRecoveryAttributionService");
 const { generateOrderNumber } = require("./orderNumber.service");
 // `resolveOrderLines` and the stock deduction in `createOrder` both go through
 // this, and neither could: the require went missing, so `stockCounter` was a
 // free variable and every call threw `ReferenceError: stockCounter is not
 // defined`. That is order creation, not an edge case (#1444).
 const stockCounter = require("./stockCounterService");
+// The sentinel for "this line names no variant". Used when the order line is
+// written, and -- like `shipping` and `cartRecoveryAttribution` above -- left
+// undeclared by the same merge (#1521).
+const { NO_VARIANT_ID } = stockCounter;
 
 // Marks the one failure the client can act on, so controllers can answer with
 // the specific figures instead of a generic server error.
 const TOTAL_MISMATCH_CODE = "ORDER_TOTAL_MISMATCH";
+
+/**
+ * A value that is SQL rather than a parameter -- `NOW()` and nothing else so
+ * far. A Symbol rather than the string "NOW()" so that a column whose value
+ * genuinely is the text "NOW()" cannot be mistaken for one.
+ */
+const RAW_NOW = Symbol("SQL:NOW()");
+
+/** What each raw marker renders as. */
+const RAW_SQL = new Map([[RAW_NOW, "NOW()"]]);
+
+/**
+ * Build an INSERT from a list of `[column, value]` pairs.
+ *
+ * The order INSERT used to keep three lists in step by hand -- the columns, the
+ * `?` placeholders and the arguments array -- and three successive merges each
+ * added a column to two of them. What reached `main` was 28 columns, 23
+ * placeholders and 28 arguments, which MySQL rejects outright:
+ *
+ *     ER_WRONG_VALUE_COUNT_ON_ROW: Column count doesn't match value count at row 1
+ *
+ * Deriving all three from one list is not tidiness. It removes the only way
+ * that failure can happen: there is no second list left to forget.
+ *
+ * @param {string} table
+ * @param {Array<[string, any]>} columnValuePairs
+ * @returns {{ sql: string, params: Array<any> }}
+ */
+const buildInsert = (table, columnValuePairs) => {
+    const columns = [];
+    const placeholders = [];
+    const params = [];
+
+    for (const [column, value] of columnValuePairs) {
+        columns.push(column);
+
+        if (RAW_SQL.has(value)) {
+            placeholders.push(RAW_SQL.get(value));
+            continue;
+        }
+
+        placeholders.push("?");
+        params.push(value);
+    }
+
+    return {
+        sql:
+            `INSERT INTO ${table} (${columns.join(", ")})`
+            + ` VALUES (${placeholders.join(", ")})`,
+        params,
+    };
+};
 
 // Validation helper functions
 const isValidEmail = (email) => {
@@ -311,6 +378,9 @@ const createOrderService = async (connection, orderData) => {
             // because a guest's cart cannot be found from `user_id`, which is
             // the only handle the account path ever needed.
             cart_id,
+            // Abandoned-cart recovery (#1429). The reference to the restore
+            // link this basket came back through, if it came back through one.
+            recovery_ref,
         } = orderData;
 
         // validate empty cart
@@ -397,73 +467,62 @@ const createOrderService = async (connection, orderData) => {
         // holder has their order list; a guest has only this (#1427).
         const orderNumber = generateOrderNumber();
 
-        // create order
-        const orderQuery = `
-            INSERT INTO orders (
-                id,
-                order_number,
-                user_id,
-                customer_name,
-                customer_email,
-                customer_phone,
-                city,
-                state,
-                zip,
-                full_address,
-                address_id,
-                shipping_address,
-                payment_method,
-                total,
-                status,
-                subtotal,
-                tax,
-                shipping_method,
-                shipping_cost,
-                estimated_delivery_from,
-                estimated_delivery,
-                discount,
-                discount_code,
-                promo_code,
-                recovery_token_id,
-                recovered_cart_id,
-                discount_amount,
-                final_amount,
-                created_at,
-                updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-        `;
+        // Resolved on this connection, inside the caller's transaction: an
+        // order that rolls back must not leave a claim that it was recovered.
+        // A reference that does not check out costs the order nothing -- it is
+        // simply not attributed (#1429).
+        const { recoveryTokenId, recoveredCartId } =
+            await cartRecoveryAttribution.resolveAttribution({
+                recoveryRef: recovery_ref,
+                userId: user_id,
+                connection,
+            });
 
-        const [orderResult] = await connection.query(orderQuery, [
-            orderId,
-            orderNumber,
-            safeUUID(user_id),
-            customer_name,
-            customer_email,
-            customer_phone,
-            city,
-            state,
-            zip,
-            full_address,
-            safeUUID(address_id),
-            JSON.stringify({ street: full_address, city, state, zip }),
-            payment_method,
-            breakdown.total,
-            "pending",
-            breakdown.subtotal,
-            breakdown.tax,
-            delivery.selected.code,
-            breakdown.shipping,
-            estimate ? estimate.from : null,
-            estimate ? estimate.to : null,
-            discountAmount,
-            appliedPromoCode,
-            appliedPromoCode,
-            recoveryTokenId,
-            recoveredCartId,
-            discountAmount,
-            breakdown.total,
+        // create order
+        //
+        // One list, not three. Each entry names a column and carries the value
+        // that goes in it, and `buildInsert` derives the column list and the
+        // placeholder list from that -- so a column added here cannot arrive
+        // without its `?`, which is the failure this replaces.
+        const { sql: orderQuery, params: orderParams } = buildInsert("orders", [
+            ["id", orderId],
+            ["order_number", orderNumber],
+            ["user_id", safeUUID(user_id)],
+            ["customer_name", customer_name],
+            ["customer_email", customer_email],
+            ["customer_phone", customer_phone],
+            ["city", city],
+            ["state", state],
+            ["zip", zip],
+            ["full_address", full_address],
+            ["address_id", safeUUID(address_id)],
+            [
+                "shipping_address",
+                JSON.stringify({ street: full_address, city, state, zip }),
+            ],
+            ["payment_method", payment_method],
+            ["total", breakdown.total],
+            ["status", "pending"],
+            ["subtotal", breakdown.subtotal],
+            ["tax", breakdown.tax],
+            ["shipping_method", delivery.selected.code],
+            ["shipping_cost", breakdown.shipping],
+            ["estimated_delivery_from", estimate ? estimate.from : null],
+            ["estimated_delivery", estimate ? estimate.to : null],
+            ["discount", discountAmount],
+            ["discount_code", appliedPromoCode],
+            ["promo_code", appliedPromoCode],
+            ["recovery_token_id", recoveryTokenId],
+            ["recovered_cart_id", recoveredCartId],
+            ["discount_amount", discountAmount],
+            ["final_amount", breakdown.total],
+            // Not a parameter: `NOW()` is SQL, and passing it as a string would
+            // store the four characters rather than the time.
+            ["created_at", RAW_NOW],
+            ["updated_at", RAW_NOW],
         ]);
+
+        const [orderResult] = await connection.query(orderQuery, orderParams);
 
         // insert into order_items
         //
@@ -473,30 +532,25 @@ const createOrderService = async (connection, orderData) => {
         // guess. Sentinel zero becomes NULL: the column is a foreign key, and
         // no variant has id 0.
         for (const item of validatedItems) {
-            const itemQuery = `
-                INSERT INTO order_items (
-                    order_id,
-                    product_id,
-                    variant_id,
-                    name,
-                    price,
-                    qty,
-                    color,
-                    size,
-                    total
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `;
-            await connection.query(itemQuery, [
-                orderId,
-                item.id,
-                item.variantId > NO_VARIANT_ID ? item.variantId : null,
-                item.name,
-                item.price,
-                item.qty,
-                item.color,
-                item.size,
-                item.price * item.qty,
-            ]);
+            const { sql: itemQuery, params: itemParams } = buildInsert(
+                "order_items",
+                [
+                    ["order_id", orderId],
+                    ["product_id", item.id],
+                    [
+                        "variant_id",
+                        item.variantId > NO_VARIANT_ID ? item.variantId : null,
+                    ],
+                    ["name", item.name],
+                    ["price", item.price],
+                    ["qty", item.qty],
+                    ["color", item.color],
+                    ["size", item.size],
+                    ["total", item.price * item.qty],
+                ],
+            );
+
+            await connection.query(itemQuery, itemParams);
         }
 
         // Reduce the same counter the availability check was made against, on
@@ -636,7 +690,7 @@ const getOrderSummaryById = async (connection, orderId) => {
                 o.created_at,
                 o.updated_at,
                 GROUP_CONCAT(
-                    CONCAT(oi.name, ' (', oi.qty, ' x ₹', oi.price, ')')
+                    CONCAT(oi.name, ' (', oi.qty, ' x ', ?, oi.price, ')')
                     SEPARATOR ', '
                 ) as items_summary
             FROM orders o
@@ -645,7 +699,7 @@ const getOrderSummaryById = async (connection, orderId) => {
             GROUP BY o.id
         `;
         
-        const [results] = await connection.query(query, [orderId]);
+        const [results] = await connection.query(query, [CURRENCY.symbol, orderId]);
         return safeArray(results)[0] || null;
     } catch (error) {
         logger.error(`Error getting order summary: ${error.message}`);
@@ -1002,5 +1056,9 @@ module.exports = {
     generateOrderSummaryService,
     validateOrderDataService,
     getOrderSummaryById,
-    getOrderTimeline
+    getOrderTimeline,
+    // Exported for the regression test around the column/placeholder drift
+    // this file was carrying (#1521), not for callers elsewhere.
+    buildInsert,
+    RAW_NOW
 };

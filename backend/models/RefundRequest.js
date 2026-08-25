@@ -16,10 +16,20 @@ const REFUND_REQUEST_COLUMNS = `
     updated_at
 `;
 
-// A request is "open" while it is still awaiting an outcome or has been
-// approved but not yet closed out, so a second request for the same line
-// should be blocked in either state.
-const OPEN_STATUSES = ["pending", "approved"];
+// The statuses whose quantity counts against the units bought on a line
+// (#1477).
+//
+// A `pending` request has claimed those units while it is decided; `approved`
+// and `refunded` have consumed them. `rejected` is the only outcome that gives
+// them back, which is what makes re-submitting a refused return work.
+//
+// This replaced a two-member OPEN_STATUSES list used to answer "does this line
+// have a request in flight". That boolean was doing the work of an arithmetic
+// check: it locked the whole line after one partial return, and released the
+// whole line as soon as a request left the pair -- so a rejected request made
+// the full quantity returnable a second time and an approved one made the
+// remainder returnable never.
+const CLAIMED_STATUSES = ["pending", "approved", "refunded"];
 
 class RefundRequest {
     constructor(row) {
@@ -117,19 +127,71 @@ class RefundRequest {
         return rows.map((row) => new RefundRequest(row));
     }
 
-    static async hasOpenRequestForItem(orderItemId, connection = db) {
+    /**
+     * How many units of an order line are already claimed by returns.
+     *
+     * The sum of `quantity` over that line's pending, approved and refunded
+     * requests. Rejected ones are excluded: a refused return releases the units
+     * it asked for, so the customer can submit again.
+     *
+     * Runs on the caller's connection when one is given, so the count can be
+     * taken inside the submission's transaction and under the lock it holds on
+     * the order line. Taken outside, two submissions arriving together both read
+     * the same figure and both pass.
+     *
+     * @param {number} orderItemId
+     * @param {object} [connection]
+     * @returns {Promise<number>}
+     */
+    static async claimedQuantityForItem(orderItemId, connection = db) {
+        const placeholders = CLAIMED_STATUSES.map(() => "?").join(", ");
+
         const [rows] = await connection.query(
             `
-                SELECT id
+                SELECT COALESCE(SUM(quantity), 0) AS claimed
                 FROM refund_requests
                 WHERE order_item_id = ?
-                  AND status IN (?, ?)
-                LIMIT 1
+                  AND status IN (${placeholders})
             `,
-            [orderItemId, OPEN_STATUSES[0], OPEN_STATUSES[1]]
+            [orderItemId, ...CLAIMED_STATUSES]
         );
 
-        return rows.length > 0;
+        return Number(rows[0]?.claimed) || 0;
+    }
+
+    /**
+     * The same figure for every line of an order, as a Map keyed by
+     * `order_item_id`.
+     *
+     * One query rather than one per line: the returnable view over an order
+     * needs all of them, and a loop over `claimedQuantityForItem` is a query per
+     * item for a page a customer is waiting on.
+     *
+     * @param {string} orderId
+     * @param {object} [connection]
+     * @returns {Promise<Map<number, number>>}
+     */
+    static async claimedQuantitiesForOrder(orderId, connection = db) {
+        const placeholders = CLAIMED_STATUSES.map(() => "?").join(", ");
+
+        const [rows] = await connection.query(
+            `
+                SELECT order_item_id, COALESCE(SUM(quantity), 0) AS claimed
+                FROM refund_requests
+                WHERE order_id = ?
+                  AND status IN (${placeholders})
+                GROUP BY order_item_id
+            `,
+            [orderId, ...CLAIMED_STATUSES]
+        );
+
+        const claimed = new Map();
+
+        for (const row of rows) {
+            claimed.set(Number(row.order_item_id), Number(row.claimed) || 0);
+        }
+
+        return claimed;
     }
 
     static async updateStatus(
@@ -149,5 +211,7 @@ class RefundRequest {
         return result.affectedRows > 0;
     }
 }
+
+RefundRequest.CLAIMED_STATUSES = CLAIMED_STATUSES;
 
 module.exports = RefundRequest;

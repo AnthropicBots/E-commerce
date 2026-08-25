@@ -1,5 +1,9 @@
 // backend/modules/catalog/index.js
-const { AggregateRoot, DomainEventBus, Repository } = require('../core');
+// `DomainService` belongs in this list: `CatalogService extends DomainService`
+// 200 lines below. It was missing, so importing this module threw
+// `ReferenceError: DomainService is not defined` -- and nothing imports this
+// module, which is why nobody found out (#1474).
+const { AggregateRoot, DomainEventBus, DomainService, Repository } = require('../core');
 
 // ============================================
 // CATALOG MODULE - Bounded Context

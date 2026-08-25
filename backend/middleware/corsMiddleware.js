@@ -23,6 +23,7 @@ const allowedOrigins = [
   FRONTEND_URL,
 
   // production
+  "https://ecommerce.vercel.app",
   "https://e-commerce-git-main-bhuvanshs-projects.vercel.app",
   "https://www.bhuvansh.xyz",
 
@@ -33,9 +34,12 @@ const allowedOrigins = [
 // CORS Configuration
 const corsOptions = {
   origin: (origin, callback) => {
-    // allow non-browser requests
+    // Allow requests without Origin header in test environment for testing purposes
     if (!origin) {
-      return callback(null, true);
+      if (process.env.NODE_ENV === 'test') {
+        return callback(null, true);
+      }
+      return callback(new Error("CORS not allowed: Missing Origin header"));
     }
 
     const isAllowed =

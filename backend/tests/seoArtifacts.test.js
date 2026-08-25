@@ -27,8 +27,8 @@ const {
     withoutLastmod
 } = require(path.join(REPO_ROOT, 'scripts', 'generate-sitemap.js'));
 
-const robots = fs.readFileSync(path.join(FRONTEND_DIR, 'robots.txt'), 'utf8');
-const sitemap = fs.readFileSync(path.join(FRONTEND_DIR, 'sitemap.xml'), 'utf8');
+const robots = fs.readFileSync(path.join(FRONTEND_DIR, 'robots.txt'), 'utf8').replace(/\r\n/g, '\n');
+const sitemap = fs.readFileSync(path.join(FRONTEND_DIR, 'sitemap.xml'), 'utf8').replace(/\r\n/g, '\n');
 
 const htmlFiles = fs
     .readdirSync(FRONTEND_DIR)

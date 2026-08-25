@@ -23,7 +23,7 @@
  * 'user' and additionally allows 'superadmin' and 'moderator'. They are
  * synonyms for the same unprivileged shopper and are treated identically.
  */
-const ROLES = Object.freeze({
+const ROLES = Object.freeze(Object.setPrototypeOf({
     CUSTOMER: 'customer',
     USER: 'user',
     SELLER: 'seller',
@@ -31,7 +31,7 @@ const ROLES = Object.freeze({
     MODERATOR: 'moderator',
     ADMIN: 'admin',
     SUPERADMIN: 'superadmin'
-});
+}, null));
 
 const ALL_ROLES = Object.freeze(Object.values(ROLES));
 
@@ -39,7 +39,7 @@ const ALL_ROLES = Object.freeze(Object.values(ROLES));
  * Capabilities, named after what they let you do rather than after the route
  * that happens to expose them today. A route may move; the capability does not.
  */
-const PERMISSIONS = Object.freeze({
+const PERMISSIONS = Object.freeze(Object.setPrototypeOf({
     // Self-scoped: every signed-in account holds these for its own resources.
     ORDER_READ_OWN: 'order:read:own',
     ORDER_CANCEL_OWN: 'order:cancel:own',
@@ -68,7 +68,7 @@ const PERMISSIONS = Object.freeze({
     WISHLIST_READ_ANY: 'wishlist:read:any',
     SECURITY_AUDIT: 'security:audit',
     PLATFORM_ADMIN: 'platform:admin'
-});
+}, null));
 
 const ALL_PERMISSIONS = Object.freeze(Object.values(PERMISSIONS));
 
@@ -90,7 +90,7 @@ const SELF_SERVICE_PERMISSIONS = Object.freeze([
  * one intended difference is that `superadmin` now holds everything `admin`
  * holds, which is what `adminMiddleware` always assumed.
  */
-const ROLE_PERMISSIONS = Object.freeze({
+const ROLE_PERMISSIONS = Object.freeze(Object.setPrototypeOf({
     [ROLES.CUSTOMER]: SELF_SERVICE_PERMISSIONS,
     [ROLES.USER]: SELF_SERVICE_PERMISSIONS,
     [ROLES.SELLER]: SELF_SERVICE_PERMISSIONS,
@@ -106,7 +106,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     ]),
     [ROLES.ADMIN]: ALL_PERMISSIONS,
     [ROLES.SUPERADMIN]: ALL_PERMISSIONS
-});
+}, null));
 
 /**
  * Roles that carry platform-wide authority. Anything that used to ask
@@ -116,7 +116,7 @@ const ADMIN_ROLES = Object.freeze([ROLES.ADMIN, ROLES.SUPERADMIN]);
 
 // Reused verbatim by rbacMiddleware so both entry points answer with the same
 // error codes; existing clients key off these strings.
-const ERROR_CODES = Object.freeze({
+const ERROR_CODES = Object.freeze(Object.setPrototypeOf({
     USER_NOT_FOUND: 'ADMIN_USER_NOT_FOUND',
     ACCOUNT_INACTIVE: 'ADMIN_ACCOUNT_INACTIVE',
     ACCOUNT_BLOCKED: 'ADMIN_ACCOUNT_BLOCKED',
@@ -124,7 +124,7 @@ const ERROR_CODES = Object.freeze({
     ADMIN_ROLE_REQUIRED: 'ADMIN_ROLE_REQUIRED',
     TOKEN_INVALID: 'ADMIN_TOKEN_INVALID',
     UNAUTHORIZED: 'ADMIN_UNAUTHORIZED'
-});
+}, null));
 
 /**
  * Stamped onto every middleware that carries an access decision.

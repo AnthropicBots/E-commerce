@@ -1688,6 +1688,31 @@ const pushCartToBackend = async (cart) => {
     }
 
     if (response && response.success) {
+        // The server drops lines whose product has been withdrawn from sale
+        // and names them (#1546). Keeping a line the server refused would
+        // resurrect it on the next sync and carry it all the way to checkout,
+        // so the acknowledged basket is what the server actually stored.
+        const droppedIds = safeArray(response.droppedProductIds)
+            .map((id) => String(id));
+
+        if (droppedIds.length) {
+            const kept = safeArray(cart).filter(
+                (item) => !droppedIds.includes(String(item.id))
+            );
+
+            notify(
+                droppedIds.length === 1
+                    ? "An item in your cart is no longer available and has been removed."
+                    : `${droppedIds.length} items in your cart are no longer available and have been removed.`,
+                "warning"
+            );
+
+            serverAcknowledgedItems = kept;
+            saveCart(kept, { sync: false });
+
+            return true;
+        }
+
         serverAcknowledgedItems = cart;
         return true;
     }
@@ -1770,6 +1795,21 @@ const fetchServerCart = async () => {
         const data = await apiRequest("/cart", {}, false);
 
         if (data && data.success) {
+            // Lines whose product has since been withdrawn are not returned
+            // (#1546). The count of them is, so a basket that comes back
+            // shorter than the shopper left it can say why instead of looking
+            // like the cart lost their items.
+            const unavailableCount = Number(data.unavailableCount) || 0;
+
+            if (unavailableCount > 0) {
+                notify(
+                    unavailableCount === 1
+                        ? "An item in your cart is no longer available and has been removed."
+                        : `${unavailableCount} items in your cart are no longer available and have been removed.`,
+                    "warning"
+                );
+            }
+
             return safeArray(data.cart)
                 .map(normalizeCartItem)
                 .filter(Boolean);
@@ -2140,6 +2180,129 @@ const renderSkeletonState = (container, count = 4) => {
     container.innerHTML = getSkeletonCardHTML(count);
 };
 
+const addToCompare = (productId) => {
+    const id = String(productId ?? "").trim();
+    if (!id) return false;
+
+    const STORAGE_KEYS = ["compareProducts", "comparisonList"];
+    let currentCompare = getJSON("compareProducts", []);
+    if (!Array.isArray(currentCompare) || !currentCompare.length) {
+        currentCompare = getJSON("comparisonList", []);
+    }
+    if (!Array.isArray(currentCompare)) currentCompare = [];
+
+    const stringIds = currentCompare.map((item) => String(item ?? "").trim()).filter(Boolean);
+
+    if (stringIds.includes(id)) {
+        notify("Product already selected", "info");
+        return false;
+    }
+
+    if (stringIds.length >= 3) {
+        notify("You can compare up to 3 products only", "warning");
+        return false;
+    }
+
+    stringIds.push(id);
+    STORAGE_KEYS.forEach((key) => setJSON(key, stringIds));
+
+    notify("Added for comparison", "success");
+    return true;
+};
+
+// Put every line of a past order back in the cart.
+//
+// The order is re-read from the server rather than trusted from whatever the
+// history page happens to be holding: `GET /orders/:id` is behind `ownsOrder`,
+// so this cannot be pointed at somebody else's order, and the lines it returns
+// are the ones that were actually billed.
+//
+// Quantities are merged into the existing cart rather than replacing it. A
+// shopper who clicks "Buy Again" while already holding something has asked for
+// both, and `mergeCartLines` is the same summing rule the sign-in merge uses,
+// so one product bought twice stays one line.
+//
+// `order_items.product_id` is nullable — a line whose product was hard-deleted
+// keeps its name and price for the receipt but can no longer be added to a
+// cart. Those lines are skipped and counted, because a basket that comes back
+// shorter than the order it came from has to say why.
+const reorderOrder = async (orderId) => {
+    const id = String(orderId ?? "").trim();
+
+    if (!id) {
+        return false;
+    }
+
+    if (!requireAuth()) {
+        return false;
+    }
+
+    try {
+        const response = await apiRequest(`/orders/${id}`);
+
+        const order = response?.order || response?.data || null;
+        const orderItems = safeArray(order?.items);
+
+        if (!orderItems.length) {
+            notify("That order has no items to reorder", "info");
+            return false;
+        }
+
+        const lines = orderItems
+            .map((item) =>
+                normalizeCartItem({
+                    id: item?.product_id ?? item?.productId ?? null,
+                    name: item?.name,
+                    price: item?.price,
+                    img: item?.img || item?.image || "",
+                    image: item?.image || item?.img || "",
+                    color: item?.color,
+                    size: item?.size,
+                    variantId: item?.variant_id ?? item?.variantId,
+                    qty: item?.qty ?? item?.quantity
+                })
+            )
+            .filter(Boolean);
+
+        const skipped = orderItems.length - lines.length;
+
+        if (!lines.length) {
+            notify(
+                "None of the items from that order are available any more",
+                "warning"
+            );
+            return false;
+        }
+
+        saveCart(mergeCartLines(getCart(), lines));
+
+        if (skipped > 0) {
+            notify(
+                skipped === 1
+                    ? "1 item from that order is no longer available and was not added."
+                    : `${skipped} items from that order are no longer available and were not added.`,
+                "warning"
+            );
+        } else {
+            notify(
+                lines.length === 1
+                    ? "Item added to your cart"
+                    : `${lines.length} items added to your cart`,
+                "success"
+            );
+        }
+
+        return true;
+    } catch (error) {
+        console.error("REORDER ERROR:", error);
+        notify(
+            error?.message || "Could not reorder that order right now",
+            "error"
+        );
+        return false;
+    }
+};
+
 // app utils assignment
 window.AppUtils = {
     CONFIG,
@@ -2194,6 +2357,8 @@ window.AppUtils = {
     formatFreeShippingProgress,
     getWishlist,
     saveWishlist,
+    addToCompare,
+    reorderOrder,
     getSkeletonCardHTML,
     renderSkeletonState,
     FALLBACK_PRODUCT_IMAGE,
@@ -2217,6 +2382,8 @@ window.FALLBACK_PRODUCT_IMAGE = FALLBACK_PRODUCT_IMAGE;
 window.handleImageError = handleImageError;
 window.safeForEach = safeForEach;
 window.safeMap = safeMap;
+window.addToCompare = addToCompare;
+window.reorderOrder = reorderOrder;
 
 // Side-by-side tabs converge instead of competing: whichever envelope carries
 // the later timestamp is the one that stands, and everything listening on

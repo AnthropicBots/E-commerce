@@ -260,7 +260,7 @@ class RecommendationService {
             // Get user's preferred categories
             const [preferences] = await db.query(
                 `SELECT 
-                    p.category,
+                    c.name as category,
                     COUNT(*) as interaction_count,
                     SUM(CASE 
                         WHEN ui.interaction_type = ? THEN 5
@@ -270,8 +270,9 @@ class RecommendationService {
                     END) as score
                  FROM user_interactions ui
                  JOIN products p ON p.id = ui.product_id
+                 JOIN categories c ON c.id = p.category_id
                  WHERE ui.user_id = ?
-                 GROUP BY p.category
+                 GROUP BY c.id, c.name
                  ORDER BY score DESC, interaction_count DESC
                  LIMIT 3`,
                 [
@@ -291,9 +292,10 @@ class RecommendationService {
             const [recommendations] = await db.query(
                 `SELECT 
                     p.*,
-                    p.category
+                    c.name as category
                  FROM products p
-                 WHERE p.category IN (${placeholders})
+                 JOIN categories c ON c.id = p.category_id
+                 WHERE c.name IN (${placeholders})
                  AND p.id NOT IN (
                      SELECT product_id FROM user_interactions 
                      WHERE user_id = ? 
@@ -363,9 +365,10 @@ class RecommendationService {
     async getUserInteractions(userId) {
         try {
             const [interactions] = await db.query(
-                `SELECT ui.interaction_type, p.category
+                `SELECT ui.interaction_type, c.name as category
                  FROM user_interactions ui
                  JOIN products p ON ui.product_id = p.id
+                 JOIN categories c ON c.id = p.category_id
                  WHERE ui.user_id = ?
                  ORDER BY ui.created_at DESC
                  LIMIT 100`,
@@ -447,9 +450,10 @@ class RecommendationService {
         let query = `
             SELECT 
                 p.*,
-                p.category
+                c.name as category
             FROM products p
-            WHERE p.category IN (${categoryPlaceholders})
+            JOIN categories c ON c.id = p.category_id
+            WHERE c.name IN (${categoryPlaceholders})
             AND p.stock > 0
         `;
 
@@ -462,7 +466,7 @@ class RecommendationService {
         // Prefer products from top categories
         query += ` ORDER BY 
             CASE 
-                WHEN p.category IN (${topCategories.map(() => '?').join(',')}) THEN 1
+                WHEN c.name IN (${topCategories.map(() => '?').join(',')}) THEN 1
                 ELSE 2
             END,
             p.rating DESC,
@@ -492,7 +496,7 @@ class RecommendationService {
         try {
             // Get product details
             const [product] = await db.query(
-                'SELECT category FROM products WHERE id = ?',
+                'SELECT c.name as category FROM products p JOIN categories c ON c.id = p.category_id WHERE p.id = ?',
                 [productId]
             );
 
@@ -505,10 +509,11 @@ class RecommendationService {
                 `SELECT 
                     p.*,
                     CASE 
-                        WHEN p.category = ? THEN 1
+                        WHEN c.name = ? THEN 1
                         ELSE 0
                     END as relevance
                  FROM products p
+                 JOIN categories c ON c.id = p.category_id
                  WHERE p.id != ? AND p.stock > 0
                  ORDER BY relevance DESC, p.rating DESC, p.created_at DESC
                  LIMIT ?`,

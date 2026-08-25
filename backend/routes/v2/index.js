@@ -10,10 +10,19 @@ const router = express.Router();
 const sharedRoutes = require('../index');
 
 router.use((req, res, next) => {
-    res.setHeader('X-API-Version', 'v2');
-    next();
+    try {
+        if (res.headersSent) {
+            return next();
+        }
+        res.setHeader('X-API-Version', 'v2');
+        next();
+    } catch (err) {
+        next(err);
+    }
 });
 
-router.use('/', sharedRoutes);
+for (const [path, routeHandler] of Object.entries(sharedRoutes)) {
+    router.use(path, routeHandler);
+}
 
 module.exports = router;

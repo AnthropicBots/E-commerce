@@ -375,3 +375,166 @@ body.dark-mode .timeline-reason {
     border-left-color: #3a3a3a;
     color: #d8d8d8;
 }
+
+/* ============================================================
+   ORDER ACTION BUTTONS (Back | Print | Download Invoice)
+   ============================================================ */
+
+.order-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    align-items: center;
+    margin-top: 28px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+/* Base shared styles */
+.order-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 22px;
+    border-radius: 8px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    border: 2px solid transparent;
+    white-space: nowrap;
+}
+
+/* Ghost variant – Back to Orders, Print Order */
+.order-action-btn--ghost {
+    background: transparent;
+    color: #444;
+    border-color: #ddd;
+}
+
+.order-action-btn--ghost:hover,
+.order-action-btn--ghost:focus-visible {
+    background: #f5f5f5;
+    border-color: #bbb;
+    outline: none;
+}
+
+/* Primary variant – Download Invoice */
+.order-action-btn--primary {
+    background: #088178;
+    color: #fff;
+    border-color: #088178;
+}
+
+.order-action-btn--primary:hover,
+.order-action-btn--primary:focus-visible {
+    background: #066b63;
+    border-color: #066b63;
+    box-shadow: 0 4px 14px rgba(8, 129, 120, 0.28);
+    outline: none;
+}
+
+.order-action-btn--primary:disabled {
+    background: #aaa;
+    border-color: #aaa;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+/* Dark-mode variants */
+body.dark-mode .order-action-btn--ghost {
+    color: #ccc;
+    border-color: #444;
+}
+
+body.dark-mode .order-action-btn--ghost:hover,
+body.dark-mode .order-action-btn--ghost:focus-visible {
+    background: #2a2a2a;
+    border-color: #666;
+}
+
+body.dark-mode .order-actions {
+    border-top-color: #333;
+}
+
+@media (max-width: 480px) {
+    .order-action-btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* ============================================================
+   PRINT STYLES
+   ============================================================
+   Show only the order card — hide all chrome so the printout
+   reads like a clean receipt. The delivery canvas is skipped
+   because it relies on animation and doesn't translate to paper.
+   The tracking ladder is kept because it gives a quick visual
+   summary of where the order stands.
+*/
+
+@media print {
+    /* ── Hide site chrome ── */
+    #navbar,
+    #footer,
+    #order-header,
+    .delivery-map-container,
+    .order-actions,
+    #back-to-top,
+    .chat-widget,
+    .skip-link {
+        display: none !important;
+    }
+
+    /* ── Reset page chrome ── */
+    body {
+        background: #fff !important;
+        color: #000 !important;
+        font-size: 12pt;
+    }
+
+    /* ── Let the order card fill the page ── */
+    #order-page {
+        padding: 0 !important;
+    }
+
+    .order-card {
+        box-shadow: none !important;
+        border: 1px solid #ccc;
+        padding: 20pt !important;
+    }
+
+    /* ── Ensure items are readable ── */
+    .order-item {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    /* ── Status badge as plain text ── */
+    #status-badge {
+        background: none !important;
+        color: #000 !important;
+        border: 1px solid #000;
+        padding: 2px 8px !important;
+    }
+
+    /* ── Tracking step circles ── */
+    .step-circle {
+        border: 2px solid #000;
+        background: none !important;
+        color: #000 !important;
+    }
+
+    .active-step .step-circle {
+        background: #000 !important;
+        color: #fff !important;
+    }
+
+    a {
+        color: #000 !important;
+        text-decoration: none !important;
+    }
+}

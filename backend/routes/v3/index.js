@@ -17,6 +17,8 @@ router.use((req, res, next) => {
     next();
 });
 
-router.use('/', sharedRoutes);
+for (const [path, routeHandler] of Object.entries(sharedRoutes)) {
+    router.use(path, routeHandler);
+}
 
 module.exports = router;

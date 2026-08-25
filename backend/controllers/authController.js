@@ -38,6 +38,11 @@ const loginLockoutService = require("../services/loginLockoutService");
 const otpRequestLimiter = require("../services/otpRequestLimiter");
 // A basket built before signing in belongs to the account afterwards (#1427).
 const { mergeGuestCartOnSignIn } = require("../services/cartMergeService");
+// The shopper's own profile (#1548). Every rule about what may be written, and
+// how wide it may be, lives in the service: the columns are the constraint, and
+// a controller is not where a schema belongs.
+const profileService = require("../services/profileService");
+const { ProfileError } = require("../services/profileService");
 
 // Appwrite SDK
 const { Client, Account, ID, Databases } = require('node-appwrite');
@@ -295,11 +300,20 @@ const verifySignup = async (req, res) => {
             }
         }
 
-        // Save to MySQL with email_verified flag
+        // Save to MySQL with email_verified flag.
+        //
+        // signup_ip is recorded here because this is where the row is created,
+        // and it is what velocity_monitoring groups by -- without it the view
+        // has nothing to report and the whole velocity signal is dead (#1673).
+        // req.ip honours the configured `trust proxy` setting, so it is the
+        // caller's address rather than the load balancer's; truncated to the
+        // column width so an unusually long forwarded value cannot fail the
+        // insert and lose a signup over a monitoring field.
         const userId = crypto.randomUUID();
+        const signupIp = sanitizeString(req.ip).slice(0, 45) || null;
         await db.query(
-            `INSERT INTO users (id, name, email, password, role, is_verified) VALUES (?, ?, ?, ?, ?, ?)`,
-            [userId, pendingUser.name, cleanEmail, pendingUser.hashedPassword, "user", 1]
+            `INSERT INTO users (id, name, email, password, role, is_verified, signup_ip) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [userId, pendingUser.name, cleanEmail, pendingUser.hashedPassword, "user", 1, signupIp]
         );
 
         // Cleanup Appwrite session
@@ -914,6 +928,80 @@ const getMe = async (req, res) => {
     }
 };
 
+// ==================== PROFILE (#1548) ====================
+
+/**
+ * Map a profile-service error onto a response.
+ *
+ * ProfileError carries the status it wants. Anything else is unexpected, so
+ * the detail goes to the log and the caller gets a generic message -- the same
+ * split reviewController uses.
+ */
+const handleProfileError = (res, error, context) => {
+    if (error instanceof ProfileError) {
+        return res.status(error.status).json({
+            success: false,
+            code: error.code,
+            message: error.message,
+            ...(error.details || {})
+        });
+    }
+
+    console.error(`${context}:`, error);
+
+    return res.status(500).json({
+        success: false,
+        message: "Something went wrong. Please try again."
+    });
+};
+
+/**
+ * GET /api/auth/profile
+ *
+ * The shopper's own profile, from the database. `getMe` returns the four
+ * fields a session needs; this returns the ones a profile page edits, and it
+ * is what makes a saved profile survive a different browser (#1548).
+ */
+const getProfile = async (req, res) => {
+    try {
+        const profile = await profileService.getProfile(req.user?.id);
+
+        return res.status(200).json({
+            success: true,
+            profile
+        });
+    } catch (error) {
+        return handleProfileError(res, error, "GET PROFILE ERROR");
+    }
+};
+
+/**
+ * PUT /api/auth/profile
+ *
+ * Partial update: only the fields present in the body are written, so a client
+ * sending `{ name }` does not blank the phone number.
+ *
+ * The stored profile comes back on the response. The two editors this replaces
+ * re-rendered from what they had just typed, which is exactly why "Profile
+ * saved successfully!" could be true of nothing at all.
+ */
+const updateProfile = async (req, res) => {
+    try {
+        const profile = await profileService.updateProfile(
+            req.user?.id,
+            req.body
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Profile updated",
+            profile
+        });
+    } catch (error) {
+        return handleProfileError(res, error, "UPDATE PROFILE ERROR");
+    }
+};
+
 // ==================== GDPR / DPDP ERASURE (#1397) ====================
 
 const dataErasureService = require("../services/dataErasureService");
@@ -1040,6 +1128,8 @@ module.exports = {
     getSecurityAudit, 
     getFraudStatus,
     getMe,
+    getProfile,
+    updateProfile,
     requestDataErasure,
     confirmDataErasure,
     getMyErasureStatus,

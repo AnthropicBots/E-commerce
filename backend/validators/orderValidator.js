@@ -10,6 +10,7 @@ class OrderValidator extends BaseValidator {
 
         // Check required fields
         this.required(data.userId, 'userId');
+        this.uuid(data.userId, 'userId');
         this.required(data.items, 'items');
         this.array(data.items, 'items');
         this.required(data.shippingAddress, 'shippingAddress');
@@ -19,6 +20,7 @@ class OrderValidator extends BaseValidator {
             for (let i = 0; i < data.items.length; i++) {
                 const item = data.items[i];
                 this.required(item.productId, `items[${i}].productId`);
+                this.uuid(item.productId, `items[${i}].productId`);
                 this.required(item.quantity, `items[${i}].quantity`);
                 this.positive(item.quantity, `items[${i}].quantity`);
                 this.integer(item.quantity, `items[${i}].quantity`);

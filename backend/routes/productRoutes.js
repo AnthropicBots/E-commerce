@@ -19,10 +19,6 @@ const {
 
 const { validateProductReview } = require('../middleware/promptInjectionMiddleware');
 
-// Update POST /api/products/review
-router.post('/products/review', authMiddleware, validateProductReview, async (req, res) => {
-  
-});
 const {
     getProductReviews,
     createProductReview,
@@ -80,14 +76,73 @@ router.post(
     invalidateCategoryTreeCache
 );
 router.get("/", getProducts);
+
+// ---------------------------------------------------------------------------
+// Reviews (#1349), and the seven handlers that were never given a path (#1493)
+// ---------------------------------------------------------------------------
+//
+// The static "reviews/..." paths are declared BEFORE "/:id" for the same
+// reason "categories/tree" and the Q&A paths are: Express matches in
+// declaration order, so the parameterised product route would capture
+// "reviews" as a product id.
+
+/** The reasons a review may be reported, so no client keeps its own copy. */
+router.get("/reviews/moderation/reasons", getReportReasons);
+
+/**
+ * Admin moderation.
+ *
+ * Gated the same way the Q&A queue below is. `reviewModerationService`
+ * recalculates the product's rating when a review is rejected, which is the
+ * whole point of having a queue -- a rejected review has to stop counting.
+ */
+router.get(
+    "/reviews/moderation/queue",
+    authMiddleware,
+    authorizeRoles(ROLES.ADMIN),
+    getModerationQueue
+);
+
+router.get(
+    "/reviews/:reviewId/reports",
+    authMiddleware,
+    authorizeRoles(ROLES.ADMIN),
+    getReviewReports
+);
+
+router.patch(
+    "/reviews/:reviewId/moderate",
+    authMiddleware,
+    authorizeRoles(ROLES.ADMIN),
+    moderateReview
+);
+
 router.get("/:id/reviews", getProductReviews);
-router.post("/:id/review", authMiddleware, createProductReview);
+
+// `validateProductReview` used to sit on a dead route one segment deeper than
+// anything that could reach it. This is where review text actually arrives.
+router.post("/:id/review", authMiddleware, validateProductReview, createProductReview);
+
 router.delete(
     "/:id/reviews/:reviewId",
     authMiddleware,
     ownsReview,
     deleteProductReview
 );
+
+/**
+ * Helpful votes.
+ *
+ * POST records one, DELETE withdraws it. Both are idempotent in the service --
+ * a second vote reports `alreadyVoted` rather than inflating the counter --
+ * so a double-click cannot skew a count.
+ */
+router.post("/:id/reviews/:reviewId/helpful", authMiddleware, markReviewHelpful);
+router.delete("/:id/reviews/:reviewId/helpful", authMiddleware, unmarkReviewHelpful);
+
+/** Report a review to a moderator. Signed in, because an anonymous accusation
+ *  cannot be rate limited per accuser or withdrawn by them. */
+router.post("/:id/reviews/:reviewId/report", authMiddleware, reportReview);
 // ---------------------------------------------------------------------------
 // Product Q&A (#1353)
 // ---------------------------------------------------------------------------

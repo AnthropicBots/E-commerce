@@ -70,6 +70,18 @@ const confirm = async (req, res) => {
     try {
         const token = req.body?.token || req.query?.token;
         const result = await newsletterService.confirm(token);
+        const { CONFIRM_OUTCOMES } = newsletterService;
+
+        // A link that has already done its job is not an error. Clicking twice
+        // is ordinary, and a mail security scanner following the link before
+        // the recipient sees it makes the *first* human click the second one
+        // (#1612).
+        if (result.outcome === CONFIRM_OUTCOMES.ALREADY_CONFIRMED) {
+            return res.status(200).json({
+                success: true,
+                message: "You're already subscribed — nothing more to do."
+            });
+        }
 
         if (result.confirmed) {
             return res.status(200).json({
@@ -78,11 +90,24 @@ const confirm = async (req, res) => {
             });
         }
 
-        if (result.reason === 'expired') {
+        // The address asked not to be mailed. Silently re-adding it on the
+        // strength of an old link in an inbox would undo that request, so the
+        // only honest answer is to send them back to the form, where the
+        // double opt-in will ask them again.
+        if (result.outcome === CONFIRM_OUTCOMES.ALREADY_UNSUBSCRIBED) {
+            return res.status(409).json({
+                success: false,
+                message:
+                    'This address has unsubscribed. Sign up again if you would '
+                    + 'like to start receiving the newsletter.'
+            });
+        }
+
+        if (result.outcome === CONFIRM_OUTCOMES.EXPIRED) {
             return res.status(410).json({
                 success: false,
                 message:
-                    'That confirmation link has expired or has already been used. '
+                    'That confirmation link has expired. '
                     + 'Sign up again to get a new one.'
             });
         }
