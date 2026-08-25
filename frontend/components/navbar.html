@@ -549,7 +549,32 @@
       </li>
 
       <li class="profile-wrapper">
-        <a href="signin.html" id="auth-link">Sign In</a>
+        <!--
+          When signed out this is a plain link to signin.html and the menu below
+          stays hidden. When signed in, auth.js swaps the label for the profile
+          icon and turns this into the menu's trigger, which is why the ARIA
+          attributes are declared here rather than added from script: the
+          relationship is part of the markup, and only its state changes.
+        -->
+        <a href="signin.html" id="auth-link" aria-haspopup="true" aria-expanded="false"
+          aria-controls="profile-dropdown">Sign In</a>
+
+        <!--
+          The account menu. #profile-dropdown and #logout-btn were referenced by
+          auth.js and styled by components.css and base.css, but had never been
+          added to any page, so a signed-in shopper had no way to log out (#1672).
+
+          data-loggedin is the attribute components.css keys the desktop
+          hover-to-open rule on; components.js sets it once the navbar exists.
+          Kept out of the tab order until it opens.
+        -->
+        <div id="profile-dropdown" role="menu" aria-labelledby="auth-link" data-loggedin="false">
+          <a href="dashboard.html" role="menuitem"><i class="fas fa-chart-bar" aria-hidden="true"></i> Dashboard</a>
+          <a href="profile.html" role="menuitem"><i class="fas fa-user" aria-hidden="true"></i> My Profile</a>
+          <a href="dashboard.html#orders" role="menuitem"><i class="fas fa-box" aria-hidden="true"></i> My Orders</a>
+          <a href="wishlist.html" role="menuitem"><i class="far fa-heart" aria-hidden="true"></i> Wishlist</a>
+          <button type="button" id="logout-btn" role="menuitem"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> Log out</button>
+        </div>
       </li>
       <li class="currency-selector-item">
         <select id="currency-selector" class="currency-selector-select" aria-label="Select currency">

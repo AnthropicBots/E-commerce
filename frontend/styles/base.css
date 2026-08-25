@@ -9,7 +9,8 @@
     --white: #fff;
     --border-light: #cce7d0;
     --shadow-soft: 0 10px 30px rgba(0,0,0,0.12);
-    --transition-fast: 0.3s ease;
+    --shadow-hover: 0 14px 35px rgba(8, 129, 120, 0.18);
+    --transition-fast: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     --dropdown-bg: #ffffff;
     --card-bg: #ffffff;
     --faq-bg: #ffffff;
@@ -19,6 +20,26 @@
     --text-body: #555;
     --input-bg: #ffffff;
     --container-bg: #ffffff; 
+
+    /* Fluid typography scales */
+    --text-xs: clamp(0.75rem, 0.7rem + 0.25vw, 0.85rem);
+    --text-sm: clamp(0.875rem, 0.8rem + 0.35vw, 0.95rem);
+    --text-base: clamp(1rem, 0.92rem + 0.4vw, 1.075rem);
+    --text-lg: clamp(1.125rem, 1rem + 0.6vw, 1.25rem);
+    --text-xl: clamp(1.35rem, 1.15rem + 1vw, 1.65rem);
+    --text-2xl: clamp(1.65rem, 1.35rem + 1.5vw, 2.15rem);
+    --text-3xl: clamp(2rem, 1.5rem + 2.2vw, 2.75rem);
+    --text-4xl: clamp(2.35rem, 1.75rem + 3vw, 3.25rem);
+
+    /* Fluid spacing scales */
+    --space-xs: clamp(0.25rem, 0.2rem + 0.25vw, 0.5rem);
+    --space-sm: clamp(0.5rem, 0.4rem + 0.5vw, 0.75rem);
+    --space-md: clamp(1rem, 0.75rem + 1vw, 1.5rem);
+    --space-lg: clamp(1.5rem, 1.1rem + 1.8vw, 2.5rem);
+    --space-xl: clamp(2.25rem, 1.5rem + 3vw, 4rem);
+
+    /* Touch target minimum */
+    --touch-target-min: 44px;
 }
 body.dark-theme {
     --text-dark: #ffffff;
@@ -47,53 +68,55 @@ body.dark-theme {
 }
 html , body{
     width: 100%;
-    height: 100%;
-   overflow-x: hidden;
+    min-height: 100%;
+    overflow-x: hidden;
 }
 /* base typography */
 h1{
-    font-size: 50px;
-    line-height: 64px;
+    font-size: var(--text-4xl);
+    line-height: 1.2;
     color: var(--text-dark);
 }
 
 h2{
-    font-size: 46px;
-    line-height: 54px;
+    font-size: var(--text-3xl);
+    line-height: 1.25;
     color: var(--text-light);
 }
 
 /* added missing heading style */
 h3{
-    font-size: 28px;
-    line-height: 36px;
+    font-size: var(--text-2xl);
+    line-height: 1.3;
     color: var(--text-dark);
     font-weight: 700;
 }
 
 h4{
-    font-size: 20px;
+    font-size: var(--text-xl);
+    line-height: 1.35;
     color: var(--text-dark);
 }
 
 h6{
-    font-size: 12px;
+    font-size: var(--text-xs);
     font-weight: 700;
 }
 
 p{
-    font-size: 16px;
+    font-size: var(--text-base);
     color: var(--text-light);
-    margin: 15px 0 20px;
+    margin: 12px 0 18px;
+    line-height: 1.6;
 }
 
 /* layout helpers */
 .section-p1{
-    padding: 20px 80px;
+    padding: var(--space-lg) var(--space-md);
 }
 
 .section-m1{
-    margin: 60px 0;
+    margin: var(--space-lg) 0;
 }
 
 /* buttons */

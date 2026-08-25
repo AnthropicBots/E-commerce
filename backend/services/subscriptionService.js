@@ -65,12 +65,24 @@ function advancePeriod(from, interval, count = 1) {
         case 'weekly':
             end.setDate(end.getDate() + 7 * steps);
             break;
-        case 'monthly':
-            end.setMonth(end.getMonth() + steps);
+        case 'monthly': {
+            const desiredDay = start.getDate();
+            end.setDate(1);
+            end.setMonth(start.getMonth() + steps);
+            const maxDays = new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate();
+            end.setDate(Math.min(desiredDay, maxDays));
             break;
-        case 'yearly':
-            end.setFullYear(end.getFullYear() + steps);
+        }
+        case 'yearly': {
+            const desiredDay = start.getDate();
+            const desiredMonth = start.getMonth();
+            end.setDate(1);
+            end.setFullYear(start.getFullYear() + steps);
+            end.setMonth(desiredMonth);
+            const maxDays = new Date(end.getFullYear(), desiredMonth + 1, 0).getDate();
+            end.setDate(Math.min(desiredDay, maxDays));
             break;
+        }
         default:
             throw new SubscriptionError(`Unsupported billing interval: ${interval}`, 400, 'UNSUPPORTED_INTERVAL');
     }
@@ -141,11 +153,26 @@ async function getForUser(userId) {
 // Write Operations & Transactions
 // ---------------------------------------------------------------------------
 
-async function fetchAndValidatePlan(connection, planId) {
+/**
+ * The plan id as a positive integer, or a refusal.
+ *
+ * Split out of fetchAndValidatePlan so callers can run it before they open a
+ * transaction. "abc" is not a plan id under any state of the database, and
+ * settling that after `withTransaction` has taken a connection means an
+ * unusable argument costs a connection from the pool and a rollback to answer.
+ */
+function normalisePlanId(planId) {
     const plan = Math.trunc(safeNumber(planId));
+
     if (plan < 1) {
         throw new SubscriptionError('Invalid plan ID', 400, 'INVALID_PLAN');
     }
+
+    return plan;
+}
+
+async function fetchAndValidatePlan(connection, planId) {
+    const plan = normalisePlanId(planId);
 
     const [plans] = await connection.query(
         `SELECT id, name, price, currency, \`interval\`, interval_count, trial_days
@@ -179,7 +206,7 @@ async function subscribe(userId, planId) {
     }
 
     return withTransaction(async (connection) => {
-        const billingPlan = await fetchAndValidatePlan(connection, planId);
+        const billingPlan = await fetchAndValidatePlan(connection, plan);
 
         const [existing] = await connection.query(
             `SELECT id, status, cancel_at_period_end

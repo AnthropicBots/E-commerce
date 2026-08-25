@@ -126,6 +126,11 @@ const subscriptionController = {
 
             return res.status(200).json({
                 success: true,
+                // The pair distinguishes two outcomes: a resume that also
+                // withdrew a pending cancellation, and a plain resume. The
+                // second said "resumed successfully", which adds nothing to
+                // `success: true` and reads as the more significant of the two
+                // rather than the lesser.
                 message: subscription.withdrewCancellation
                     ? 'Subscription resumed and the pending cancellation withdrawn'
                     : 'Subscription resumed',
