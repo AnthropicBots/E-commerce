@@ -576,6 +576,10 @@ const moderateReview = async (req, res) => {
 };
 
 module.exports = {
+    // Exported so the /api/reviews router can keep the product's rating
+    // aggregate in step after an edit, instead of leaving `products.rating`
+    // reporting a number no review supports any more (#1653).
+    refreshProductReviewStats,
     getProductReviews,
     createProductReview,
     deleteProductReview,
