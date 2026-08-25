@@ -66,6 +66,23 @@ router.post("/users/verify-email", validateVerifyUserEmail, verifyUserEmail);
 // ==================== ADMIN LOGS ====================
 router.get("/logs", getAdminLogs);
 
+// ==================== EMAIL LOGS ====================
+const emailService = require('../services/emailService');
+router.get("/email-logs", async (req, res) => {
+    try {
+        const logs = await emailService.getEmailLogs(req.query.limit || 50);
+        return res.status(200).json({
+            success: true,
+            data: { logs }
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Failed to retrieve email logs"
+        });
+    }
+});
+
 // ==================== GDPR / DPDP ERASURE TRACKER (#1397) ====================
 router.get("/erasure-requests", listErasureRequests);
 router.get("/erasure-requests/:id", getErasureRequest);

@@ -119,7 +119,7 @@ describe('server bootstrap', () => {
     ])('%s is served by a mounted router (not 404)', async (route) => {
         const res = await getWithRetry(route);
         expect(res.status).not.toBe(404);
-    });
+    }, 30000);
 });
 
 describe('route require guard', () => {

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Confirmation - {{orderNumber}}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f6f8; color: #1f2937;">
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="table-layout: fixed; background-color: #f4f6f8; padding: 30px 0;">
+        <tr>
+            <td align="center">
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); border: 1px solid #e5e7eb;">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background-color: #0f172a; padding: 30px; text-align: center; color: #ffffff;">
+                            <h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 0.5px;">AnthropicBots E-Commerce</h1>
+                            <p style="margin: 8px 0 0 0; color: #94a3b8; font-size: 14px;">Thank you for your order!</p>
+                        </td>
+                    </tr>
+
+                    <!-- Hero Banner -->
+                    <tr>
+                        <td style="padding: 30px 30px 20px 30px; text-align: center;">
+                            <div style="display: inline-block; width: 48px; height: 48px; line-height: 48px; border-radius: 50%; background-color: #dcfce7; color: #16a34a; font-size: 24px; font-weight: bold; margin-bottom: 12px;">✓</div>
+                            <h2 style="margin: 0; font-size: 20px; color: #0f172a;">Order Confirmed</h2>
+                            <p style="margin: 8px 0 0 0; color: #64748b; font-size: 14px;">
+                                Hi <strong style="color: #0f172a;">{{customerName}}</strong>, we've received your order <strong style="color: #0f172a;">#{{orderNumber}}</strong> and are preparing it for shipment.
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Order Details Summary Card -->
+                    <tr>
+                        <td style="padding: 0 30px 20px 30px;">
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8fafc; border-radius: 6px; padding: 16px; border: 1px solid #f1f5f9;">
+                                <tr>
+                                    <td width="50%" style="vertical-align: top;">
+                                        <span style="font-size: 12px; text-transform: uppercase; color: #64748b; font-weight: 600; letter-spacing: 0.5px;">Order Number</span>
+                                        <p style="margin: 4px 0 12px 0; font-weight: 600; color: #0f172a; font-size: 15px;">{{orderNumber}}</p>
+                                        <span style="font-size: 12px; text-transform: uppercase; color: #64748b; font-weight: 600; letter-spacing: 0.5px;">Date</span>
+                                        <p style="margin: 4px 0 0 0; color: #334155; font-size: 14px;">{{orderDate}}</p>
+                                    </td>
+                                    <td width="50%" style="vertical-align: top;">
+                                        <span style="font-size: 12px; text-transform: uppercase; color: #64748b; font-weight: 600; letter-spacing: 0.5px;">Customer Email</span>
+                                        <p style="margin: 4px 0 12px 0; color: #334155; font-size: 14px;">{{customerEmail}}</p>
+                                        <span style="font-size: 12px; text-transform: uppercase; color: #64748b; font-weight: 600; letter-spacing: 0.5px;">Payment Method</span>
+                                        <p style="margin: 4px 0 0 0; color: #334155; font-size: 14px;">{{paymentMethod}}</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Items Table -->
+                    <tr>
+                        <td style="padding: 0 30px 20px 30px;">
+                            <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #0f172a;">Items Ordered</h3>
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+                                <thead>
+                                    <tr style="border-bottom: 2px solid #e2e8f0; text-align: left;">
+                                        <th style="padding: 10px 0; font-size: 12px; text-transform: uppercase; color: #64748b; font-weight: 600;">Item</th>
+                                        <th style="padding: 10px 0; font-size: 12px; text-transform: uppercase; color: #64748b; font-weight: 600; text-align: center;">Qty</th>
+                                        <th style="padding: 10px 0; font-size: 12px; text-transform: uppercase; color: #64748b; font-weight: 600; text-align: right;">Price</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{itemsTableRows}}
+                                </tbody>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Order Totals -->
+                    <tr>
+                        <td style="padding: 0 30px 25px 30px;">
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top: 1px solid #e2e8f0; padding-top: 16px;">
+                                <tr>
+                                    <td style="color: #64748b; font-size: 14px; padding: 4px 0;">Subtotal</td>
+                                    <td style="color: #0f172a; font-size: 14px; font-weight: 500; text-align: right; padding: 4px 0;">{{subtotal}}</td>
+                                </tr>
+                                {{discountRow}}
+                                <tr>
+                                    <td style="color: #64748b; font-size: 14px; padding: 4px 0;">Tax</td>
+                                    <td style="color: #0f172a; font-size: 14px; font-weight: 500; text-align: right; padding: 4px 0;">{{tax}}</td>
+                                </tr>
+                                <tr>
+                                    <td style="color: #64748b; font-size: 14px; padding: 4px 0;">Shipping</td>
+                                    <td style="color: #0f172a; font-size: 14px; font-weight: 500; text-align: right; padding: 4px 0;">{{shipping}}</td>
+                                </tr>
+                                <tr style="border-top: 2px solid #0f172a;">
+                                    <td style="color: #0f172a; font-size: 16px; font-weight: 700; padding: 12px 0 4px 0;">Total Paid</td>
+                                    <td style="color: #0f172a; font-size: 18px; font-weight: 700; text-align: right; padding: 12px 0 4px 0;">{{total}}</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Shipping Address Section -->
+                    <tr>
+                        <td style="padding: 0 30px 30px 30px;">
+                            <div style="background-color: #f8fafc; border-radius: 6px; padding: 16px; border: 1px solid #f1f5f9;">
+                                <h4 style="margin: 0 0 8px 0; font-size: 14px; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">Shipping Address</h4>
+                                <p style="margin: 0; color: #475569; font-size: 14px; line-height: 1.5;">{{shippingAddress}}</p>
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #f1f5f9; padding: 20px 30px; text-align: center; border-top: 1px solid #e2e8f0;">
+                            <p style="margin: 0 0 6px 0; font-size: 13px; color: #64748b;">Need help? Reply to this email or contact support@anthropicbots.com.</p>
+                            <p style="margin: 0; font-size: 12px; color: #94a3b8;">&copy; 2026 AnthropicBots E-Commerce. All rights reserved.</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
