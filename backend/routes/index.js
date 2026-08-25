@@ -64,4 +64,5 @@ module.exports = {
     // card path 404ed while the service and both migrations were live
     // (#1652).
     "/api/gift-cards": require("./giftCardRoutes"),
+    "/api/search": require("./searchRoutes"),
 };
