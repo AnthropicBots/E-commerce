@@ -27,6 +27,20 @@ async function runScan() {
     } catch (error) {
         logger.error(`Stock-alert scan (price drops) failed: ${error.message}`);
     }
+
+    // Housekeeping, after the dispatch rather than before it: a subscription
+    // against a product that has been soft-deleted or archived will never fire
+    // again, and leaving it `active` means re-examining it on every scan and
+    // showing it to the user as though it were live (#1609). Separately
+    // wrapped so a failure here cannot cost a scan its alerts.
+    try {
+        const purged = await stockAlertService.purgeUnavailableSubscriptions();
+        if (purged > 0) {
+            logger.info(`Stock-alert scan: cancelled ${purged} subscription(s) for withdrawn products`);
+        }
+    } catch (error) {
+        logger.error(`Stock-alert scan (purge) failed: ${error.message}`);
+    }
 }
 
 let scheduledTask = null;

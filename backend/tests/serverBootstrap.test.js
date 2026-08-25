@@ -125,9 +125,10 @@ describe('server bootstrap', () => {
 describe('route require guard', () => {
     // Every `require('./routes/...')` in server.js must resolve on disk.
     // A misspelled or missing route file (the #1230 notification-broker
-    // filename typo) would otherwise only blow up at process start, not in CI.
-    test('every ./routes/* require in server.js resolves', () => {
-        const source = fs.readFileSync(SERVER_PATH, 'utf8');
+    test('every ./routes/* require resolves', () => {
+        const serverSource = fs.readFileSync(SERVER_PATH, 'utf8');
+        const indexSource = fs.readFileSync(path.join(BACKEND_DIR, 'routes', 'index.js'), 'utf8');
+        const source = serverSource + '\n' + indexSource;
         const routeRequire = /require\(\s*['"](\.\/routes\/[^'"]+)['"]\s*\)/g;
 
         const routePaths = new Set();

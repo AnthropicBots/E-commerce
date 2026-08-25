@@ -42,6 +42,27 @@ const orderStatusHistoryService = require("../services/orderStatusHistoryService
 const guestCart = require("../services/guestCartService");
 const { findGuestOrder } = require("../services/guestOrderService");
 
+// The most orders one page of the customer's history may carry. The list is
+// rendered as cards, so a page that needs scrolling past this is a page nobody
+// reads; the number matches MAX_PRODUCT_LIMIT so the two paginated customer
+// surfaces behave the same. `orderRoutes` rejects anything above 100 outright;
+// a request between the two is clamped here and reports the clamped figure
+// back in the pagination meta rather than pretending it was honoured (#1545).
+const MAX_ORDER_PAGE_SIZE = 50;
+
+/** What `?limit=` defaults to when the client does not ask for a page size. */
+const DEFAULT_ORDER_PAGE_SIZE = 10;
+
+// The statuses `?status=` may name. Same list `orderRoutes` validates against,
+// so a value that clears the route is a value this can filter on.
+const ORDER_HISTORY_STATUSES = Object.freeze([
+    "pending",
+    "processing",
+    "shipped",
+    "delivered",
+    "cancelled"
+]);
+
 /**
  * Whoever is checking out, and the cart they are checking out of (#1427).
  *
@@ -199,12 +220,18 @@ const createOrder =
                 "paypal"
             ];
 
+            // Translation map from frontend short forms to service canonical forms
+            const PAYMENT_METHOD_TRANSLATION = {
+                cod: "cash_on_delivery",
+                card: "credit_card",
+                upi: "upi",
+                paypal: "paypal"
+            };
+
+            const normalizedPaymentMethod = sanitizeString(paymentMethod).toLowerCase();
+
             if (
-                !validPaymentMethods.includes(
-                    sanitizeString(
-                        paymentMethod
-                    ).toLowerCase()
-                )
+                !validPaymentMethods.includes(normalizedPaymentMethod)
             ) {
 
                 return res.status(400)
@@ -214,6 +241,9 @@ const createOrder =
                             "Invalid payment method"
                     });
             }
+
+            // Translate to canonical form expected by the service
+            const canonicalPaymentMethod = PAYMENT_METHOD_TRANSLATION[normalizedPaymentMethod];
 
             // begin transaction
             await connection.beginTransaction();
@@ -260,7 +290,7 @@ const createOrder =
                         zip: sanitizeString(address.zip),
                         full_address: sanitizeString(address.fullAddress),
                         address_id: addressId ? sanitizeString(addressId) : null,
-                        payment_method: sanitizeString(paymentMethod).toLowerCase(),
+                        payment_method: canonicalPaymentMethod,
                         total: safeNumber(total),
                         items,
                         promo_code: promoCode ? sanitizeString(promoCode) : null,
@@ -287,7 +317,7 @@ const createOrder =
                 changedBy: safeUUID(checkout.userId),
                 changedByName: sanitizeString(customer.name || ""),
                 reason: "Order placed",
-                metadata: { paymentMethod: sanitizeString(paymentMethod).toLowerCase() },
+                metadata: { paymentMethod: canonicalPaymentMethod },
                 request: req
             });
 
@@ -443,27 +473,98 @@ const getAllOrders = async (req, res) => {
 
 // get user orders
 const getUserOrders = async (req, res) => {
-    const query = `
-        SELECT
-            id,
-            customer_name,
-            payment_method,
-            total,
-            status,
-            created_at
-        FROM orders
-        WHERE user_id = ?
-        ORDER BY id DESC
-    `;
+    // `created_at DESC`, not `id DESC`.
+    //
+    // `orders.id` is a CHAR(36) filled with `crypto.randomUUID()`
+    // (order.service.js), so ordering by it descending orders a random string.
+    // The customer's history came back shuffled: a purchase from last year
+    // could sit above one from this morning, and "your latest order" was
+    // whichever UUID happened to sort highest (#1545).
+    //
+    // `id` stays on as the tie-breaker. Two orders placed in the same second
+    // need a total order, or pagination overlaps and drops rows between pages
+    // -- the same reason the product list carries one.
+    const ORDER_BY = "ORDER BY created_at DESC, id DESC";
+
+    // A soft-deleted order is not one of the customer's orders. The column has
+    // been there from the start and is honoured elsewhere -- giftCardService
+    // refuses to settle an order carrying `deleted_at` -- but this list read
+    // straight past it.
+    const conditions = ["user_id = ?", "deleted_at IS NULL"];
+    const filterParams = [req.user.id];
+
+    // The route has validated `?status=` since it was written, and the handler
+    // never read it -- so "Get current user orders with pagination and
+    // filtering" filtered nothing. Re-checked here against the same list
+    // rather than trusted, because the handler is reachable from tests and
+    // from any future mount that does not carry the route's validator.
+    const requestedStatus = sanitizeString(req.query.status || "")
+        .trim()
+        .toLowerCase();
+
+    // Echoed back as null when nothing was applied. Reflecting the requested
+    // value regardless would tell a client its filter took effect when the
+    // list it is looking at is unfiltered.
+    const appliedStatus = ORDER_HISTORY_STATUSES.includes(requestedStatus)
+        ? requestedStatus
+        : null;
+
+    if (appliedStatus) {
+        conditions.push("status = ?");
+        filterParams.push(appliedStatus);
+    }
+
+    const WHERE = `WHERE ${conditions.join(" AND ")}`;
+
+    // Paginated, because an order history grows for as long as the account
+    // lives. This returned every order ever placed in one response, which is
+    // the defect #1349 fixed for reviews.
+    const { page, limit, offset } = getPagination(
+        req.query.page,
+        req.query.limit ?? DEFAULT_ORDER_PAGE_SIZE,
+        MAX_ORDER_PAGE_SIZE
+    );
 
     try {
-        const [results] = await db.query(query, [req.user.id]);
+        // The count runs against the same WHERE the page does. A total drawn
+        // from a different predicate is a pager that promises pages which come
+        // back empty.
+        const [countRows] = await db.query(
+            `SELECT COUNT(*) AS total FROM orders ${WHERE}`,
+            filterParams
+        );
+
+        const total = Number(safeArray(countRows)[0]?.total || 0);
+
+        const [results] = await db.query(
+            `
+                SELECT
+                    id,
+                    order_number,
+                    customer_name,
+                    payment_method,
+                    payment_status,
+                    total,
+                    status,
+                    created_at
+                FROM orders
+                ${WHERE}
+                ${ORDER_BY}
+                LIMIT ?
+                OFFSET ?
+            `,
+            [...filterParams, limit, offset]
+        );
+
         res.status(200).json({
             success: true,
+            ...buildPaginationMeta(total, page, limit),
+            count: safeArray(results).length,
+            status: appliedStatus,
             orders: safeArray(results)
         });
     } catch (err) {
-        console.error(err);
+        console.error("GET USER ORDERS ERROR:", err);
         return res.status(500).json({
             success: false,
             message: "Server error"
@@ -482,10 +583,14 @@ const getOrderById = async (req, res) => {
         });
     }
 
+    // Same rule as the list, and for the same reason it applies to products:
+    // an order hidden from the history but readable at its own URL is not
+    // hidden. It applies to admins too -- `ORDER_READ_ANY` is permission to
+    // read any *order*, not to read past a delete (#1545).
     let query = `
         SELECT *
         FROM orders
-        WHERE id = ?
+        WHERE id = ? AND deleted_at IS NULL
     `;
 
     const queryParams = [id];
@@ -915,7 +1020,7 @@ const createPaymentIntent = async (req, res) => {
             state: sanitizeString(address.state),
             zip: sanitizeString(address.zip),
             full_address: sanitizeString(address.fullAddress),
-            payment_method: 'card',
+            payment_method: 'credit_card',
             total: safeNumber(total),
             items,
             promo_code: promoCode ? sanitizeString(promoCode) : null,

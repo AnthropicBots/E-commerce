@@ -1,10 +1,25 @@
+// The profile page (#1548).
+//
+// This used to be a `localStorage` editor. `saveProfile` wrote a
+// `profile_<email>` key, `loadProfile` read it straight back, and the success
+// toast fired without a single request leaving the browser -- so the change
+// was gone on any other device, gone after clearing site data, and invisible
+// to the dashboard settings tab, which kept its own separate copy under a
+// different key.
+//
+// The server owns the profile now. `localStorage` is kept as a first-paint
+// cache so the page is not blank while the request is in flight, and it is
+// only ever written from what the server confirmed it stored.
+
 const currentUser = AppUtils.getJSON("user");
 
 if (!currentUser) {
     window.location.href = "signin.html";
 }
 
-const PROFILE_KEY = `profile_${currentUser.email}`;
+// Read on first paint, written only from a server response. Never the source
+// of truth.
+const PROFILE_CACHE_KEY = `profile_${currentUser?.email}`;
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 let hasUnsavedChanges = false;
@@ -71,6 +86,9 @@ function hideError() {
     }
 }
 
+// Client-side validation is a courtesy, not the rule. profileService checks
+// every one of these again against the actual column widths, because a browser
+// is not somewhere a constraint can live.
 function validateInputs(name, phone, address, bio) {
     const errors = [];
 
@@ -96,46 +114,113 @@ function validateInputs(name, phone, address, bio) {
     return errors;
 }
 
-function loadProfile() {
+/**
+ * Paint a profile object onto the page.
+ *
+ * Split out of `loadProfile` because the same rendering runs twice: once from
+ * the cache on first paint, once from the server's answer.
+ */
+function renderProfile(profile) {
+    if (profileElements.sidebarName) {
+        profileElements.sidebarName.textContent = profile.name;
+    }
+    if (profileElements.sidebarEmail) {
+        profileElements.sidebarEmail.textContent = profile.email;
+    }
+    if (profileElements.profilePreview) {
+        profileElements.profilePreview.src = profile.avatar;
+        profileElements.profilePreview.alt = `${profile.name}'s avatar`;
+    }
+
+    if (profileElements.viewName) profileElements.viewName.textContent = profile.name;
+    if (profileElements.viewEmail) profileElements.viewEmail.textContent = profile.email;
+    if (profileElements.viewPhone) profileElements.viewPhone.textContent = profile.phone || "-";
+    if (profileElements.viewAddress) profileElements.viewAddress.textContent = profile.address || "-";
+    if (profileElements.viewBio) profileElements.viewBio.textContent = profile.bio || "-";
+
+    if (profileElements.profileName) profileElements.profileName.value = profile.name;
+    if (profileElements.profileEmail) profileElements.profileEmail.value = profile.email;
+    if (profileElements.profilePhone) profileElements.profilePhone.value = profile.phone;
+    if (profileElements.profileAddress) profileElements.profileAddress.value = profile.address;
+    if (profileElements.profileBio) profileElements.profileBio.value = profile.bio;
+}
+
+/**
+ * Fill in the fields the API does not carry.
+ *
+ * `bio` has never had a column; it stays local until one exists, and is marked
+ * here rather than silently posted to an endpoint that would reject it as an
+ * unknown field.
+ */
+function toViewModel(apiProfile, cached = {}) {
+    return {
+        name: apiProfile.name || currentUser?.name || "User",
+        email: apiProfile.email || currentUser?.email || "",
+        phone: apiProfile.phone || "",
+        address: apiProfile.address || "",
+        bio: cached.bio || "",
+        avatar:
+            apiProfile.avatar
+            || cached.avatar
+            || currentUser?.image
+            || currentUser?.photoURL
+            || getDefaultAvatar(apiProfile.name || currentUser?.name)
+    };
+}
+
+/**
+ * The email field is read-only.
+ *
+ * It was editable, and "saving" it wrote the typed address into the cached
+ * `user` object -- the identity the rest of the frontend reads -- while the
+ * account kept the old one. The UI then showed an address the shopper could
+ * not sign in with. Changing an account's email is an identity change and
+ * belongs with the verification flow, so the API refuses it and the field says
+ * so rather than inviting an edit that cannot land.
+ */
+function lockEmailField() {
+    const field = profileElements.profileEmail;
+
+    if (!field) return;
+
+    field.readOnly = true;
+    field.setAttribute("aria-readonly", "true");
+    field.title = "Your email address cannot be changed here";
+}
+
+async function loadProfile() {
     try {
         hideError();
         showLoading();
 
-        const savedProfile = AppUtils.getJSON(PROFILE_KEY) || {};
+        // First paint from the cache so the page is not blank while the
+        // request is in flight. This is a mirror, not the record.
+        const cached = AppUtils.getJSON(PROFILE_CACHE_KEY) || {};
 
-        const profile = {
-            name: savedProfile.name || currentUser.name || "User",
-            email: savedProfile.email || currentUser.email || "",
-            phone: savedProfile.phone || "",
-            address: savedProfile.address || "",
-            bio: savedProfile.bio || "",
-            avatar: savedProfile.avatar || currentUser.image || currentUser.photoURL || getDefaultAvatar(currentUser.name)
-        };
-
-        if (profileElements.sidebarName) {
-            profileElements.sidebarName.textContent = profile.name;
-        }
-        if (profileElements.sidebarEmail) {
-            profileElements.sidebarEmail.textContent = profile.email;
-        }
-        if (profileElements.profilePreview) {
-            profileElements.profilePreview.src = profile.avatar;
-            profileElements.profilePreview.alt = `${profile.name}'s avatar`;
+        if (cached.name) {
+            renderProfile(toViewModel(cached, cached));
         }
 
-        if (profileElements.viewName) profileElements.viewName.textContent = profile.name;
-        if (profileElements.viewEmail) profileElements.viewEmail.textContent = profile.email;
-        if (profileElements.viewPhone) profileElements.viewPhone.textContent = profile.phone || "-";
-        if (profileElements.viewAddress) profileElements.viewAddress.textContent = profile.address || "-";
-        if (profileElements.viewBio) profileElements.viewBio.textContent = profile.bio || "-";
+        const response = await AppUtils.apiRequest("/auth/profile");
 
-        if (profileElements.profileName) profileElements.profileName.value = profile.name;
-        if (profileElements.profileEmail) profileElements.profileEmail.value = profile.email;
-        if (profileElements.profilePhone) profileElements.profilePhone.value = profile.phone;
-        if (profileElements.profileAddress) profileElements.profileAddress.value = profile.address;
-        if (profileElements.profileBio) profileElements.profileBio.value = profile.bio;
+        if (!response || !response.success || !response.profile) {
+            throw new Error(
+                (response && response.message) || "Profile could not be loaded"
+            );
+        }
 
-        const hasProfileData = savedProfile.name || savedProfile.phone || savedProfile.address || savedProfile.bio;
+        const profile = toViewModel(response.profile, cached);
+
+        renderProfile(profile);
+        AppUtils.setJSON(PROFILE_CACHE_KEY, profile);
+
+        // A profile with nothing filled in opens in edit mode, which is what
+        // it did before -- a page of dashes invites nothing.
+        const hasProfileData =
+            response.profile.phone
+            || response.profile.address
+            || profile.bio;
+
         if (hasProfileData) {
             showViewMode();
         } else {
@@ -143,21 +228,26 @@ function loadProfile() {
         }
 
         hideLoading();
-
     } catch (error) {
         console.error("Error loading profile:", error);
         hideLoading();
-        showError("Failed to load profile. Please refresh the page.");
+        showError(
+            error.message || "Failed to load profile. Please refresh the page."
+        );
     }
 }
 
-function saveProfile() {
+async function saveProfile() {
+    const submitButton = profileElements.profileForm?.querySelector(
+        "button[type='submit']"
+    );
+
     try {
         const name = profileElements.profileName.value.trim();
-        const email = profileElements.profileEmail.value.trim();
         const phone = profileElements.profilePhone.value.trim();
         const address = profileElements.profileAddress.value.trim();
         const bio = profileElements.profileBio.value.trim();
+        const avatar = profileElements.profilePreview.src;
 
         const errors = validateInputs(name, phone, address, bio);
         if (errors.length > 0) {
@@ -165,26 +255,48 @@ function saveProfile() {
             return;
         }
 
-        const profile = {
-            name: name,
-            email: email,
-            phone: phone,
-            address: address,
-            bio: bio,
-            avatar: profileElements.profilePreview.src
-        };
+        if (submitButton) submitButton.disabled = true;
 
-        AppUtils.setJSON(PROFILE_KEY, profile);
-        loadProfile();
-        AppUtils.notify("Profile saved successfully!", "success");
+        // `email` is deliberately absent. The API refuses it, and sending it
+        // would fail the whole save rather than being quietly dropped.
+        // `bio` has no column yet, so it stays out of the request and in the
+        // local cache.
+        const response = await AppUtils.apiRequest("/auth/profile", {
+            method: "PUT",
+            body: JSON.stringify({ name, phone, address, avatar })
+        });
 
-        setTimeout(() => {
-            window.location.href = "index.html";
-        }, 1000);
+        if (!response || !response.success) {
+            throw new Error(
+                (response && response.message) || "Profile could not be saved"
+            );
+        }
 
+        // Cached from the server's answer, not from what was typed. A save
+        // that reports success on a request that never landed is the whole
+        // defect this replaces.
+        const stored = toViewModel(response.profile, { bio, avatar });
+
+        renderProfile(stored);
+        AppUtils.setJSON(PROFILE_CACHE_KEY, stored);
+
+        // The name is on the navbar, so the cached session copy moves with it.
+        // The email is not touched: the API did not change it.
+        const cachedUser = AppUtils.getJSON("user", {}) || {};
+        AppUtils.setJSON("user", { ...cachedUser, name: stored.name });
+
+        hasUnsavedChanges = false;
+        showViewMode();
+
+        AppUtils.notify("Profile saved", "success");
     } catch (error) {
         console.error("Error saving profile:", error);
-        AppUtils.notify("Failed to save profile. Please try again.", "error");
+        AppUtils.notify(
+            error.message || "Failed to save profile. Please try again.",
+            "error"
+        );
+    } finally {
+        if (submitButton) submitButton.disabled = false;
     }
 }
 
@@ -263,6 +375,7 @@ window.addEventListener("beforeunload", (event) => {
 });
 
 document.addEventListener("DOMContentLoaded", () => {
+    lockEmailField();
     loadProfile();
     setupFormTracking();
 });
@@ -276,5 +389,8 @@ export {
     getDefaultAvatar,
     validateInputs,
     handleAvatarUpload,
-    setupFormTracking
+    setupFormTracking,
+    renderProfile,
+    toViewModel,
+    lockEmailField
 };

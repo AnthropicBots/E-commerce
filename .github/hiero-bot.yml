@@ -5,6 +5,7 @@ workflows:
   # ── Onboarding ────────────────────────────────────────────
   onboarding:
     enabled: true
+    max_concurrent_assignments: 3
     check_human_contributors: true
     require_signed_cla: false
     minimum_account_age_days: 0

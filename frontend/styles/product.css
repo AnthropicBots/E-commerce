@@ -146,7 +146,8 @@
 
 #add-to-cart-btn,
 #buy-now-btn,
-#wishlist-btn {
+#wishlist-btn,
+#compare-btn {
   background: #088178;
   color: #fff;
   border: none;
@@ -159,7 +160,8 @@
 
 #add-to-cart-btn:hover,
 #buy-now-btn:hover,
-#wishlist-btn:hover {
+#wishlist-btn:hover,
+#compare-btn:hover {
   transform: translateY(-2px);
   opacity: 0.9;
 }
@@ -170,6 +172,10 @@
 
 #buy-now-btn {
   background: #ff6b00;
+}
+
+#compare-btn {
+  background: #2563eb;
 }
 
 .single-product-details span {
@@ -261,6 +267,76 @@
   border: 1px solid #ddd;
   border-radius: 6px;
   outline: none;
+}
+
+.review-images-input {
+  cursor: pointer;
+  background: #f9f9f9;
+}
+
+.review-images-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.review-preview-thumb {
+  position: relative;
+  width: 70px;
+  height: 70px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #ddd;
+}
+
+.review-preview-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.remove-thumb-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(239, 68, 68, 0.85);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  line-height: 18px;
+  font-size: 14px;
+  text-align: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.remove-thumb-btn:hover {
+  background: #dc2626;
+}
+
+.review-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.review-img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.review-img:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
 #review-form textarea {

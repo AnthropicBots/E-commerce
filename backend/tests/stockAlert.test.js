@@ -15,6 +15,16 @@ function callsMatching(regex) {
     return db.query.mock.calls.filter(([sql]) => regex.test(sql));
 }
 
+// Every subscribe now resolves the product through the public visibility
+// condition first (#1609), so a mock that wants the insert to be reached has
+// to answer that lookup. Kept as one helper so the shape of the answer is
+// stated once.
+const VISIBLE_PRODUCT_SQL = /FROM products p\s+WHERE p\.id = \?/i;
+
+function visibleProduct(overrides = {}) {
+    return [{ id: "p1", price: "19.99", stock: 0, name: "A product", ...overrides }];
+}
+
 afterEach(() => {
     db.query.mockReset();
 });
@@ -22,6 +32,9 @@ afterEach(() => {
 describe("subscribe", () => {
     test("inserts a back_in_stock subscription with ON DUPLICATE KEY UPDATE dedupe", async () => {
         db.query.mockImplementation(async (sql) => {
+            if (VISIBLE_PRODUCT_SQL.test(sql)) {
+                return [visibleProduct()];
+            }
             if (/^\s*INSERT INTO stock_alert_subscriptions/i.test(sql)) {
                 return [{ affectedRows: 1, insertId: 1 }];
             }
@@ -40,14 +53,18 @@ describe("subscribe", () => {
         expect(sql).toMatch(/ON DUPLICATE KEY UPDATE/i);
         expect(sql).toMatch(/status = 'active'/i);
         expect(sql).toMatch(/last_notified_at = NULL/i);
-        // back_in_stock has no reference price; no product lookup needed.
-        expect(callsMatching(/SELECT price FROM products/i)).toHaveLength(0);
+        // back_in_stock stores no reference price, but the product is still
+        // resolved through the visibility condition before the row is written.
+        expect(callsMatching(VISIBLE_PRODUCT_SQL)).toHaveLength(1);
         expect(params).toEqual(["u1", "p1", "back_in_stock", null]);
         expect(row).toMatchObject({ id: 1, status: "active" });
     });
 
     test("dedupes: a second subscribe for the same user/product/type does not insert a duplicate row", async () => {
         db.query.mockImplementation(async (sql) => {
+            if (VISIBLE_PRODUCT_SQL.test(sql)) {
+                return [visibleProduct()];
+            }
             if (/^\s*INSERT INTO stock_alert_subscriptions/i.test(sql)) {
                 return [{ affectedRows: 2 }];
             }
@@ -64,10 +81,10 @@ describe("subscribe", () => {
         inserts.forEach(([sql]) => expect(sql).toMatch(/ON DUPLICATE KEY UPDATE/i));
     });
 
-    test("price_drop with null referencePrice looks up the product's current price", async () => {
+    test("price_drop with null referencePrice anchors to the product's current price", async () => {
         db.query.mockImplementation(async (sql) => {
-            if (/SELECT price FROM products WHERE id = \?/i.test(sql)) {
-                return [[{ price: "19.99" }]];
+            if (VISIBLE_PRODUCT_SQL.test(sql)) {
+                return [visibleProduct({ price: "19.99" })];
             }
             if (/^\s*INSERT INTO stock_alert_subscriptions/i.test(sql)) {
                 return [{ affectedRows: 1 }];
@@ -77,18 +94,24 @@ describe("subscribe", () => {
 
         await service.subscribe({ userId: "u1", productId: "p1", alertType: "price_drop" });
 
-        const priceLookups = callsMatching(/SELECT price FROM products WHERE id = \?/i);
-        expect(priceLookups).toHaveLength(1);
-        expect(priceLookups[0][1]).toEqual(["p1"]);
+        // One lookup, not two: the baseline comes off the row the visibility
+        // check already loaded rather than from a second SELECT that could read
+        // a price the check never saw.
+        const lookups = callsMatching(VISIBLE_PRODUCT_SQL);
+        expect(lookups).toHaveLength(1);
+        expect(lookups[0][1][0]).toBe("p1");
 
         const inserts = callsMatching(/INSERT INTO stock_alert_subscriptions/i);
         expect(inserts).toHaveLength(1);
         // Looked-up price is stored as reference_price (4th param).
-        expect(inserts[0][1]).toEqual(["u1", "p1", "price_drop", "19.99"]);
+        expect(inserts[0][1]).toEqual(["u1", "p1", "price_drop", 19.99]);
     });
 
-    test("price_drop with an explicit referencePrice does not look up the product price", async () => {
+    test("an explicit referencePrice below the current price is honoured", async () => {
         db.query.mockImplementation(async (sql) => {
+            if (VISIBLE_PRODUCT_SQL.test(sql)) {
+                return [visibleProduct({ price: "80.00" })];
+            }
             if (/^\s*INSERT INTO stock_alert_subscriptions/i.test(sql)) {
                 return [{ affectedRows: 1 }];
             }
@@ -102,9 +125,33 @@ describe("subscribe", () => {
             referencePrice: "50.00",
         });
 
-        expect(callsMatching(/SELECT price FROM products/i)).toHaveLength(0);
         const inserts = callsMatching(/INSERT INTO stock_alert_subscriptions/i);
-        expect(inserts[0][1]).toEqual(["u1", "p1", "price_drop", "50.00"]);
+        expect(inserts[0][1]).toEqual(["u1", "p1", "price_drop", 50]);
+    });
+
+    test("a referencePrice above the current price is clamped down to it", async () => {
+        // Otherwise a client posts referencePrice: 999999 and is notified of a
+        // "price drop" on the very next scan for a product whose price has not
+        // moved at all.
+        db.query.mockImplementation(async (sql) => {
+            if (VISIBLE_PRODUCT_SQL.test(sql)) {
+                return [visibleProduct({ price: "80.00" })];
+            }
+            if (/^\s*INSERT INTO stock_alert_subscriptions/i.test(sql)) {
+                return [{ affectedRows: 1 }];
+            }
+            return [[{ id: 5, alert_type: "price_drop", reference_price: "80.00" }]];
+        });
+
+        await service.subscribe({
+            userId: "u1",
+            productId: "p1",
+            alertType: "price_drop",
+            referencePrice: 999999,
+        });
+
+        const inserts = callsMatching(/INSERT INTO stock_alert_subscriptions/i);
+        expect(inserts[0][1]).toEqual(["u1", "p1", "price_drop", 80]);
     });
 
     test("rejects an unknown alert type before touching the db", async () => {

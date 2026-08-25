@@ -528,6 +528,19 @@
                     Wishlist
 
                 </button>
+
+                <button
+                    id="compare-btn"
+                    type="button"
+                    aria-label="Add this product to comparison"
+                    title="Compare product"
+                >
+
+                    <i class="fas fa-balance-scale"></i>
+
+                    Compare
+
+                </button>
                                 <!-- Share Buttons (WhatsApp + Copy Link) -->
 
                 <button
@@ -850,6 +863,23 @@
                 required
             ></textarea>
 
+            <label
+                for="review-images"
+                class="review-label"
+            >
+                Attach Photos (Optional, max 5)
+            </label>
+
+            <input
+                type="file"
+                id="review-images"
+                accept="image/png, image/jpeg, image/jpg, image/webp, image/gif"
+                multiple
+                class="review-images-input"
+            >
+
+            <div id="review-images-preview" class="review-images-preview"></div>
+
             <button type="submit">
 
                 Submit Review
@@ -923,6 +953,13 @@
     ></script>
 
     <!-- Product Modules -->
+    <!-- The single owner of the recentlyViewed key (#1497). Must load before
+         product-render.js and product.js, both of which record a view. -->
+    <script
+        defer
+        src="scripts/recently-viewed-store.js"
+    ></script>
+
     <script
         defer
         src="scripts/product-render.js"
@@ -970,6 +1007,9 @@
 
     <!-- 🔥 SHARE SCRIPT - NEW -->
     <script defer src="scripts/shareService.js"></script>
+
+    <!-- Stock Alert: Notify Me (#1233) -->
+    <script defer src="scripts/stock-alert.js"></script>
 
     <script>
     (function () {

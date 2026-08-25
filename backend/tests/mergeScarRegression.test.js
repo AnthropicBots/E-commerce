@@ -19,7 +19,7 @@ const BACKEND_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(BACKEND_DIR, '..');
 
 function read(relativePath) {
-    return fs.readFileSync(path.join(REPO_ROOT, relativePath), 'utf8');
+    return fs.readFileSync(path.join(REPO_ROOT, relativePath), 'utf8').replace(/\r\n/g, '\n');
 }
 
 /** Count non-overlapping matches of a global regex. */
@@ -152,16 +152,29 @@ describe('backend/services/recentlyViewedService.js', () => {
     });
 
     // Two cache shapes were written to the same key: a bare array and
-    // `{ data, timestamp }`. Every reader expects the second.
+    // `{ data, timestamp }`. Every reader expects the second, and since #1610
+    // it also carries `complete` -- whether the list is the user's whole
+    // history or merely part of it.
     it('writes and reads one cache shape', () => {
-        service.writeCache('user-1', [{ id: 'p1' }]);
+        service.writeCache('user-1', [{ id: 'p1' }], { complete: true });
 
         const raw = service.cache.get(service.getCacheKey('user-1'));
         expect(Array.isArray(raw)).toBe(false);
         expect(raw).toHaveProperty('data');
         expect(raw).toHaveProperty('timestamp');
+        expect(raw).toHaveProperty('complete', true);
 
-        expect(service.readCache('user-1')).toEqual([{ id: 'p1' }]);
+        // The rows are normalised on the way in, so the round trip is by id
+        // rather than by identity -- one row shape whichever path wrote it.
+        expect(service.readCache('user-1').map((row) => row.id)).toEqual(['p1']);
+    });
+
+    it('defaults a cache entry to incomplete', () => {
+        // "Non-empty" is not "complete". Treating the two as the same is what
+        // let one product view hide the rest of the list for five minutes.
+        service.writeCache('user-3', [{ id: 'p1' }]);
+
+        expect(service.readCacheEntry('user-3').complete).toBe(false);
     });
 
     it('treats an expired cache entry as a miss', () => {
@@ -263,34 +276,132 @@ describe('frontend/scripts/product-cards-home.js', () => {
 describe('frontend/scripts/shop.js', () => {
     const source = read('frontend/scripts/shop.js');
 
-    // #1444. The DOMContentLoaded listener was left unclosed and the body of
-    // `clearAllFilters` ran straight on from it, so the file did not parse and
-    // the entire shop page was dead.
-    it('declares clearAllFilters exactly once', () => {
-        expect(countMatches(source, /^function clearAllFilters\(\) \{$/gm)).toBe(1);
+    // Two merges have now damaged this file.
+    //
+    // #1444 left the DOMContentLoaded listener unclosed, so the body of
+    // `clearAllFilters` ran straight on from it and the file did not parse.
+    // The cases here pinned that repair by asserting `clearAllFilters` was
+    // declared once and that `setupClearFilters` bound the two together.
+    //
+    // #1582 then found the other merge, 341fb57, which took one side of the
+    // file whole and dropped fourteen declarations from the other while every
+    // call site survived -- so the page parsed, threw on `setupProductObserver`
+    // before it reached the network, never called /api/products, and rendered
+    // an empty grid on every visit.
+    //
+    // Repairing that removed `clearAllFilters` and `setupClearFilters`
+    // outright. They were a second, broken copy of a button
+    // `setupFilterControls` already wires correctly: they read `.filter-btn`
+    // elements this page does not have, wrote `sortSelect.value = 'default'`
+    // which is not one of the select's options, and were bound to
+    // `getElementById('clear-filters-btn')` -- that is the button's *class*;
+    // its id is `clear-filters` -- so none of it ever ran.
+    //
+    // The cases below pin the decision that replaced them. The scar they guard
+    // against is the same one either way: a merge that keeps one side of this
+    // file and silently drops the other.
+
+    it('parses', () => {
+        expect(() => new vm.Script(source, { filename: 'shop.js' })).not.toThrow();
     });
 
-    it('closes the DOMContentLoaded listener before the next declaration', () => {
-        const listener = source.indexOf('document.addEventListener(\n    "DOMContentLoaded"');
+    it('has exactly one DOMContentLoaded initialiser', () => {
+        // There were two, registered a few lines apart, each bootstrapping the
+        // page and each calling fetchProducts().
+        expect(
+            countMatches(source, /addEventListener\(\s*\n?\s*["']DOMContentLoaded["']/g)
+        ).toBe(1);
+    });
+
+    it('closes that listener rather than running on into what follows', () => {
+        // The #1444 scar itself: `}` then `);` closes the arrow function and the
+        // call it is an argument to. Dropping the `);` merged the listener into
+        // the next declaration.
+        //
+        // Matched by shape rather than by a literal with the indentation baked
+        // in. #1644 wrapped this file in an IIFE, which moved every line one
+        // level right and broke an assertion that was pinning the whitespace
+        // instead of the structure (#1655).
+        const listener = source.search(
+            /document\.addEventListener\(\s*["']DOMContentLoaded["']/
+        );
         expect(listener).toBeGreaterThan(-1);
 
-        const declaration = source.indexOf('function clearAllFilters() {');
-        expect(declaration).toBeGreaterThan(listener);
-
-        // `}\n);` -- the closing of the arrow function and of the call it is an
-        // argument to. Dropping the `);` is what merged the two together.
-        expect(source.slice(listener, declaration)).toMatch(/\}\s*\);\s*$/m);
+        expect(source.slice(listener)).toMatch(/\n\s*\}\n\s*\);/);
     });
 
-    // setupClearFilters binds the handler by name; a rename on one side only
-    // would leave the button wired to nothing.
-    it('binds the clear-filters button to that function', () => {
-        expect(source).toMatch(/clearFiltersBtn\.addEventListener\('click', clearAllFilters\)/);
+    it('declares no function twice', () => {
+        // `setupSearch` was declared twice, ~250 lines apart. Declarations
+        // hoist, so the second silently replaced the first and the first became
+        // unreachable -- no error, no warning.
+        //
+        // The leading `\s*` is load-bearing. Anchored at `^function` this
+        // matched nothing once #1644 indented the file inside an IIFE, so the
+        // check passed by finding no declarations at all rather than by finding
+        // no duplicates (#1655).
+        const counts = new Map();
+
+        for (const match of source.matchAll(/^\s*function\s+([A-Za-z_$][\w$]*)/gm)) {
+            counts.set(match[1], (counts.get(match[1]) || 0) + 1);
+        }
+
+        expect(counts.size).toBeGreaterThan(10);
+
+        expect([...counts.entries()].filter(([, n]) => n > 1).map(([name]) => name)).toEqual([]);
     });
 
-    it('declares the filter state it assigns, rather than leaking it onto window', () => {
+    it('declares the functions its own code calls', () => {
+        // The 341fb57 scar. Every one of these was called and not declared.
+        for (const name of [
+            'initializeFilterControls',
+            'refreshFilterControls',
+            'readFiltersFromControls',
+            'applyFilters',
+            'updatePriceControls',
+            'renderCategoryFilters',
+            'applyUrlCategoryFilters',
+            'getUrlCategoryFilters',
+            'showSearchSuggestions',
+            'renderScrollStatus',
+            'observeSentinel',
+            'setupProductObserver',
+            'getReviewCount',
+            'getRatingLabel'
+        ]) {
+            // `\\s*` rather than an anchor: what matters is that the
+            // declaration is in the file, not what column it starts in.
+            expect(source).toMatch(new RegExp(`^\\s*function ${name}\\(`, 'm'));
+        }
+    });
+
+    it('resolves the clear-filters button and sort select by the ids the page uses', () => {
+        const html = read('frontend/shop.html');
+
+        expect(html).toMatch(/id="clear-filters"/);
+        expect(html).toMatch(/id="product-sort"/);
+
+        // Whitespace-tolerant on both sides of the argument: this file now
+        // wraps the call across three lines, which a single-line pattern misses
+        // even though the id it asks for is exactly right (#1655).
+        const resolvesById = (id) =>
+            new RegExp(`getElementById\\(\\s*["']${id}["']\\s*\\)`);
+
+        expect(source).not.toMatch(resolvesById('clear-filters-btn'));
+        expect(source).not.toMatch(resolvesById('sort-select'));
+        expect(source).toMatch(resolvesById('clear-filters'));
+        expect(source).toMatch(resolvesById('product-sort'));
+    });
+
+    it('has one owner for the clear-filters click', () => {
+        // `setupFilterControls` binds `elements.clearFilters`. The duplicate
+        // that bound `clearFiltersBtn` is gone, and so is the legacy
+        // `.filter-btn` state it reset.
+        expect(source).toMatch(/elements\.clearFilters\?\.addEventListener\(/);
+        expect(source).not.toMatch(/^function clearAllFilters\(\)/m);
+        expect(source).not.toMatch(/^function setupClearFilters\(\)/m);
+
         for (const name of ['currentCategory', 'currentSearch', 'showAllHoodies']) {
-            expect(source).toMatch(new RegExp(`^let ${name} = `, 'm'));
+            expect(source).not.toMatch(new RegExp(`^let ${name} = `, 'm'));
         }
     });
 });

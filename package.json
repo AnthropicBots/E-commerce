@@ -10,7 +10,8 @@
     "sitemap": "node scripts/generate-sitemap.js",
     "check:sitemap": "node scripts/generate-sitemap.js --check",
     "check:a11y": "node scripts/check-a11y-landmarks.js",
-    "test": "npm run check:syntax && npm run check:boot && npm run check:modules && npm run test:backend",
+    "check:assets": "node scripts/check-assets.js",
+    "test": "npm run check:syntax && npm run check:assets && npm run check:boot && npm run check:modules && npm run test:backend",
     "test:backend": "npm --prefix backend test",
     "start": "npm --prefix backend start",
     "dev": "npm --prefix backend run dev"

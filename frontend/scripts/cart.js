@@ -1,4 +1,4 @@
-// frontend/scripts/cart.js
+
 
 // ==================== CONFIGURATION ====================
 const CART_CONFIG = {
@@ -32,10 +32,15 @@ const elements = {
     couponForm: document.getElementById("coupon-form"),
     couponCode: document.getElementById("coupon-code"),
     couponMessage: document.getElementById("coupon-message"),
-    // New elements for enhanced features
+    // Selection, bulk actions, saved-for-later and the expiry notice. Every one
+    // of these resolved to null until #1584 added the markup to cart.html: the
+    // code behind them shipped, the elements it needed did not.
     bulkActions: document.getElementById("bulk-actions"),
+    bulkRemoveBtn: document.getElementById("bulk-remove-btn"),
+    bulkSaveLaterBtn: document.getElementById("bulk-save-later-btn"),
     selectAll: document.getElementById("select-all"),
     selectedCount: document.getElementById("selected-count"),
+    cartItemCount: document.getElementById("cart-item-count"),
     savedForLaterContainer: document.getElementById("saved-for-later-container"),
     cartExpiryWarning: document.getElementById("cart-expiry-warning")
 };
@@ -92,54 +97,65 @@ function getDaysUntilExpiry() {
     return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
-// ========================================
-// EMPTY CART - FIXED Continue Shopping (Issue #1206)
-// ========================================
-function renderEmptyCart() {
-    if (
-        !elements.cartContainer
-    ) {
-        return;
+// Show the undo toast for a destructive action.
+//
+// Called from three places -- single-item remove, empty cart, and the bulk
+// remove this change wires up -- and declared in none of them. It was dropped
+// by the same merge that recommented the `decreaseBtn` declaration (#1535), and
+// went unnoticed because that ReferenceError fires first on the two paths that
+// already existed. `bulkRemove` cannot work without it, so it comes back here,
+// as it stood in 49e3b64.
+//
+// The contract the three call sites rely on: `onConfirm` runs when the window
+// closes (timeout, or the shopper dismissing the toast) and `onUndo` runs if
+// they take it back, with only one of the two ever running.
+//
+// @param {string} message
+// @param {Function} onUndo
+// @param {Function} onConfirm
+function showUndoToast(message, onUndo, onConfirm) {
+    const toast = document.getElementById('undo-toast');
+    if (!toast) {
+        createUndoToast();
+        return showUndoToast(message, onUndo, onConfirm);
     }
 
-    elements.cartContainer.innerHTML =
-        `
-            <div class="empty-cart">
-                <i class="fas fa-shopping-cart empty-cart-icon"></i>
-                <h2>
-                    Your cart is empty
-                </h2>
+    toast.querySelector('.toast-message').textContent = message;
+    toast.classList.add('show');
 
-                <p>
-                    Looks like you haven't added any items to your cart yet.
-                </p>
-
-                <p class="empty-cart-sub">
-                    Start shopping to fill your cart with amazing products!
-                </p>
-
-                <button 
-                    id="continue-shopping-btn" 
-                    class="continue-shopping-btn"
-                >
-                    <i class="fas fa-arrow-left"></i>
-                    Continue Shopping
-                </button>
-            </div>
-        `;
-
-    // ✅ FIX: Add event listener to Continue Shopping button
-    const continueBtn = document.getElementById('continue-shopping-btn');
-    if (continueBtn) {
-        continueBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            window.location.href = 'shop.html';
-        });
+    // A second action while one is pending: settle the first rather than
+    // leaving its timeout to fire against a cart that has moved on.
+    if (undoAction) {
+        clearTimeout(undoAction.timeout);
+        if (undoAction.onConfirm) {
+            undoAction.onConfirm();
+        }
     }
 
-    updateCartTotals(
-        0
-    );
+    undoAction = {
+        onUndo,
+        onConfirm,
+        timeout: setTimeout(() => {
+            if (onConfirm) {
+                onConfirm();
+            }
+            hideUndoToast();
+            undoAction = null;
+        }, CART_CONFIG.UNDO_TIMEOUT)
+    };
+
+    const undoBtn = toast.querySelector('.undo-btn');
+    undoBtn.onclick = () => {
+        if (!undoAction) return;
+
+        clearTimeout(undoAction.timeout);
+        if (undoAction.onUndo) {
+            undoAction.onUndo();
+        }
+        hideUndoToast();
+        undoAction = null;
+        AppUtils.notify('Action undone', 'success');
+    };
 }
 
 function createUndoToast() {
@@ -226,10 +242,10 @@ function saveAndRender(nextCart) {
 // ==================== UPDATE BUTTON STATES ====================
 function updateButtonStates() {
     document.querySelectorAll('.cart-item').forEach((itemEl) => {
-        const qtySpan = itemEl.querySelector('.cart-qty-controls span');
+        const qtySpan = itemEl.querySelector('.cart-qty-controls span') || itemEl.querySelector('.qty-input');
         const decreaseBtn = itemEl.querySelector('.decrease-qty');
         if (!qtySpan || !decreaseBtn) return;
-        const qty = parseInt(qtySpan.textContent, 10);
+        const qty = parseInt(qtySpan.value || qtySpan.textContent, 10);
         decreaseBtn.disabled = (qty <= 1);
         if (qty <= 1) {
             decreaseBtn.style.opacity = '0.5';
@@ -279,11 +295,13 @@ async function updateCartTotals() {
         elements.totalElement.innerText = AppUtils.formatPrice(totals.total, currency);
     }
     
-    // Update cart item count
+    // Update cart item count. The element is cached with the rest rather than
+    // looked up again on every totals refresh; #cart-item-count was not in
+    // cart.html at all, so this had never written anywhere (#1584).
     const itemCount = cart.reduce((sum, item) => sum + (item.qty || 1), 0);
-    const countElement = document.getElementById('cart-item-count');
-    if (countElement) {
-        countElement.textContent = `${itemCount} items`;
+    if (elements.cartItemCount) {
+        elements.cartItemCount.textContent =
+            `${itemCount} ${itemCount === 1 ? 'item' : 'items'}`;
     }
     
     // Update expiry warning
@@ -386,101 +404,136 @@ function removeSavedItem(index) {
 }
 
 // ==================== BULK OPERATIONS ====================
+const itemKey = (value) => String(value);
+
+/** Is this cart line currently selected? */
+function isSelected(item) {
+    return selectedItems.has(itemKey(item?.id));
+}
+
+/**
+ * Drop anything from the selection that is no longer in the cart.
+ */
+function pruneSelection() {
+    const present = new Set(cart.map((item) => itemKey(item.id)));
+
+    for (const key of [...selectedItems]) {
+        if (!present.has(key)) selectedItems.delete(key);
+    }
+}
+
 function toggleSelectAll() {
     const selectAll = elements.selectAll;
     if (!selectAll) return;
-    
+
     const isChecked = selectAll.checked;
-    
+
     document.querySelectorAll('.cart-item-select').forEach(checkbox => {
         checkbox.checked = isChecked;
-        const itemId = parseInt(checkbox.dataset.itemId);
+        const key = itemKey(checkbox.dataset.itemId);
+
         if (isChecked) {
-            selectedItems.add(itemId);
+            selectedItems.add(key);
         } else {
-            selectedItems.delete(itemId);
+            selectedItems.delete(key);
         }
     });
-    
+
     updateBulkActions();
 }
 
 function toggleSelectItem(itemId) {
-    if (selectedItems.has(itemId)) {
-        selectedItems.delete(itemId);
+    const key = itemKey(itemId);
+
+    if (selectedItems.has(key)) {
+        selectedItems.delete(key);
     } else {
-        selectedItems.add(itemId);
+        selectedItems.add(key);
     }
+
     updateBulkActions();
 }
 
+/**
+ * Reflect the selection in the toolbar.
+ */
 function updateBulkActions() {
     const bulkActions = elements.bulkActions;
     const selectedCount = elements.selectedCount;
-    
+    const selectAll = elements.selectAll;
+    const total = cart.length;
+    const selected = selectedItems.size;
+
     if (bulkActions && selectedCount) {
-        if (selectedItems.size > 0) {
+        if (selected > 0) {
             bulkActions.style.display = 'flex';
-            selectedCount.textContent = `${selectedItems.size} items selected`;
+            selectedCount.textContent =
+                `${selected} ${selected === 1 ? 'item' : 'items'} selected`;
         } else {
             bulkActions.style.display = 'none';
         }
+    }
+
+    if (selectAll) {
+        selectAll.checked = total > 0 && selected === total;
+        selectAll.indeterminate = selected > 0 && selected < total;
+        selectAll.disabled = total === 0;
     }
 }
 
 function bulkRemove() {
     if (selectedItems.size === 0) return;
-    
-    const removedItems = cart.filter(item => selectedItems.has(item.id));
+
+    const removedItems = cart.filter(isSelected);
     const count = removedItems.length;
-    
+    const noun = count === 1 ? 'item' : 'items';
+
+    cart = cart.filter((item) => !isSelected(item));
+    selectedItems.clear();
+    saveAndRender(cart);
+
     showUndoToast(
-        `Removing ${count} items from cart`,
+        `Removing ${count} ${noun} from cart`,
         () => {
-            // Undo: restore items
-            cart.push(...removedItems);
-            saveAndRender(cart);
-            selectedItems.clear();
-            updateBulkActions();
+            saveAndRender([...cart, ...removedItems]);
         },
         () => {
-            // Confirm: actually remove
-            cart = cart.filter(item => !selectedItems.has(item.id));
-            selectedItems.clear();
-            saveAndRender(cart);
-            updateBulkActions();
-            AppUtils.notify(`Removed ${count} items from cart`, 'success');
+            AppUtils.notify(`Removed ${count} ${noun} from cart`, 'success');
         }
     );
-    
-    // Optimistic update
-    cart = cart.filter(item => !selectedItems.has(item.id));
-    renderCart();
-    updateCartTotals();
 }
 
 function bulkSaveForLater() {
     if (selectedItems.size === 0) return;
-    
-    const itemsToSave = cart.filter(item => selectedItems.has(item.id));
+
+    const itemsToSave = cart.filter(isSelected);
     const count = itemsToSave.length;
-    
-    // Remove from cart
-    cart = cart.filter(item => !selectedItems.has(item.id));
-    
-    // Add to saved for later
-    itemsToSave.forEach(item => {
+
+    cart = cart.filter((item) => !isSelected(item));
+
+    itemsToSave.forEach((item) => {
+        const alreadySaved = savedForLater.some(
+            (saved) =>
+                String(saved.id) === String(item.id)
+                && saved.color === item.color
+                && saved.size === item.size
+        );
+
+        if (alreadySaved) return;
+
         savedForLater.push({
             ...item,
             savedAt: new Date().toISOString()
         });
     });
     saveSavedForLater();
-    
+
     selectedItems.clear();
     saveAndRender(cart);
-    updateBulkActions();
-    AppUtils.notify(`Saved ${count} items for later`, 'success');
+    AppUtils.notify(
+        `Saved ${count} ${count === 1 ? 'item' : 'items'} for later`,
+        'success'
+    );
 }
 
 // ==================== ESTIMATED DELIVERY ====================
@@ -488,7 +541,6 @@ function calculateEstimatedDelivery() {
     const today = new Date();
     const deliveryDate = new Date(today);
     
-    // Add 3-5 business days
     let daysToAdd = 3;
     if (today.getDay() >= 4) { // Thursday or later
         daysToAdd = 5;
@@ -512,6 +564,8 @@ function renderCart() {
     loadSavedForLater();
     checkCartExpiry();
 
+    pruneSelection();
+
     if (!cart.length && !savedForLater.length) {
         renderEmptyCart();
         return;
@@ -531,7 +585,7 @@ function renderCart() {
     cart.forEach((item, index) => {
         const qty = Math.max(1, AppUtils.safeInteger(item.qty, 1));
         const price = AppUtils.safeNumber(item.price, 0);
-        const isSelected = selectedItems.has(item.id);
+        const selected = isSelected(item);
 
         const cartItem = document.createElement("div");
         cartItem.classList.add("cart-item");
@@ -539,11 +593,10 @@ function renderCart() {
 
         cartItem.innerHTML = `
             <div class="cart-item-select-wrapper">
-                <input type="checkbox" class="cart-item-select" 
-                    data-item-id="${item.id}"
-                    ${isSelected ? 'checked' : ''}
-                    onchange="window.toggleSelectItem(${item.id})">
-            </div>
+                <input type="checkbox" class="cart-item-select"
+                    data-item-id="${AppUtils.escapeHTML(String(item.id))}"
+                    aria-label="Select ${AppUtils.escapeHTML(item.name || "Product")}"
+                    ${selected ? 'checked' : ''}></div>
             <img src="${AppUtils.escapeHTML(AppUtils.defaultImage(item.img || item.image))}"
                 alt="${AppUtils.escapeHTML(item.name || "Product")}"
                 loading="lazy">
@@ -556,11 +609,10 @@ function renderCart() {
                 ${item.note ? `<p class="item-note">Note: ${AppUtils.escapeHTML(item.note)}</p>` : ""}
                 
                 <div class="item-notes">
-                    <input type="text" class="note-input" 
-                        placeholder="Add a note..." 
+                    <input type="text" class="note-input"
+                        placeholder="Add a note..."
                         value="${AppUtils.escapeHTML(item.note || '')}"
-                        data-index="${index}"
-                        onchange="window.updateItemNote(${index}, this.value)">
+                        data-index="${index}">
                 </div>
                 
                 <div class="cart-qty-controls" aria-label="Quantity controls">
@@ -568,10 +620,10 @@ function renderCart() {
                             aria-label="Decrease quantity" ${qty <= 1 ? "disabled" : ""}>
                         -
                     </button>
-                    <input type="number" class="qty-input" 
+                    <input type="number" class="qty-input"
                         value="${qty}" min="${CART_CONFIG.MIN_QUANTITY}" max="${CART_CONFIG.MAX_QUANTITY}"
-                        data-index="${index}"
-                        onchange="window.updateQuantity(${index}, parseInt(this.value))">
+                        aria-label="Quantity"
+                        data-index="${index}">
                     <button type="button" data-index="${index}" class="increase-qty" 
                             aria-label="Increase quantity">
                         +
@@ -627,12 +679,17 @@ function renderCart() {
                 `).join('')}
             </div>
         `;
-        fragment.appendChild(savedSection);
+        if (elements.savedForLaterContainer) {
+            elements.savedForLaterContainer.replaceChildren(savedSection);
+        } else {
+            fragment.appendChild(savedSection);
+        }
+    } else if (elements.savedForLaterContainer) {
+        elements.savedForLaterContainer.replaceChildren();
     }
 
     elements.cartContainer.replaceChildren(fragment);
 
-    // Update button states
     updateButtonStates();
     updateBulkActions();
     updateCartTotals();
@@ -643,14 +700,22 @@ function renderEmptyCart() {
     if (elements.cartContainer) {
         elements.cartContainer.innerHTML = `
             <div class="empty-cart">
-                <i class="fas fa-shopping-cart fa-3x"></i>
+                <i class="fas fa-shopping-cart empty-cart-icon"></i>
                 <h2>Your cart is empty</h2>
-                <p>Start shopping to add items to your cart</p>
-                <a href="shop.html" class="continue-shopping-btn empty-cart-cta">
-                    Continue Shopping
-                </a>
+                <p>Looks like you haven't added any items to your cart yet.</p>
+                <p class="empty-cart-sub">Start shopping to fill your cart with amazing products!</p>
+                <button id="continue-shopping-btn" class="continue-shopping-btn">
+                    <i class="fas fa-arrow-left"></i> Continue Shopping
+                </button>
             </div>
         `;
+        const continueBtn = document.getElementById('continue-shopping-btn');
+        if (continueBtn) {
+            continueBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                window.location.href = 'shop.html';
+            });
+        }
     }
     if (elements.checkoutBtn) {
         elements.checkoutBtn.disabled = true;
@@ -658,7 +723,11 @@ function renderEmptyCart() {
     if (elements.emptyCartBtn) {
         elements.emptyCartBtn.disabled = true;
     }
-    updateCartTotals();
+
+    selectedItems.clear();
+    updateBulkActions();
+
+    updateCartTotals(0);
 }
 
 // ==================== QUANTITY UPDATE (DEBOUNCED) ====================
@@ -729,14 +798,11 @@ function updateItemNote(index, note) {
     if (!cart[index]) return;
     cart[index].note = note;
     AppUtils.saveCart(cart);
-    // Don't re-render, just update the note display
-    // Update totals to reflect any changes
     updateCartTotals();
 }
 
 // ==================== EVENT LISTENERS ====================
 document.addEventListener("click", (event) => {
-    // Quantity buttons
     const increaseBtn = event.target.closest(".increase-qty");
     const decreaseBtn = event.target.closest(".decrease-qty");
     const removeBtn = event.target.closest(".remove-btn");
@@ -790,19 +856,16 @@ document.addEventListener("click", (event) => {
         showUndoToast(
             `Removed ${itemName} from cart`,
             () => {
-                // Undo: restore item
                 cart.splice(index, 0, removedItem);
                 saveAndRender(cart);
             },
             () => {
-                // Confirm: actually remove
                 cart.splice(index, 1);
                 saveAndRender(cart);
                 AppUtils.notify("Item removed from cart", "success");
             }
         );
         
-        // Optimistic update
         cart.splice(index, 1);
         renderCart();
         updateCartTotals();
@@ -843,13 +906,11 @@ document.addEventListener("click", (event) => {
     if (moveToCartBtn) {
         flushPendingQuantityUpdate();
         const index = Number(moveToCartBtn.dataset.savedIndex);
-        moveToCart(index).catch((error) => {
-            console.error("MOVE TO CART ERROR:", error);
-        });
+        moveToCart(index);
         return;
     }
 
-    // Remove from saved
+    // Remove saved item
     if (removeSavedBtn) {
         const index = Number(removeSavedBtn.dataset.savedIndex);
         removeSavedItem(index);
@@ -857,137 +918,91 @@ document.addEventListener("click", (event) => {
     }
 });
 
-// ==================== COUPON FORM ====================
+// ==================== INPUT & CHANGE LISTENERS ====================
+document.addEventListener("change", (event) => {
+    if (event.target.classList.contains("qty-input")) {
+        const index = Number(event.target.dataset.index);
+        const newQty = parseInt(event.target.value, 10);
+        if (!isNaN(newQty)) {
+            updateQuantity(index, newQty);
+        }
+    }
+
+    if (event.target.classList.contains("cart-item-select")) {
+        const itemId = event.target.dataset.itemId;
+        toggleSelectItem(itemId);
+        updateBulkActions();
+    }
+
+    if (event.target.id === "select-all") {
+        toggleSelectAll();
+    }
+});
+
+document.addEventListener("input", (event) => {
+    if (event.target.classList.contains("note-input")) {
+        const index = Number(event.target.dataset.index);
+        updateItemNote(index, event.target.value);
+    }
+});
+
+// ==================== INITIALIZATION ====================
 if (elements.couponForm) {
-    elements.couponForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const code = elements.couponCode ? elements.couponCode.value : "";
-        // Validate against the current subtotal so the server can enforce any
-        // minimum-cart-value rule on the promo.
-        const { subtotal } = await AppUtils.calculateCartTotals(cart);
-        const result = await AppUtils.validateCoupon(code, subtotal);
-        if (!result.valid) {
-            appliedCoupon = "";
-            setCouponMessage(result.message, "error");
-            await updateCartTotals();
-            return;
+    elements.couponForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const code = elements.couponCode.value.trim();
+        if (!code) return;
+
+        showLoading("coupon-form");
+        try {
+            const result = await AppUtils.applyCoupon(code);
+            if (result.success) {
+                appliedCoupon = code;
+                AppUtils.setJSON("appliedCoupon", code);
+                setCouponMessage("Coupon applied successfully!", "success");
+                updateCartTotals();
+            } else {
+                setCouponMessage(result.message || "Invalid coupon code", "error");
+            }
+        } catch (error) {
+            setCouponMessage("Failed to apply coupon", "error");
+        } finally {
+            hideLoading("coupon-form");
         }
-        if (appliedCoupon === result.code) {
-            setCouponMessage(`${result.code} is already applied.`, "success");
-            return;
-        }
-        appliedCoupon = result.code;
-        if (elements.couponCode) {
-            elements.couponCode.value = result.code;
-        }
-        setCouponMessage(result.message, "success");
-        AppUtils.setJSON("appliedCoupon", appliedCoupon);
-        await updateCartTotals();
     });
 }
 
-// ==================== EMPTY CART BUTTON ====================
 if (elements.emptyCartBtn) {
     elements.emptyCartBtn.addEventListener("click", () => {
-        if (!cart.length) return;
-        const count = cart.length;
+        if (cart.length === 0) return;
+        
+        const previousCart = [...cart];
         showUndoToast(
-            `Cleared ${count} items from cart`,
+            "Cart emptied",
             () => {
-                // Undo: restore cart from backup
-                const backup = JSON.parse(localStorage.getItem('cartBackup') || '[]');
-                if (backup.length) {
-                    cart = backup;
-                    saveAndRender(cart);
-                }
+                cart = previousCart;
+                saveAndRender(cart);
             },
             () => {
-                // Confirm: clear cart
-                appliedCoupon = "";
-                if (elements.couponCode) {
-                    elements.couponCode.value = "";
-                }
-                setCouponMessage();
-                // Backup cart before clearing
-                localStorage.setItem('cartBackup', JSON.stringify(cart));
-                saveAndRender([]);
-                AppUtils.notify("Cart emptied", "info");
+                cart = [];
+                saveAndRender(cart);
+                AppUtils.notify("Cart emptied", "success");
             }
         );
-        // Optimistic update
-        const backup = JSON.parse(localStorage.getItem('cartBackup') || '[]');
-        if (!backup.length) {
-            localStorage.setItem('cartBackup', JSON.stringify(cart));
-        }
         cart = [];
-        renderCart();
-        updateCartTotals();
+        renderEmptyCart();
     });
 }
 
-// ==================== CHECKOUT BUTTON ====================
-if (elements.checkoutBtn) {
-    elements.checkoutBtn.addEventListener("click", () => {
-        if (!cart.length) {
-            AppUtils.notify("Your cart is empty.", "warning");
-            return;
-        }
-        if (quantityDebounceTimeout) {
-            flushPendingQuantityUpdate();
-            saveAndRender(cart);
-        }
-        AppUtils.setJSON("appliedCoupon", appliedCoupon);
-        window.location.href = "checkout.html";
-    });
+if (elements.bulkRemoveBtn) {
+    elements.bulkRemoveBtn.addEventListener("click", bulkRemove);
 }
 
-// ========================================
-// CONTINUE SHOPPING - FIX (Issue #1206)
-// ========================================
-
-function setupContinueShopping() {
-    const continueBtn = document.getElementById('continue-shopping-btn');
-    
-    if (!continueBtn) {
-        // Button might not exist yet (empty cart not rendered)
-        return;
-    }
-    
-    // Remove existing listeners to avoid duplicates
-    const newBtn = continueBtn.cloneNode(true);
-    continueBtn.parentNode.replaceChild(newBtn, continueBtn);
-    
-    newBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        window.location.href = 'shop.html';
-    });
+if (elements.bulkSaveLaterBtn) {
+    elements.bulkSaveLaterBtn.addEventListener("click", bulkSaveForLater);
 }
 
-// Cross-tab synchronization & offline reconnection listeners
-window.addEventListener(AppUtils.CART_UPDATED_EVENT, (event) => {
-    cart = AppUtils.getCart();
-    renderCart();
-});
-
-window.addEventListener('online', () => {
-    cart = AppUtils.getCart();
-    renderCart();
-});
-
-// INIT
-document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-        renderCart();
-        setTimeout(setupContinueShopping, 100);
-    }
-);
-
-// Also setup when cart is rendered (for dynamic updates)
-const originalRenderCart = renderCart;
-renderCart = function() {
-    originalRenderCart();
-    setTimeout(setupContinueShopping, 100);
-};
-
+loadSavedForLater();
+checkCartExpiry();
+renderCart();
 })();

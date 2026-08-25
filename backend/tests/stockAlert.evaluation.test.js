@@ -35,6 +35,11 @@ function respondWith(responder) {
     });
 }
 
+// Since #1609 every subscribe resolves the product through the public
+// visibility condition before writing a row, so a responder that wants the
+// insert to be reached has to answer that lookup.
+const VISIBLE_PRODUCT_SQL = /FROM products p\s+WHERE p\.id = \?/i;
+
 function updateCalls() {
     return db.query.mock.calls.filter(([sql]) =>
         /UPDATE stock_alert_subscriptions/i.test(sql)
@@ -156,7 +161,9 @@ describe("evaluatePriceDrops", () => {
 describe("subscription foundation (PR 1/3)", () => {
     test("subscribe to price_drop with no referencePrice anchors to the current product price", async () => {
         respondWith((sql) => {
-            if (/SELECT price FROM products/i.test(sql)) return [{ price: 100.0 }];
+            if (VISIBLE_PRODUCT_SQL.test(sql)) {
+                return [{ id: "prod-1", price: 100.0, stock: 3, name: "A product" }];
+            }
             // subscribe returns the freshly upserted row via a SELECT *.
             if (/SELECT \* FROM stock_alert_subscriptions/i.test(sql)) {
                 return [{ id: 5, user_id: "user-1", product_id: "prod-1", alert_type: "price_drop", reference_price: 100.0, status: "active" }];
@@ -180,25 +187,35 @@ describe("subscription foundation (PR 1/3)", () => {
         expect(insertParams).toEqual(["user-1", "prod-1", "price_drop", 100.0]);
     });
 
-    test("subscribe to back_in_stock does not look up product price", async () => {
-        respondWith(() => ({ insertId: 6, affectedRows: 1 }));
+    test("subscribe to back_in_stock still resolves the product, but stores no baseline", async () => {
+        respondWith((sql) => {
+            if (VISIBLE_PRODUCT_SQL.test(sql)) {
+                return [{ id: "prod-2", price: 100.0, stock: 0, name: "A product" }];
+            }
+            return { insertId: 6, affectedRows: 1 };
+        });
 
         await service.subscribe({ userId: "user-1", productId: "prod-2", alertType: "back_in_stock" });
 
-        const priceLookups = db.query.mock.calls.filter(([sql]) =>
-            /SELECT price FROM products/i.test(sql)
+        const [insertSql, insertParams] = db.query.mock.calls.find(([sql]) =>
+            /INSERT INTO stock_alert_subscriptions/i.test(sql)
         );
-        expect(priceLookups).toHaveLength(0);
+        expect(insertSql).toMatch(/ON DUPLICATE KEY UPDATE/i);
+        expect(insertParams).toEqual(["user-1", "prod-2", "back_in_stock", null]);
     });
 
-    test("subscribe to price_drop for a missing product throws", async () => {
+    test("subscribe for a missing product throws, whatever the alert type", async () => {
         respondWith((sql) => {
-            if (/SELECT price FROM products/i.test(sql)) return [];
+            if (VISIBLE_PRODUCT_SQL.test(sql)) return [];
             return { insertId: 0 };
         });
 
         await expect(
             service.subscribe({ userId: "user-1", productId: "gone", alertType: "price_drop" })
+        ).rejects.toThrow(/not found/i);
+
+        await expect(
+            service.subscribe({ userId: "user-1", productId: "gone", alertType: "back_in_stock" })
         ).rejects.toThrow(/not found/i);
     });
 

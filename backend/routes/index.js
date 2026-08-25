@@ -1,51 +1,67 @@
-const express = require("express");
-const router = express.Router();
-
-const productRoutes = require("./productRoutes");
-const authRoutes = require("./authRoutes");
-const orderRoutes = require("./orderRoutes");
-const promoRoutes = require("./promoRoutes");
-const adminRoutes = require("./adminRoutes");
-const chatRoutes = require("./chatRoutes");
-const wishlistRoutes = require("./wishlistRoutes");
-const recommendationRoutes = require("./recommendationRoutes");
-const cartRoutes = require("./cartRoutes");
-const checkoutRoutes = require("./checkoutRoutes");
-const pincodeRoutes = require("./pincodeRoutes");
-const subscriptionRoutes = require("./subscriptionRoutes");
-const courierWebhookRoutes = require("./courierWebhookRoutes");
-const refundRoutes = require("./refundRoutes");
-const addressRoutes = require("./addressRoutes");
-const wishlistNotifyRoutes = require("./wishlistNotifyRoutes");
-const contactRoutes = require("./contactRoutes");
-const interactionRoutes = require("./interactionRoutes");
-const newsletterRoutes = require("./newsletterRoutes");
-
-router.use("/products", productRoutes);
-router.use("/auth", authRoutes);
-router.use("/orders", orderRoutes);
-router.use("/promos", promoRoutes);
-router.use("/admin", adminRoutes);
-router.use("/chat", chatRoutes);
-router.use("/wishlist", wishlistRoutes);
-router.use("/wishlist-notify", wishlistNotifyRoutes);
-router.use("/recommendations", recommendationRoutes);
-router.use("/cart", cartRoutes);
-router.use("/checkout", checkoutRoutes);
-router.use("/pincode", pincodeRoutes);
-router.use("/subscriptions", subscriptionRoutes);
-router.use("/courier-webhooks", courierWebhookRoutes);
-router.use("/refunds", refundRoutes);
-// Saved address book (#1347).
-router.use("/addresses", addressRoutes);
-// Two paths the frontend has always called and nothing has ever served
-// (#1445). The mount names are the ones already in the requests -- singular
-// "contact", plural "interactions" -- because the callers are the contract
-// here, not the other way round.
-router.use("/contact", contactRoutes);
-router.use("/interactions", interactionRoutes);
-// Newsletter sign-up. The form has been on eight pages since long before
-// anything served this path (#1459).
-router.use("/newsletter", newsletterRoutes);
-
-module.exports = router;
+// backend/routes/index.js
+/**
+ * Map of API route paths to their router modules.
+ */
+module.exports = {
+    "/api/response-example": require("./responseExampleRoutes"),
+    "/api/ai-legal": require("./aiLegalRoutes"),
+    "/api/legal": require("./legalRoutes"),
+    "/api/agents": require("./agentRoutes"),
+    "/api/ai-feed": require("./aiFeedRoutes"),
+    "/api/discovery": require("./discoveryRoutes"),
+    "/api/metrics": require("./metricsRoutes"),
+    "/api/notifications": require("./notificationBrokerRoutes"),
+    "/api/config": require("./configRoutes"),
+    "/api/tracing": require("./tracingRoutes"),
+    "/api/policies": require("./policyRoutes"),
+    "/api/outbox": require("./outboxRoutes"),
+    "/api/flags": require("./flagRoutes"),
+    "/api/correlation": require("./correlationRoutes"),
+    "/api/provenance": require("./provenanceRoutes"),
+    "/api/recommendations": require("./recommendationRoutes"),
+    "/api/loyalty": require("./loyaltyRoutes"),
+    "/api/rules": require("./ruleRoutes"),
+    "/api/plugins": require("./pluginRoutes"),
+    "/api/events": require("./eventRoutes"),
+    "/api/security": require("./securityRoutes"),
+    "/api/approvals": require("./approvalRoutes"),
+    "/api/rollback": require("./rollbackRoutes"),
+    "/api/ai/financial": require("./aiFinancialRoutes"),
+    "/api/performance": require("./performanceRoutes"),
+    "/api/recently-viewed": require("./recentlyViewedRoutes"),
+    "/api/experiments": require("./experimentRoutes"),
+    "/api/copywriter": require("./copywriterRoutes"),
+    "/api/fraud": require("./fraudRoutes"),
+    "/api/ai": require("./aiRoutes"),
+    "/api/stock-alerts": require("./stockAlertRoutes"),
+    "/api/mcp": require("./mcpRoutes"),
+    "/api/social-engineering": require("./socialEngineeringRoutes"),
+    "/api/agent-checkout": require("./agentCheckoutRoutes"),
+    "/api/jagged-frontier": require("./jaggedFrontierRoutes"),
+    "/api/liability": require("./liabilityRoutes"),
+    "/api/maturity": require("./maturityRoutes"),
+    "/api/sla": require("./slaRoutes"),
+    "/api/products": require("./productRoutes"),
+    "/api/auth": require("./authRoutes"),
+    "/api/orders": require("./orderRoutes"),
+    "/api/promos": require("./promoRoutes"),
+    "/api/admin": require("./adminRoutes"),
+    "/api/chat": require("./chatRoutes"),
+    "/api/wishlist": require("./wishlistRoutes"),
+    "/api/wishlist-notify": require("./wishlistNotifyRoutes"),
+    "/api/cart": require("./cartRoutes"),
+    "/api/checkout": require("./checkoutRoutes"),
+    "/api/pincode": require("./pincodeRoutes"),
+    "/api/subscriptions": require("./subscriptionRoutes"),
+    "/api/courier-webhooks": require("./courierWebhookRoutes"),
+    "/api/refunds": require("./refundRoutes"),
+    "/api/addresses": require("./addressRoutes"),
+    "/api/contact": require("./contactRoutes"),
+    "/api/interactions": require("./interactionRoutes"),
+    "/api/newsletter": require("./newsletterRoutes"),
+    "/api/reviews": require("./reviewRoutes"),
+    // Required in server.js since #1231 and never mounted, so every gift
+    // card path 404ed while the service and both migrations were live
+    // (#1652).
+    "/api/gift-cards": require("./giftCardRoutes"),
+};

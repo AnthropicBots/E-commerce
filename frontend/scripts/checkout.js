@@ -679,40 +679,63 @@ renderCheckout();
 
 // STRIPE SETUP
 let stripe, elementsStripe, cardElement;
-try {
-    stripe = Stripe('pk_test_TYooMQauvdEDq54NiTphI7jx'); // Placeholder key
-    elementsStripe = stripe.elements();
-    cardElement = elementsStripe.create('card', {
-        style: {
-            base: {
-                color: '#32325d',
-                fontFamily: '"Helvetica Neue", Helvetica, sans-serif',
-                fontSmoothing: 'antialiased',
-                fontSize: '16px',
-                '::placeholder': {
-                    color: '#aab7c4'
-                }
-            },
-            invalid: {
-                color: '#fa755a',
-                iconColor: '#fa755a'
-            }
-        }
-    });
-    
+
+// Load Stripe publishable key from window injection (Vite defines this at build time)
+const STRIPE_PUBLISHABLE_KEY = (
+    window.__STRIPE_PUBLISHABLE_KEY__
+    || ''
+);
+
+if (!STRIPE_PUBLISHABLE_KEY) {
+    console.warn('Stripe publishable key not configured — card payments are disabled.');
+    // Disable card payment option
+    const cardRadio = document.querySelector('input[name="payment"][value="card"]');
+    if (cardRadio) {
+        cardRadio.disabled = true;
+        cardRadio.parentElement.style.opacity = '0.5';
+        cardRadio.parentElement.style.cursor = 'not-allowed';
+        cardRadio.parentElement.title = 'Card payments unavailable';
+    }
+    // Hide card details section
     if (elements.cardDetails) {
-        cardElement.mount('#card-element');
-        cardElement.on('change', function(event) {
-            const displayError = document.getElementById('card-errors');
-            if (event.error) {
-                displayError.textContent = event.error.message;
-            } else {
-                displayError.textContent = '';
+        elements.cardDetails.style.display = 'none';
+    }
+} else {
+    try {
+        stripe = Stripe(STRIPE_PUBLISHABLE_KEY);
+        elementsStripe = stripe.elements();
+        cardElement = elementsStripe.create('card', {
+            style: {
+                base: {
+                    color: '#32325d',
+                    fontFamily: '"Helvetica Neue", Helvetica, sans-serif',
+                    fontSmoothing: 'antialiased',
+                    fontSize: '16px',
+                    '::placeholder': {
+                        color: '#aab7c4'
+                    }
+                },
+                invalid: {
+                    color: '#fa755a',
+                    iconColor: '#fa755a'
+                }
             }
         });
+        
+        if (elements.cardDetails) {
+            cardElement.mount('#card-element');
+            cardElement.on('change', function(event) {
+                const displayError = document.getElementById('card-errors');
+                if (event.error) {
+                    displayError.textContent = event.error.message;
+                } else {
+                    displayError.textContent = '';
+                }
+            });
+        }
+    } catch(e) {
+        console.error("Stripe initialization failed", e);
     }
-} catch(e) {
-    console.error("Stripe initialization failed", e);
 }
 
 // PAYMENT METHOD TOGGLE

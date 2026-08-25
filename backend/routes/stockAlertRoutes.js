@@ -39,6 +39,15 @@ router.post("/", authMiddleware, async (req, res) => {
         });
         return res.status(201).json({ success: true, subscription });
     } catch (error) {
+        // A subscription against a product no shopper may see is a 404, not a
+        // 400: the request was well formed, the product simply is not there as
+        // far as this caller is concerned (#1609). Same answer the product
+        // detail endpoint gives, so a client cannot use this route to probe for
+        // unreleased catalogue.
+        if (error && error.code === "PRODUCT_NOT_VISIBLE") {
+            return res.status(404).json({ success: false, message: error.message });
+        }
+
         return res.status(400).json({ success: false, message: error.message });
     }
 });

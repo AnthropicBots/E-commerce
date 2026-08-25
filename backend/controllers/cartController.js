@@ -7,11 +7,17 @@ const {
     mergeCartLines,
     normalizeCartLine,
     normalizeCartLines,
-    resolveCartOwnership
+    resolveCartOwnership,
+    normalizeDbLines
 } = require("../services/cart.service");
 const cartLifecycle = require("../services/cartLifecycleService");
 const guestCart = require("../services/guestCartService");
 const cartRestoreService = require("../services/cartRestoreService");
+// The same definition of "a shopper may see this product" the catalogue and
+// the wishlist use (#1456). The cart was the one surface still asking only
+// whether a row existed, so a product an admin had withdrawn stayed addable,
+// stayed in the basket, and travelled to checkout (#1546).
+const { publicProductCondition } = require("../constants/productVisibility");
 
 // Every handler below works from the cart, not from the account (#1427). The
 // two are the same thing for a signed-in shopper and the account is still
@@ -54,6 +60,51 @@ const resolveCartForRead = async (req) => {
     return userId
         ? cartLifecycle.findActiveCartId(userId)
         : guestCart.findCartIdByToken(guestToken);
+};
+
+/**
+ * The ids among `productIds` that a shopper may actually buy right now.
+ *
+ * Existence is not the question. `deleteProduct` is a soft delete and `status`
+ * carries the lifecycle, so a withdrawn product is still a row -- one that
+ * 404s at its own URL, is absent from every listing, and cannot be added to a
+ * wishlist. The cart asked `SELECT id FROM products WHERE id = ?` and got
+ * `true` for all of them (#1546).
+ *
+ * @param {object} connection A pool or an open transaction.
+ * @param {string[]} productIds
+ * @returns {Promise<Set<string>>} the subset that is live
+ */
+const findLiveProductIds = async (connection, productIds) => {
+    const ids = [...new Set(productIds.filter(Boolean))];
+
+    if (!ids.length) {
+        return new Set();
+    }
+
+    const visibility = publicProductCondition("p");
+
+    const [rows] = await connection.query(
+        `SELECT p.id
+           FROM products p
+          WHERE p.id IN (${ids.map(() => "?").join(",")})
+            AND ${visibility.sql}`,
+        [...ids, ...visibility.params]
+    );
+
+    return new Set((rows || []).map((row) => safeUUID(row.id)));
+};
+
+/**
+ * Is this one product live?
+ *
+ * @param {object} connection
+ * @param {string} productId
+ * @returns {Promise<boolean>}
+ */
+const isLiveProduct = async (connection, productId) => {
+    const live = await findLiveProductIds(connection, [productId]);
+    return live.has(productId);
 };
 
 // Shopper activity moves two clocks for a guest: the cart's, which the
@@ -125,6 +176,12 @@ const cartController = {
                 });
             }
 
+            // Filtered on read as well as on write, because a product can be
+            // withdrawn *after* it entered the basket. Without this, an item
+            // added last week stays in the cart forever, rendered from its
+            // stale snapshot, and is carried to checkout (#1546).
+            const visibility = publicProductCondition("p");
+
             const [rows] = await promisePool.query(`
                 SELECT
                     p.id,
@@ -140,13 +197,30 @@ const cartController = {
                     c.created_at AS added_at
                 FROM cart_items c
                 JOIN products p ON c.product_id = p.id
-                WHERE c.cart_id = ?
+                WHERE c.cart_id = ? AND ${visibility.sql}
                 ORDER BY c.created_at DESC
-            `, [cartId]);
+            `, [cartId, ...visibility.params]);
+
+            const normalizedRows = normalizeDbLines(rows);
+
+            // How many lines the basket holds versus how many are still
+            // buyable. Silently returning fewer rows than the shopper put in
+            // reads as data loss; naming the count lets the cart page say
+            // "1 item is no longer available" instead.
+            const [[held]] = await promisePool.query(
+                "SELECT COUNT(*) AS total FROM cart_items WHERE cart_id = ?",
+                [cartId]
+            );
+
+            const unavailableCount = Math.max(
+                0,
+                Number(held?.total || 0) - (normalizedRows?.length || 0)
+            );
 
             return res.status(200).json({
                 success: true,
-                cart: rows
+                cart: normalizedRows,
+                unavailableCount
             });
 
         } catch (error) {
@@ -196,21 +270,24 @@ const cartController = {
 
             let placeholders = [];
             let values = [];
+            const droppedProductIds = [];
 
             if (lines.length) {
                 const productIds = [...new Set(lines.map((line) => line.productId))];
 
-                const [products] = await connection.query(
-                    `SELECT id FROM products WHERE id IN (${productIds.map(() => "?").join(",")})`,
+                // Live, not merely present. This asked only whether the row
+                // existed, so a soft-deleted or deactivated product synced
+                // straight back into the basket (#1546).
+                const liveProductIds = await findLiveProductIds(
+                    connection,
                     productIds
                 );
 
-                const knownProductIds = new Set(
-                    products.map((product) => safeUUID(product.id))
-                );
-
                 for (const line of lines) {
-                    if (!knownProductIds.has(line.productId)) continue;
+                    if (!liveProductIds.has(line.productId)) {
+                        droppedProductIds.push(line.productId);
+                        continue;
+                    }
 
                     // Reservations are held against an account, so a guest
                     // basket holds no stock. Nothing is oversold by that: the
@@ -269,6 +346,12 @@ const cartController = {
             return res.status(200).json({
                 success: true,
                 message: "Cart synced",
+                // Named, not silently swallowed. A sync that quietly returns
+                // fewer lines than it was sent looks to the client like its
+                // own state is wrong; saying which ids were withdrawn lets the
+                // cart page tell the shopper what happened.
+                droppedProductIds,
+                dropped: droppedProductIds.length,
                 ...issuedToken(cart)
             });
 
@@ -306,6 +389,17 @@ const cartController = {
 
             await connection.beginTransaction();
 
+            // Before the cart is opened and before stock is reserved: a
+            // product nobody may buy should not cause either (#1546).
+            if (!(await isLiveProduct(connection, line.productId))) {
+                await connection.rollback();
+
+                return res.status(404).json({
+                    success: false,
+                    message: "This product is no longer available"
+                });
+            }
+
             const cart = await resolveCartForWrite(req, connection);
 
             if (userId) {
@@ -316,10 +410,12 @@ const cartController = {
                 }
             }
 
-            const [existingLines] = await connection.query(
+            const [existingLinesRaw] = await connection.query(
                 "SELECT product_id, variant_id, color, size, quantity FROM cart_items WHERE cart_id = ? AND product_id = ?",
                 [cart.cartId, line.productId]
             );
+
+            const existingLines = normalizeDbLines(existingLinesRaw);
 
             // Adding to a line that is already in the cart is the one place
             // quantities are summed, and only for the very same line.
@@ -380,10 +476,15 @@ const cartController = {
 
             await connection.beginTransaction();
 
-            const [products] = await connection.query("SELECT id FROM products WHERE id = ?", [line.productId]);
-            if (products.length === 0) {
+            // Live, not merely present. Raising the quantity of a product that
+            // has been withdrawn reserves stock for something that cannot be
+            // sold, and leaves a bigger line to carry to checkout (#1546).
+            if (!(await isLiveProduct(connection, line.productId))) {
                 await connection.rollback();
-                return res.status(404).json({ success: false, message: "Product not found" });
+                return res.status(404).json({
+                    success: false,
+                    message: "This product is no longer available"
+                });
             }
 
             // Move the reservation for this line to the new quantity (release
@@ -400,7 +501,9 @@ const cartController = {
             }
 
             const [result] = await connection.query(
-                "UPDATE cart_items SET quantity = ? WHERE cart_id = ? AND product_id = ? AND variant_id = ? AND color = ? AND size = ?",
+                `UPDATE cart_items SET quantity = ?
+                 WHERE cart_id = ? AND product_id = ? AND variant_id = ?
+                 AND COALESCE(color, '') = ? AND COALESCE(size, '') = ?`,
                 [line.quantity, cartId, line.productId, line.variantId, line.color, line.size]
             );
 
@@ -446,7 +549,9 @@ const cartController = {
             }
 
             const [result] = await promisePool.query(
-                "DELETE FROM cart_items WHERE cart_id = ? AND product_id = ? AND variant_id = ? AND color = ? AND size = ?",
+                `DELETE FROM cart_items
+                 WHERE cart_id = ? AND product_id = ? AND variant_id = ?
+                 AND COALESCE(color, '') = ? AND COALESCE(size, '') = ?`,
                 [cartId, line.productId, line.variantId, line.color, line.size]
             );
 

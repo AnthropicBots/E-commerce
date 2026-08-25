@@ -264,6 +264,15 @@ describe('subscribe', () => {
         expect(days).toBe(14);
     });
 
+    test('refuses a plan with an unsupported billing interval', async () => {
+        mockConnectionQuery.mockResolvedValueOnce([[{ ...PLAN, interval: 'fortnightly' }]]);
+
+        await expect(subscriptionService.subscribe(USER, 2)).rejects.toMatchObject({
+            status: 400,
+            code: 'UNSUPPORTED_INTERVAL'
+        });
+    });
+
     test('rejects an unusable plan id before touching the database', async () => {
         await expect(subscriptionService.subscribe(USER, 'abc')).rejects.toMatchObject({
             code: 'INVALID_PLAN'
@@ -335,6 +344,22 @@ describe('resume', () => {
 
         const update = mockConnectionQuery.mock.calls[1][0];
         expect(update).toMatch(/cancel_at_period_end = 0/);
+    });
+
+    test('un-pauses a paused subscription that also had a pending cancellation', async () => {
+        mockConnectionQuery
+            .mockResolvedValueOnce([[ROW({ status: 'paused', cancel_at_period_end: 1 })]])
+            .mockResolvedValueOnce([{}])
+            .mockResolvedValueOnce([READBACK()]);
+
+        const result = await subscriptionService.resume(USER);
+
+        expect(result.status).toBe('active');
+        expect(result.withdrewCancellation).toBe(true);
+
+        const update = mockConnectionQuery.mock.calls[1][0];
+        expect(update).toMatch(/cancel_at_period_end = 0/);
+        expect(update).toMatch(/status = 'active'/);
     });
 
     test('refuses when there is nothing to resume', async () => {

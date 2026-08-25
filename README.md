@@ -89,240 +89,94 @@ https://e-commerce-git-main-bhuvanshs-projects.vercel.app
 | JavaScript | Frontend Logic |
 | Vercel | Frontend Deployment |
 
+### 📌 Key Directory Guide
+
+- **`.github/`** – Contains GitHub issue templates and repository automation configuration.
+- **`.agents/`** – Contains reusable agent skills and development guidance.
+- **`backend/`** – Contains the server-side application, API routes, controllers, services, database logic, middleware, and backend tests.
+- **`frontend/`** – Contains the client-side assets, reusable components, JavaScript, and styles.
+- **`docs/`** – Contains project documentation and supporting references.
+- **`migrations/`** – Contains ordered database schema migrations.
+- **`scripts/`** – Contains repository-level development and utility scripts.
+
 ---
 
 # 📂 Updated Project Structure
 
+The repository is organized into separate frontend and backend directories, along with documentation, database migrations, development scripts, and project configuration files.
+
 ```text
 E-commerce/
-│
-├── .agents/skills/
-│   ├── accessibility-compliance/
-│   ├── css/
-│   ├── modern-javascript-patterns/
-│   ├── responsive-design/
-│   ├── semantic-html/
-│   └── wcag-audit-patterns/
+├── .agents/
+│   └── skills/
+│       ├── accessibility-compliance/
+│       ├── css/
+│       ├── modern-javascript-patterns/
+│       ├── responsive-design/
+│       ├── semantic-html/
+│       └── wcag-audit-patterns/
 │
 ├── .github/
 │   ├── ISSUE_TEMPLATE/
 │   └── hiero-bot.yml
 │
 ├── backend/
-│   ├── config/
-│   │   └── db.js
-│   │
-│   ├── controllers/
-│   │   ├── admin.controller.js
-│   │   ├── authController.js
-│   │   ├── cartController.js
-│   │   ├── chat.controller.js
-│   │   ├── orderController.js
-│   │   ├── pincodeController.js
-│   │   ├── productController.js
-│   │   ├── promo.controller.js
-│   │   ├── recommendationController.js
-│   │   └── wishlistController.js
-│   │
-│   ├── middleware/
-|   |   ├── validators/
-│   │   ├── adminMiddleware.js
-│   │   ├── authMiddleware.js
-│   │   ├── rateLimiter.js
-│   │   └── rbacMiddleware.js
-│   │
-│   ├── models/
-│   │   ├── Order.js
-│   │   ├── Pincode.js
-│   │   ├── Product.js
-│   │   └── User.js
-│   │
-│   ├── routes/
-│   │   ├── adminRoutes.js
+│   ├── config/              # Application and database configuration
+│   ├── constants/           # Shared backend constants
+│   ├── controllers/         # Request and business logic controllers
+│   ├── core/                # Core backend functionality
+│   ├── docs/                # Backend-specific documentation
+│   ├── jobs/                # Background and scheduled jobs
+│   ├── middleware/          # Authentication, validation, and request middleware
+│   ├── models/              # Database models
+│   ├── modules/             # Feature-specific backend modules
+│   ├── openapi/             # OpenAPI/API specifications
+│   ├── plugins/             # Backend plugins and extensions
+│   ├── repositories/        # Data access and repository logic
+│   ├── routes/              # API route definitions
+│   │   ├── v1/              # Version 1 API routes
+│   │   ├── v2/              # Version 2 API routes
+│   │   ├── v3/              # Version 3 API routes
 │   │   ├── authRoutes.js
 │   │   ├── cartRoutes.js
-│   │   ├── chatRoutes.js
-│   │   ├── index.js
+│   │   ├── checkoutRoutes.js
 │   │   ├── orderRoutes.js
-│   │   ├── pincodeRoutes.js
 │   │   ├── productRoutes.js
-│   │   ├── promoRoutes.js
-│   │   ├── recommendationRoutes.js
-│   │   └── wishlistRoutes.js
-│   │
-│   ├── scripts/
-│   │   └── seedProducts.js
-│   │
-│   ├── services/
-│   │   ├── admin.service.js
-│   │   ├── chat.service.js
-│   │   ├── interactionService.js
-│   │   ├── order.service.js
-│   │   ├── promo.service.js
-│   │   └── recommendationService.js
-│   │
-│   ├── sql/               # feature schemas not yet folded into migrations/
-│   │   └── README.md
-│   │
-│   ├── scripts/
-│   │   └── migrate.js
-│   │
-│   ├── utils/
-│   │   ├── helpers.js
-│   │   └── socketManager.js
-│   │
-│   ├── .env.example
-│   ├── docker-compose.yml
-│   ├── package-lock.json
-│   ├── package.json
-│   └── server.js
+│   │   ├── wishlistRoutes.js
+│   │   └── index.js
+│   ├── scripts/             # Backend utility and maintenance scripts
+│   ├── services/            # Business and external service integrations
+│   ├── sql/                 # SQL-related resources
+│   ├── tests/               # Backend test suites
+│   ├── utils/               # Shared backend utilities
+│   └── validators/           # Request and data validation logic
 │
 ├── frontend/
-│   ├── assets/
-│   │   ├── data/
-│   │   ├── images/
-│   │   └── videos/
-│   │
-│   ├── components/
-│   │   ├── cart-drawer.html
-│   │   ├── footer.html
-│   │   └── navbar.html
-│   │
-│   ├── scripts/
-│   │   ├── Buy1Get1.js
-│   │   ├── about.js
-│   │   ├── admin.js
-│   │   ├── animations.js
-│   │   ├── auth.js
-│   │   ├── back-to-top.js
-│   │   ├── blog.js
-│   │   ├── cart-drawer.js
-│   │   ├── cart.js
-│   │   ├── chat-widget.js
-│   │   ├── checkout.js
-│   │   ├── compare.js
-│   │   ├── components.js
-│   │   ├── config.js
-│   │   ├── contact.js
-│   │   ├── dashboard-orders.js
-│   │   ├── dashboard-overview.js
-│   │   ├── dashboard-settings.js
-│   │   ├── dashboard-wishlist.js
-│   │   ├── dashboard.js
-│   │   ├── delivery.js
-│   │   ├── early_summer.js
-│   │   ├── help.js
-│   │   ├── hero.js
-│   │   ├── home-init.js
-│   │   ├── mens.js
-│   │   ├── order.js
-│   │   ├── ordersHistory.js
-│   │   ├── pincode.js
-│   │   ├── privacy.js
-│   │   ├── product-actions-home.js
-│   │   ├── product-actions.js
-│   │   ├── product-cards-home.js
-│   │   ├── product-render.js
-│   │   ├── product-reviews.js
-│   │   ├── product-variants.js
-│   │   ├── product.js
-│   │   ├── profile.js
-│   │   ├── recentlyViewed.js
-│   │   ├── recommendations.js
-│   │   ├── related-products.js
-│   │   ├── script.js
-│   │   ├── seasonal.js
-│   │   ├── shop-controls.js
-│   │   ├── shop.js
-│   │   ├── success.js
-│   │   ├── terms.js
-│   │   ├── toast.js
-│   │   ├── tshirt.js
-│   │   ├── ui.js
-│   │   ├── utils.js
-│   │   ├── wishlist.js
-│   │   └── womens.js
-│   │
-│   ├── styles/
-│   │   ├── about.css
-│   │   ├── admin.css
-│   │   ├── animations.css
-│   │   ├── auth.css
-│   │   ├── back-to-top.css
-│   │   ├── base.css
-│   │   ├── blog.css
-│   │   ├── cart.css
-│   │   ├── chat-widget.css
-│   │   ├── checkout.css
-│   │   ├── components.css
-│   │   ├── contact.css
-│   │   ├── dashboard.css
-│   │   ├── delivery.css
-│   │   ├── early_summer.css
-│   │   ├── help.css
-│   │   ├── hero.css
-│   │   ├── layout.css
-│   │   ├── order.css
-│   │   ├── privacy.css
-│   │   ├── product-card.css
-│   │   ├── product.css
-│   │   ├── profile.css
-│   │   ├── seasonal.css
-│   │   ├── shop.css
-│   │   ├── style.css
-│   │   ├── success.css
-│   │   ├── terms.css
-│   │   ├── tshirt.css
-│   │   └── wishlist.css
-│   │
-│   ├── Buy1Get1.html
-│   ├── about.html
-│   ├── admin.html
-│   ├── blog.html
-│   ├── cart.html
-│   ├── checkout.html
-│   ├── compare.html
-│   ├── contact.html
-│   ├── dashboard.html
-│   ├── delivery.html
-│   ├── early_summer.html
-│   ├── help.html
-│   ├── index.html
-│   ├── mens.html
-│   ├── order.html
-│   ├── privacy.html
-│   ├── product.html
-│   ├── profile.html
-│   ├── robots.html
-│   ├── seasonal.html
-│   ├── shop.html
-│   ├── signin.html
-│   ├── signup.html
-│   ├── sitemap.xml
-│   ├── success.html
-│   ├── terms.html
-│   ├── tshirt.html
-│   ├── vercel.html
-│   ├── wishlist.html
-│   └── womens.html
+│   ├── assets/              # Images, data, videos, and other assets
+│   ├── components/          # Reusable HTML components
+│   ├── scripts/             # Frontend JavaScript files
+│   └── styles/              # Frontend CSS stylesheets
 │
-├── .env.example  
-├── .gitattributes        
-├── .gitignore
-├── AGENTS.md             
-├── CHANGELOG.md          
-├── CODE_OF_CONDUCT.md    
-├── CONTRIBUTING.md
-├── LICENSE        
-├── README.md
-├── SECURITY.md
-├── TODO.md
-├── docs/legacy/          # historical mysqldump, reference only — not applied
-├── migrations/           # ordered schema migrations, applied by npm run migrate
-├── package-lock.json
-├── package.json   
-├── skills-lock.json               
-└── test.js                
+├── docs/                    # Project documentation and legacy references
+├── migrations/              # Ordered database schema migrations
+├── scripts/                 # Repository-level development scripts
+│
+├── .env.example             # Example environment configuration
+├── .gitattributes           # Git attribute configuration
+├── .gitignore               # Git ignore rules
+├── AGENTS.md                # Agent and automation instructions
+├── CHANGELOG.md             # Project change history
+├── CODE_OF_CONDUCT.md       # Community guidelines
+├── CONTRIBUTING.md          # Contribution guidelines
+├── LICENSE                  # Project license
+├── package-lock.json        # Root dependency lock file
+├── package.json             # Root project configuration and scripts
+├── SECURITY.md              # Security policy
+├── skills-lock.json         # Skills dependency lock file
+├── test.js                  # Project test entry point
+└── TODO.md                  # Pending tasks and improvements
+
+     
 ```
 
 ---
@@ -535,6 +389,89 @@ Frontend will run at:
 ```text
 http://127.0.0.1:5500
 ```
+
+---
+
+## 📡 API Endpoints Reference
+
+The backend API is organized into feature-based route groups. Below is a quick overview of the major endpoint categories.
+
+| Category | Base Path | Purpose |
+|----------|-----------|---------|
+| Authentication | `/auth` | User registration, login, logout, password management, and authentication status. |
+| Products | `/products` | Product listing, search, details, reviews, and product management. |
+| Orders | `/orders` | Order creation, tracking, history, invoices, and order management. |
+| Cart | `/cart` | Add, update, remove, restore, and manage shopping cart items. |
+| Wishlist | `/wishlist` | Manage user wishlists, sharing, and wishlist analytics. |
+| Wishlist Notifications | `/wishlist-notify` | Notification preferences and wishlist alert management. |
+| Recommendations | `/recommendations` | Product recommendations and user interaction tracking. |
+| Checkout | `/checkout` | Checkout workflow, quotes, and order verification. |
+| Promotions | `/promos` | Promo code validation and promotional offers. |
+| Refunds | `/refunds` | Refund requests and refund management. |
+| Addresses | `/addresses` | User address book management. |
+| Pincode | `/pincode` | Delivery availability lookup using postal codes. |
+| Subscriptions | `/subscriptions` | Subscribe, pause, resume, and cancel subscriptions. |
+| Chat | `/chat` | Customer support conversations and messaging. |
+| Admin | `/admin` | Administrative operations and management endpoints. |
+| Contact | `/contact` | Contact form submission and customer inquiries. |
+| Interactions | `/interactions` | Record user interactions for analytics and recommendations. |
+| Courier Webhooks | `/courier-webhooks` | Receive webhook events from courier partners. |
+
+### Route Source Files
+
+The primary route definitions are located under `backend/routes/`:
+
+- `index.js`
+- `authRoutes.js`
+- `productRoutes.js`
+- `orderRoutes.js`
+- `cartRoutes.js`
+- `wishlistRoutes.js`
+- `wishlistNotifyRoutes.js`
+- `recommendationRoutes.js`
+- `checkoutRoutes.js`
+- `promoRoutes.js`
+- `refundRoutes.js`
+- `addressRoutes.js`
+- `subscriptionRoutes.js`
+- `pincodeRoutes.js`
+- `chatRoutes.js`
+- `adminRoutes.js`
+- `contactRoutes.js`
+- `interactionRoutes.js`
+- `courierWebhookRoutes.js`
+
+> **Note:** The project supports API versioning (`/v1`, `/v2`, and `/v3`). All versions currently share the same route definitions through a common router while allowing future version-specific customization.
+
+### 🔐 Authentication & Authorization
+
+Most protected API endpoints require a valid JWT access token.
+
+Include the token in the request headers:
+
+```http
+Authorization: Bearer <your_jwt_token>
+```
+
+Administrative endpoints require both authentication and the appropriate admin role or permissions.
+
+### 📝 Example API Request
+
+#### Login
+
+**Request**
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "your_password"
+}
+```
+
+> **Response:** On successful authentication, the server returns a JSON response containing authentication details (such as access tokens and/or user information). The exact response structure depends on the API version and implementation.
 
 ---
 

@@ -1,7 +1,9 @@
 // backend/middleware/fraudDetectionMiddleware.js
 const detector = require('../services/syntheticIdentityDetector');
 const db = require('../config/db').promise;
-
+const redis = require('../config/redis');
+const crypto = require('crypto');
+const logger = require('../utils/logger');
 /**
  * Middleware to detect synthetic identity fraud during signup
  */
@@ -101,16 +103,59 @@ async function detectCheckoutFraud(req, res, next) {
             });
         }
 
-        // Check for unusual purchase patterns
-        const [recentOrders] = await db.query(
-            `SELECT COUNT(*) as count, SUM(total) as total_amount 
-             FROM orders 
-             WHERE user_id = ? 
-             AND created_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)`,
-            [userId]
+        // Redis sliding window rate limiter
+        const now = Date.now();
+        const oneHourAgo = now - 3600000; // 1 hour in ms
+        const windowKey = `fraud_velocity:${userId}`;
+        const memberId = crypto.randomUUID();
+        const orderTotal = Number(total) || 0;
+
+        const luaScript = `
+            local key = KEYS[1]
+            local minTime = tonumber(ARGV[1])
+            local currentTime = tonumber(ARGV[2])
+            local amount = tonumber(ARGV[3])
+            local mId = ARGV[4]
+
+            -- Remove items older than 1 hour
+            redis.call('ZREMRANGEBYSCORE', key, '-inf', minTime)
+
+            -- Retrieve current window elements to calculate count and sum BEFORE adding current
+            local elements = redis.call('ZRANGE', key, 0, -1)
+            local count = 0
+            local sum = 0
+
+            for i, member in ipairs(elements) do
+                -- member format: "timestamp:total:uuid"
+                local totalStr = string.match(member, "^%d+:(%d+%.?%d*):")
+                if totalStr then
+                    sum = sum + tonumber(totalStr)
+                end
+                count = count + 1
+            end
+
+            -- Add the current attempt
+            local newMember = currentTime .. ":" .. amount .. ":" .. mId
+            redis.call('ZADD', key, currentTime, newMember)
+            redis.call('EXPIRE', key, 3600)
+
+            return { count, sum }
+        `;
+
+        const result = await redis.eval(
+            luaScript, 
+            1, 
+            windowKey, 
+            oneHourAgo, 
+            now, 
+            orderTotal, 
+            memberId
         );
 
-        if (recentOrders[0].count > 5) {
+        const count = Number(result[0] || 0);
+        const totalAmount = Number(result[1] || 0);
+
+        if (count > 5) {
             return res.status(429).json({
                 success: false,
                 error: 'Too many orders in short time',
@@ -118,7 +163,7 @@ async function detectCheckoutFraud(req, res, next) {
             });
         }
 
-        if (total > 100000 && recentOrders[0].total_amount > 200000) {
+        if (orderTotal > 100000 && totalAmount > 200000) {
             return res.status(403).json({
                 success: false,
                 error: 'Large order flagged for review',
@@ -150,8 +195,20 @@ async function flagForMonitoring(req, detection) {
                 req.ip || 'unknown'
             ]
         );
+
+        return true;
     } catch (error) {
-        console.error('Error flagging for monitoring:', error);
+        // Non-fatal on purpose: a monitoring write must not fail a signup. But
+        // the queue is the only record a medium-risk decision leaves, so a
+        // dropped row has to say which signup it was -- the old message named
+        // no email, no score and no level, which made it impossible to tie the
+        // failure back to anything (#1674).
+        logger.error(
+            `Fraud monitoring queue write failed for ${req.body?.email || 'unknown address'} ` +
+            `(${detection?.riskLevel} / ${detection?.riskScore}): ${error.message}`
+        );
+
+        return false;
     }
 }
 
@@ -197,5 +254,9 @@ async function getFraudStats(req, res) {
 module.exports = {
     detectSyntheticIdentity,
     detectCheckoutFraud,
-    getFraudStats
+    getFraudStats,
+    // Exported so the queue write can be driven directly in tests. It is the
+    // only record a medium-risk signup leaves, and it failed silently for as
+    // long as the table was missing (#1674).
+    flagForMonitoring
 };

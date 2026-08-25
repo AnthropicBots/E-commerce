@@ -289,8 +289,18 @@ class BusinessSLAService extends EventEmitter {
      * Get SLA metrics summary
      */
     async getMetricsSummary(metric = null, period = 'DAY') {
-        const VALID_PERIODS = ['HOUR', 'DAY', 'WEEK', 'MONTH'];
-        const safePeriod = VALID_PERIODS.includes(period?.toUpperCase()) ? period.toUpperCase() : 'DAY';
+        const PERIOD_MAP = {
+            '1H': 'HOUR',
+            '24H': 'DAY',
+            '7D': 'WEEK',
+            '30D': 'MONTH',
+            'HOUR': 'HOUR',
+            'DAY': 'DAY',
+            'WEEK': 'WEEK',
+            'MONTH': 'MONTH'
+        };
+        const uppercasePeriod = String(period || '').trim().toUpperCase();
+        const safePeriod = PERIOD_MAP[uppercasePeriod] || 'DAY';
 
         const query = `
             SELECT 

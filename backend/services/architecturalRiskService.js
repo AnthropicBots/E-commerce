@@ -274,19 +274,20 @@ class ArchitecturalRiskService extends EventEmitter {
                 const content = fs.readFileSync(file, 'utf8');
                 const deps = this.extractDependencies(content);
                 
-                // Check if this module depends on the target module
+                // Check if another module depends on the target module
                 if (deps.some(d => d.includes(moduleName))) {
                     incoming++;
                 }
             }
         }
         
-        // Calculate outgoing separately
+        // Calculate outgoing coupling (external / cross-module dependencies)
         const targetFiles = this.findFilesInModule(modulePath);
         for (const file of targetFiles) {
             const content = fs.readFileSync(file, 'utf8');
             const deps = this.extractDependencies(content);
-            outgoing += deps.length;
+            const crossModuleDeps = deps.filter(d => !d.startsWith('./') && !d.includes(`/${moduleName}/`));
+            outgoing += crossModuleDeps.length;
         }
 
         return {
@@ -306,17 +307,28 @@ class ArchitecturalRiskService extends EventEmitter {
         let relatedPairs = 0;
         let totalPairs = (files.length * (files.length - 1)) / 2;
 
-        for (let i = 0; i < files.length; i++) {
-            for (let j = i + 1; j < files.length; j++) {
-                const content1 = fs.readFileSync(files[i], 'utf8');
-                const content2 = fs.readFileSync(files[j], 'utf8');
+        // Pre-read and tokenize all files concurrently to avoid redundant disk I/O and event loop blocking
+        const tokenizedFiles = await Promise.all(
+            files.map(async (file) => {
+                const content = await fs.promises.readFile(file, 'utf8');
+                const words = content.match(/\b\w+\b/g) || [];
+                return {
+                    words,
+                    wordSet: new Set(words)
+                };
+            })
+        );
+
+        for (let i = 0; i < tokenizedFiles.length; i++) {
+            const fileA = tokenizedFiles[i];
+            for (let j = i + 1; j < tokenizedFiles.length; j++) {
+                const fileB = tokenizedFiles[j];
                 
-                // Check if files share similar keywords or functions
-                const words1 = content1.match(/\b\w+\b/g) || [];
-                const words2Set = new Set(content2.match(/\b\w+\b/g) || []);
-                
-                const commonWords = words1.filter(w => words2Set.has(w));
-                const similarity = commonWords.length / Math.max(words1.length, words2Set.size);
+                const commonWordsCount = fileA.words.reduce(
+                    (count, word) => (fileB.wordSet.has(word) ? count + 1 : count),
+                    0
+                );
+                const similarity = commonWordsCount / Math.max(fileA.words.length, fileB.wordSet.size);
                 
                 if (similarity > 0.3) {
                     relatedPairs++;

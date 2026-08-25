@@ -45,33 +45,64 @@ function applyShopFilters() {
             window.allProducts || []
         )];
 
-    // search filter
-    const searchValue =
-        searchInput?.value
-            ?.trim()
-            .toLowerCase();
+    // Homepage search bar
+    const productSearch = document.getElementById("product-search");
+    const clearSearch = document.getElementById("clear-search");
 
-    if (
-        searchValue
-    ) {
-        products =
-            products.filter(
-                (product) => {
-                    return (
-                        safeText(
-                            product.name
-                        ).includes(
-                            searchValue
-                        )
-                        ||
-                        safeText(
-                            product.category
-                        ).includes(
-                            searchValue
-                        )
-                    );
-                }
+    if (productSearch) {
+
+        productSearch.addEventListener("input", () => {
+
+            const query = productSearch.value.trim().toLowerCase();
+
+            // Show / hide clear button
+            if (clearSearch) {
+                clearSearch.style.display = query ? "block" : "none";
+            }
+
+            // If search is empty, show all products
+            if (!query) {
+                renderHomepageProducts();
+                return;
+            }
+
+            // Filter products
+            const filtered = allProducts.filter((p) =>
+                p.name?.toLowerCase().includes(query) ||
+                p.category?.toLowerCase().includes(query)
             );
+
+            // Display filtered products
+            if (featuredContainer) {
+                renderProducts(
+                    featuredContainer,
+                    filtered.slice(0, 8)
+                );
+            }
+        });
+
+
+        // Clear search button
+        if (clearSearch) {
+
+            // Hide X when page loads
+            clearSearch.style.display = "none";
+
+            clearSearch.addEventListener("click", () => {
+
+                // Empty search box
+                productSearch.value = "";
+
+                // Hide X
+                clearSearch.style.display = "none";
+
+                // Show all products again
+                renderHomepageProducts();
+
+                // Keep cursor inside search box
+                productSearch.focus();
+            });
+        }
     }
 
     // category filter
@@ -100,7 +131,7 @@ function applyShopFilters() {
         sortSelect?.value;
 
     switch (
-        sortValue
+    sortValue
     ) {
         case "low-high":
             products.sort(

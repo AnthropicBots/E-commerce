@@ -1,11 +1,12 @@
 const rateLimit = require("express-rate-limit");
+const appConfig = require("../config/appConfig");
 
 // =====================
 // AUTH LIMITER - For login/register (20 requests per 15 min)
 // =====================
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 20, // 20 requests
+    windowMs: appConfig.authRateLimit?.windowMs || 15 * 60 * 1000, // 15 minutes
+    max: appConfig.authRateLimit?.max || 20, // 20 requests
     standardHeaders: true,
     legacyHeaders: false,
     message: {

@@ -222,6 +222,16 @@ describe('confirming', () => {
             .toMatch(/confirm_token\s*=\s*NULL/);
     });
 
+    test('keeps the spent digest as an audit key rather than dropping it', async () => {
+        // The whole of #1612: setting confirm_token to NULL and nothing else
+        // made the already-confirmed branch below unreachable, because it looks
+        // the row up by the value that had just been erased.
+        await newsletterService.confirm('abc123');
+
+        expect(String(statementMatching('UPDATE newsletter_subscribers')[0]))
+            .toMatch(/spent_confirm_token\s*=\s*confirm_token/);
+    });
+
     test('an unknown token is reported as invalid', async () => {
         db.query
             .mockResolvedValueOnce([{ affectedRows: 0 }])
@@ -229,7 +239,7 @@ describe('confirming', () => {
 
         const result = await newsletterService.confirm('nope');
 
-        expect(result).toEqual({ confirmed: false, reason: 'invalid_token' });
+        expect(result).toMatchObject({ confirmed: false, reason: 'invalid_token' });
     });
 
     test('a known but spent or expired token is told apart from an unknown one', async () => {
@@ -414,6 +424,151 @@ describe('confirm and unsubscribe do report what happened', () => {
     });
 });
 
+describe('a confirmation link followed twice (#1612)', () => {
+    const { CONFIRM_OUTCOMES } = newsletterService;
+
+    /** The UPDATE matched nothing, and the fallback lookup found this row. */
+    const spentTokenBelongingTo = (row) => {
+        db.query
+            .mockResolvedValueOnce([{ affectedRows: 0 }])
+            .mockResolvedValueOnce([[row]]);
+    };
+
+    test('the fallback lookup searches the spent column too', async () => {
+        // Without this the query looks for a digest the successful UPDATE has
+        // just removed, finds nothing, and reports a live subscription as an
+        // invalid link.
+        spentTokenBelongingTo({ status: 'confirmed' });
+
+        await newsletterService.confirm('abc123');
+
+        const lookup = statementMatching('SELECT status');
+        expect(String(lookup[0])).toMatch(/confirm_token = \? OR spent_confirm_token = \?/);
+
+        const digest = crypto.createHash('sha256').update('abc123').digest('hex');
+        expect(lookup[1]).toEqual([digest, digest]);
+    });
+
+    test('a second click on a working link reports the subscription as live', async () => {
+        spentTokenBelongingTo({ status: 'confirmed' });
+
+        const result = await newsletterService.confirm('abc123');
+
+        // `confirmed: true`, not a failure. The subscriber asked to be on the
+        // list and is on the list; that an earlier click did the work is not
+        // their problem.
+        expect(result).toEqual({
+            confirmed: true,
+            outcome: CONFIRM_OUTCOMES.ALREADY_CONFIRMED
+        });
+    });
+
+    test('a link followed after unsubscribing says so', async () => {
+        spentTokenBelongingTo({ status: 'unsubscribed' });
+
+        const result = await newsletterService.confirm('abc123');
+
+        expect(result).toMatchObject({
+            confirmed: false,
+            outcome: CONFIRM_OUTCOMES.ALREADY_UNSUBSCRIBED
+        });
+    });
+
+    test('a pending row past its expiry is expired, not invalid', async () => {
+        spentTokenBelongingTo({ status: 'pending', confirm_token_expires_at: '2020-01-01' });
+
+        const result = await newsletterService.confirm('abc123');
+
+        expect(result.outcome).toBe(CONFIRM_OUTCOMES.EXPIRED);
+    });
+
+    test('a digest no row has ever carried is still invalid', async () => {
+        db.query
+            .mockResolvedValueOnce([{ affectedRows: 0 }])
+            .mockResolvedValueOnce([[]]);
+
+        const result = await newsletterService.confirm('never-issued');
+
+        expect(result.outcome).toBe(CONFIRM_OUTCOMES.INVALID_TOKEN);
+    });
+
+    test('the first click still confirms and says nothing about a second', async () => {
+        db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+        const result = await newsletterService.confirm('abc123');
+
+        expect(result).toEqual({ confirmed: true, outcome: CONFIRM_OUTCOMES.CONFIRMED });
+        // No fallback lookup: the UPDATE answered the question.
+        expect(statementMatching('SELECT status')).toBeUndefined();
+    });
+
+    test('unsubscribing preserves an already-recorded spent digest', async () => {
+        // A confirmed row has NULL in confirm_token and its real spent digest
+        // in the other column. A bare assignment would overwrite that with
+        // NULL and lose the audit key this change exists to keep.
+        await newsletterService.unsubscribe('bye');
+
+        expect(String(statementMatching('UPDATE newsletter_subscribers')[0]))
+            .toMatch(/spent_confirm_token = COALESCE\(confirm_token, spent_confirm_token\)/);
+    });
+});
+
+describe('what the confirm endpoint says (#1612)', () => {
+    const confirmWith = async (outcome, extra = {}) => {
+        jest.spyOn(newsletterService, 'confirm').mockResolvedValueOnce({
+            outcome,
+            confirmed: Boolean(extra.confirmed),
+            ...extra
+        });
+        return post(newsletterController.confirm, { token: 't' });
+    };
+
+    afterEach(() => {
+        jest.restoreAllMocks();
+    });
+
+    test('an already-confirmed link is a 200, not an error', async () => {
+        const { statusCode, body } = await confirmWith('already_confirmed', { confirmed: true });
+
+        expect(statusCode).toBe(200);
+        expect(body.success).toBe(true);
+        expect(body.message).toMatch(/already subscribed/i);
+        expect(body.message).not.toMatch(/not valid|expired/i);
+    });
+
+    test('a first confirmation is still its own message', async () => {
+        const { statusCode, body } = await confirmWith('confirmed', { confirmed: true });
+
+        expect(statusCode).toBe(200);
+        expect(body.message).toMatch(/Thanks for signing up/i);
+    });
+
+    test('an unsubscribed address is a 409 pointing back at the form', async () => {
+        const { statusCode, body } = await confirmWith('already_unsubscribed');
+
+        expect(statusCode).toBe(409);
+        expect(body.success).toBe(false);
+        expect(body.message).toMatch(/sign up again/i);
+    });
+
+    test('an expired link is a 410 and no longer claims it may have been used', async () => {
+        const { statusCode, body } = await confirmWith('expired');
+
+        expect(statusCode).toBe(410);
+        // The old copy hedged -- "expired or has already been used" -- because
+        // the two were indistinguishable. They are not any more.
+        expect(body.message).toMatch(/expired/i);
+        expect(body.message).not.toMatch(/already been used/i);
+    });
+
+    test('an unknown token is still a 400', async () => {
+        const { statusCode, body } = await confirmWith('invalid_token');
+
+        expect(statusCode).toBe(400);
+        expect(body.message).toMatch(/not valid/i);
+    });
+});
+
 describe('mail delivery', () => {
     test('a send failure does not fail the sign-up', async () => {
         // The row is already recorded and the caller gets the same answer
@@ -465,5 +620,54 @@ describe('the migration', () => {
         // A subscription is to an address, not to an account. Closing an
         // account must not silently drop the address off the list.
         expect(sql).not.toMatch(/REFERENCES\s+users/i);
+    });
+});
+
+describe('the spent-token migration (#1612)', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const { columnsOf, hasColumn } = require('./helpers/migrationSchema');
+
+    const sql = fs.readFileSync(
+        path.join(__dirname, '..', '..', 'migrations', '0048_newsletter_spent_confirm_token.sql'),
+        'utf8'
+    );
+
+    test('the column the service reads and writes actually exists', () => {
+        // The class of bug the migration reader was built for (#1581): a query
+        // names a column that is not there, every gate passes, and the endpoint
+        // 500s for everyone until somebody calls it.
+        expect(hasColumn('newsletter_subscribers', 'spent_confirm_token')).toBe(true);
+    });
+
+    test('the columns confirm() touches are all real', () => {
+        const columns = columnsOf('newsletter_subscribers');
+
+        [
+            'status',
+            'confirmed_at',
+            'confirm_token',
+            'confirm_token_expires_at',
+            'spent_confirm_token',
+            'unsubscribe_token',
+            'unsubscribed_at'
+        ].forEach((column) => expect(columns.has(column)).toBe(true));
+    });
+
+    test('amends the table rather than re-creating it', () => {
+        // A table has exactly one owning migration (migrations/README.md); a
+        // second CREATE TABLE IF NOT EXISTS is skipped silently and makes the
+        // schema depend on apply order.
+        expect(sql).toMatch(/ALTER TABLE newsletter_subscribers/);
+        expect(sql).not.toMatch(/CREATE TABLE/i);
+    });
+
+    test('indexes the new lookup, which is unauthenticated like the others', () => {
+        expect(sql).toMatch(/idx_newsletter_spent_confirm_token/);
+    });
+
+    test('is nullable, because existing rows have nothing to backfill from', () => {
+        expect(sql).toMatch(/spent_confirm_token CHAR\(64\) NULL/);
+        expect(sql).not.toMatch(/spent_confirm_token CHAR\(64\) NOT NULL/);
     });
 });

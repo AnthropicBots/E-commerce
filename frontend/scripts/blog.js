@@ -231,10 +231,11 @@ function openArticleModal(id) {
             ALLOW_DATA_ATTR: false
         });
     } else {
-        // Safe DOM construction fallback without raw innerHTML assignment to prevent XSS
+        // Safe DOM construction fallback with HTML tag stripping and textContent assignment to prevent XSS
         textDiv.textContent = "";
         const rawText = String(post.content || "");
-        const paragraphs = rawText.split(/\n\n+/);
+        const sanitizedText = rawText.replace(/<[^>]*>/g, '');
+        const paragraphs = sanitizedText.split(/\n\n+/);
         paragraphs.forEach((para) => {
             if (para.trim()) {
                 const p = document.createElement("p");
