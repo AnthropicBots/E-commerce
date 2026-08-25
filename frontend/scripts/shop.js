@@ -2311,10 +2311,7 @@
                     "price-range-output"
                 );
 
-            elements.sortSelect =
-                document.getElementById(
-                    "product-sort"
-                );
+            elements.sortSelect = document.getElementById("product-sort");
 
             elements.productContainer =
                 document.getElementById(
@@ -2346,10 +2343,7 @@
                     "close-filter-sidebar"
                 );
 
-            elements.clearFilters =
-                document.getElementById(
-                    "clear-filters"
-                );
+            elements.clearFilters = document.getElementById("clear-filters");
 
             setupSearch();
             setupFilterControls();
