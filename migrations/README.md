@@ -200,6 +200,36 @@ that never existed.
 `security_logs` had its time column renamed to `timestamp`, which is what the
 admin endpoint orders by.
 
+## Corrected migration: 0014
+
+`0014_synthetic_identity_fraud.sql` was edited in place rather than amended by a
+later file, which is an exception to the immutability rule above and needs the
+reason recorded.
+
+Its `velocity_monitoring` view grouped `users` by `ip_address`, a column no
+migration has ever declared. MySQL resolves a view's `SELECT` at `CREATE VIEW`
+time, so this was not a lazy failure on first read — it raised
+`ER_BAD_FIELD_ERROR` while the migration was being applied, and `applyMigration`
+rethrows on the first failing statement. The file therefore could not complete
+on any database, and nothing after it applied: `0015` through `0048` were
+permanently pending on every fresh install.
+
+That is why a follow-up migration would not have worked. The runner never
+reaches one. The broken statement has to stop being broken where it is.
+
+Editing it is safe for the same reason it had to be edited: because the
+transaction is rolled back and no `schema_migrations` row is ever written, `0014`
+has no recorded checksum on any database, so `assertNoDrift` has nothing to
+compare against and cannot report drift. The immutability rule protects
+migrations that *did* apply; this one provably never has.
+
+The fix adds `users.signup_ip` — declared in `0014`, before the view that reads
+it, because this is the migration that introduces the velocity feature — and
+points the view at it. `backend/tests/migrationViewColumns.test.js` resolves
+every single-table view in the sequence against the accumulated schema, so a
+view over a column that does not exist now fails the suite instead of the
+deployment.
+
 ## Known remaining gap: the analytics modules
 
 The metrics, CQRS read-model and parts of the recommendation services query a

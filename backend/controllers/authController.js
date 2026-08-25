@@ -300,11 +300,20 @@ const verifySignup = async (req, res) => {
             }
         }
 
-        // Save to MySQL with email_verified flag
+        // Save to MySQL with email_verified flag.
+        //
+        // signup_ip is recorded here because this is where the row is created,
+        // and it is what velocity_monitoring groups by -- without it the view
+        // has nothing to report and the whole velocity signal is dead (#1673).
+        // req.ip honours the configured `trust proxy` setting, so it is the
+        // caller's address rather than the load balancer's; truncated to the
+        // column width so an unusually long forwarded value cannot fail the
+        // insert and lose a signup over a monitoring field.
         const userId = crypto.randomUUID();
+        const signupIp = sanitizeString(req.ip).slice(0, 45) || null;
         await db.query(
-            `INSERT INTO users (id, name, email, password, role, is_verified) VALUES (?, ?, ?, ?, ?, ?)`,
-            [userId, pendingUser.name, cleanEmail, pendingUser.hashedPassword, "user", 1]
+            `INSERT INTO users (id, name, email, password, role, is_verified, signup_ip) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [userId, pendingUser.name, cleanEmail, pendingUser.hashedPassword, "user", 1, signupIp]
         );
 
         // Cleanup Appwrite session
