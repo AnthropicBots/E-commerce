@@ -297,13 +297,29 @@ const resolveTotals = (order) => {
  */
 function generateInvoicePdf(order, items) {
     return new Promise((resolve, reject) => {
+        let doc;
+        const buffers = [];
+
+        const cleanup = () => {
+            buffers.length = 0;
+            if (doc && typeof doc.removeAllListeners === 'function') {
+                doc.removeAllListeners();
+            }
+        };
+
         try {
-            const doc = new PDFDocument({ margin: MARGIN });
-            const buffers = [];
+            doc = new PDFDocument({ margin: MARGIN });
 
             doc.on('data', buffers.push.bind(buffers));
-            doc.on('end', () => resolve(Buffer.concat(buffers)));
-            doc.on('error', reject);
+            doc.on('end', () => {
+                const pdfBuffer = Buffer.concat(buffers);
+                cleanup();
+                resolve(pdfBuffer);
+            });
+            doc.on('error', (err) => {
+                cleanup();
+                reject(err);
+            });
 
             // Settled once, before anything is drawn, so the whole document
             // agrees with itself about how money looks.
@@ -402,6 +418,7 @@ function generateInvoicePdf(order, items) {
 
             doc.end();
         } catch (error) {
+            cleanup();
             reject(error);
         }
     });

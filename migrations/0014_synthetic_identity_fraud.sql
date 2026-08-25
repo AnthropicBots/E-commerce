@@ -45,10 +45,36 @@ ALTER TABLE device_fingerprints
     ADD COLUMN language VARCHAR(50) NULL,
     ADD INDEX idx_device_fingerprints_last_seen (last_seen);
 
+-- Signup Source Address
+--
+-- `velocity_monitoring` below groups accounts by the address they were created
+-- from, and `users` had nowhere to record one: the baseline declares no
+-- `ip_address`, and no later migration adds one. The view was written against a
+-- column that has never existed, so `CREATE VIEW` failed with ER_BAD_FIELD_ERROR
+-- and took the rest of the sequence down with it -- 0015 through 0048 could not
+-- apply on a fresh database (#1673).
+--
+-- The column belongs here rather than in a later file, because this is the
+-- migration that introduces the velocity feature and the view two statements
+-- down cannot be created without it.
+--
+-- Named `signup_ip` and not `ip_address`: it records where the account was
+-- created, once, and is not a "current address" that anything should update.
+ALTER TABLE users
+    ADD COLUMN signup_ip VARCHAR(45) NULL,
+    ADD INDEX idx_users_signup_ip (signup_ip);
+
 -- Velocity Monitoring View
+--
+-- How many accounts one address created in the last 24 hours.
+--
+-- Rows with no recorded address are excluded rather than grouped. Every account
+-- that predates the column has `signup_ip IS NULL`, and MySQL groups NULLs
+-- together, so counting them would collapse the entire existing user table into
+-- a single bucket and report it as the highest-velocity address on the system.
 CREATE VIEW velocity_monitoring AS
 SELECT 
-    ip_address,
+    signup_ip AS ip_address,
     COUNT(*) as account_count,
     MAX(created_at) as last_account,
     TIMESTAMPDIFF(HOUR, MIN(created_at), MAX(created_at)) as hours_span,
@@ -59,7 +85,8 @@ SELECT
     END as velocity_risk
 FROM users
 WHERE created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
-GROUP BY ip_address
+  AND signup_ip IS NOT NULL
+GROUP BY signup_ip
 HAVING account_count > 2
 ORDER BY account_count DESC;
 

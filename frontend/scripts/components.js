@@ -1025,6 +1025,7 @@ async function initializeComponents() {
             <div class="skeleton-card"></div>
         </div>
         `;
+    fashionProductsContainer.setAttribute("aria-busy", "true");
 
         try {
             await ensureProductCardFactory();
@@ -1068,9 +1069,9 @@ async function initializeComponents() {
                 <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                 </svg>
-                <h4 class="empty-state-heading">No Products Found</h4>
-                <p class="empty-state-desc">We couldn't find any products in this category right now.</p>
-                <a href="shop.html" class="empty-state-cta">Shop All Products</a>
+                <h4 class="empty-state-heading">Preview Unavailable</h4>
+                <p class="empty-state-desc">We were unable to load products for this category right now. Try again in a moment.</p>
+                <a href="shop.html?category=Fashion" class="empty-state-cta">Explore Fashion</a>
             </div>
             `;
         }
@@ -1281,13 +1282,31 @@ async function initializeComponents() {
     document.dispatchEvent(new CustomEvent("componentsLoaded"));
 }
 
-const user = JSON.parse(localStorage.getItem("user"));
+// The account menu's open-on-hover rule (components.css) is keyed on
+// data-loggedin, so something has to set it.
+//
+// This used to run here, at the top level of the module, and could not work for
+// three separate reasons (#1672):
+//
+//   1. #profile-dropdown existed in no markup at all, so the lookup was null;
+//   2. even once it exists, this code runs before loadComponent() has injected
+//      navbar.html, so the lookup would still be null;
+//   3. JSON.parse was unguarded. A non-JSON value under the "user" key -- a
+//      partial write, or anything left by an older build -- threw a SyntaxError
+//      at the top level, which aborted the rest of this file, taking the navbar
+//      search combobox defined below down with it on all 28 pages that load it.
+//
+// So it waits for the navbar, and reads the user through AppUtils.getUser(),
+// which already parses defensively and answers null on junk.
+document.addEventListener("componentsLoaded", () => {
+    const profileDropdown = document.getElementById("profile-dropdown");
 
-const profileDropdown = document.getElementById("profile-dropdown");
+    if (!profileDropdown) return;
 
-if (user && profileDropdown) {
-    profileDropdown.setAttribute("data-loggedin", "true");
-}
+    const user = window.AppUtils?.getUser ? AppUtils.getUser() : null;
+
+    profileDropdown.setAttribute("data-loggedin", user ? "true" : "false");
+});
 
 
 // ===== NAVBAR SEARCH =====
@@ -1461,22 +1480,18 @@ function initNavbarSearch() {
                 return;
             }
 
-            // This endpoint answers with a bare array rather than the usual
-            // `{ success, ... }` envelope, so both shapes are accepted -- the
-            // widget should not break if the endpoint is ever standardised.
+            // Standard envelope `{ success, data, ... }` or array fallback
             const items = Array.isArray(response)
                 ? response
-                : AppUtils.safeArray(response && response.products);
+                : AppUtils.safeArray(response && (response.data || response.products));
 
-            renderList(items.slice(0, 8), query);
+            renderList(items.slice(0, 5), query);
         } catch (error) {
             if (sequence !== requestSequence) {
                 return;
             }
             // A failed lookup closes the list rather than leaving a stale one
-            // on screen. Nothing is shown to the shopper: the input still
-            // works -- Enter searches the shop page -- so there is nothing for
-            // them to do about it.
+            // on screen.
             console.error("Search suggestions failed:", error);
             closeList();
         }
@@ -1488,8 +1503,6 @@ function initNavbarSearch() {
         clearTimeout(debounceTimer);
 
         if (query.length < SEARCH_SUGGEST_MIN_LENGTH) {
-            // Bump the counter so a reply still in flight for a longer query
-            // cannot reopen the list the user has just emptied.
             requestSequence++;
             closeList();
             return;
@@ -1497,7 +1510,7 @@ function initNavbarSearch() {
 
         debounceTimer = setTimeout(
             () => fetchSuggestions(query),
-            SEARCH_SUGGEST_DEBOUNCE_MS
+            300
         );
     });
 

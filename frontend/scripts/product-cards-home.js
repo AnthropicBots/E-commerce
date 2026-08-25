@@ -88,63 +88,52 @@ function createProductCard(
     product,
     wishlistIds
 ) {
+    if (!product || typeof product !== "object") {
+        return "";
+    }
+
+    const productId = product.id ?? product.productId ?? "";
     const isWishlisted = isProductWishlisted(product.id, wishlistIds);
-
-    const rating =
-        Math.min(
-            5,
-            Math.max(
-                0,
-                Number(
-                    product.rating || 4
-                )
-            )
-        );
-
-    const stars =
-        Array.from(
-            {
-                length: 5
-            },
-            (_, index) => {
-                return `
-                    <i class="fas fa-star${
-                        index < rating
-                            ? ""
-                            : "-o"
-                    }"></i>
-                `;
-            }
-        ).join("");
-
-    // Stock state, read once and reused by the badge, the overlay, the
-    // low-stock line and the three disabled buttons below.
-    //
-    // These three bindings, and the orphaned image tag that stood here instead
-    // of them, were the two halves of the bad merge that took the homepage
-    // grid offline (#1444). The fragment sat at statement position --
-    // outside any template literal -- so the whole file was a SyntaxError, and
-    // the declarations the template needs went with it. The product image is
-    // rendered by the `return` template below; nothing is lost by dropping the
-    // fragment.
-    const stock = Number(product.stock) || 0;
+    const stock = Number(product.stock ?? 0);
     const outOfStock = isOutOfStock(stock);
-    // `.pro.out-of-stock` is what styles/product-card.css dims and disables --
-    // same class shop.js puts on its cards, so both grids look the same.
     const outOfStockClass = outOfStock ? "out-of-stock" : "";
 
+    const rating = Math.min(
+        5,
+        Math.max(0, Number(product.rating || 4))
+    );
+
+    const stars = Array.from({ length: 5 }, (_, index) => {
+        return `
+            <i class="fas fa-star${index < rating ? "" : "-o"}"></i>
+        `;
+    }).join("");
+
+    const imageUrl = typeof defaultImage === "function"
+        ? defaultImage(product.image)
+        : (product.image || "");
+
+    const productName = safeText(product.name, "Product");
+    const safeBrand = safeText(product.brand || product.category, "Fashion");
+    const numericPrice = safePrice(product.price);
+    const priceLabel = typeof formatPrice === "function"
+        ? formatPrice(numericPrice)
+        : `$${numericPrice}`;
+    const escapedProductName = typeof AppUtils !== "undefined" && AppUtils.escapeHTML
+        ? AppUtils.escapeHTML(productName)
+        : productName;
+    const escapedBrand = typeof AppUtils !== "undefined" && AppUtils.escapeHTML
+        ? AppUtils.escapeHTML(safeBrand)
+        : safeBrand;
+
     return `
-        <div class="pro ${outOfStockClass} fade-in" data-id="${product.id}">
-            ${
-                product.featured
-                    ? `<span class="product-badge">Featured</span>`
-                    : ""
-            }
+        <div class="pro ${outOfStockClass} fade-in" data-id="${productId}">
+            ${product.featured ? '<span class="product-badge">Featured</span>' : ""}
 
             <div class="product-image-wrapper">
                 <img
-                    src="${typeof defaultImage === 'function' ? defaultImage(product.image) : (product.image || '')}"
-                    alt="${typeof escapeHTML === 'function' ? escapeHTML(product.name || 'Product image') : (product.name || 'Product')}"
+                    src="${imageUrl}"
+                    alt="${escapedProductName}"
                     loading="lazy"
                     onerror="typeof handleImageError === 'function' && handleImageError(this)"
                 >
@@ -153,34 +142,34 @@ function createProductCard(
             </div>
 
             <div class="des">
-                <span>${safeText(product.brand || product.category, "Fashion")}</span>
-                <h5>${safeText(product.name, "Product")}</h5>
+                <span>${escapedBrand}</span>
+                <h5>${escapedProductName}</h5>
                 <div class="star">${stars}</div>
-                <h4>${typeof formatPrice === 'function' ? formatPrice(safePrice(product.price)) : `$${safePrice(product.price)}`}</h4>
+                <h4>${priceLabel}</h4>
                 ${getLowStockTextHTML(stock)}
 
                 <div class="product-actions">
                     <button
                         type="button"
                         class="view-product-btn"
-                        data-id="${product.id}"
-                        ${outOfStock ? 'disabled' : ''}
+                        data-id="${productId}"
+                        ${outOfStock ? "disabled" : ""}
                     >
                         View
                     </button>
                     <button
                         type="button"
                         class="add-cart-btn"
-                        data-id="${product.id}"
-                        ${outOfStock ? 'disabled' : ''}
+                        data-id="${productId}"
+                        ${outOfStock ? "disabled" : ""}
                     >
                         Add Cart
                     </button>
                     <button
                         type="button"
                         class="compare-btn"
-                        data-id="${product.id}"
-                        ${outOfStock ? 'disabled' : ''}
+                        data-id="${productId}"
+                        ${outOfStock ? "disabled" : ""}
                     >
                         Compare
                     </button>
@@ -188,7 +177,7 @@ function createProductCard(
                     <button
                         type="button"
                         class="wishlist-btn secondary-action"
-                        data-id="${product.id}"
+                        data-id="${productId}"
                     >
                         <i class="${isWishlisted ? "fas" : "far"} fa-heart"></i>
                         Wishlist

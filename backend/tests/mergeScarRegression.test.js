@@ -327,11 +327,18 @@ describe('frontend/scripts/shop.js', () => {
         // `setupSearch` was declared twice, ~250 lines apart. Declarations
         // hoist, so the second silently replaced the first and the first became
         // unreachable -- no error, no warning.
+        //
+        // The leading `\s*` is load-bearing. Anchored at `^function` this
+        // matched nothing once #1644 indented the file inside an IIFE, so the
+        // check passed by finding no declarations at all rather than by finding
+        // no duplicates (#1655).
         const counts = new Map();
 
         for (const match of source.matchAll(/^\s*function\s+([A-Za-z_$][\w$]*)/gm)) {
             counts.set(match[1], (counts.get(match[1]) || 0) + 1);
         }
+
+        expect(counts.size).toBeGreaterThan(10);
 
         expect([...counts.entries()].filter(([, n]) => n > 1).map(([name]) => name)).toEqual([]);
     });
@@ -364,10 +371,16 @@ describe('frontend/scripts/shop.js', () => {
         expect(html).toMatch(/id="clear-filters"/);
         expect(html).toMatch(/id="product-sort"/);
 
-        expect(source).not.toMatch(/getElementById\(['"]clear-filters-btn['"]\)/);
-        expect(source).not.toMatch(/getElementById\(['"]sort-select['"]\)/);
-        expect(source).toMatch(/getElementById\(["']clear-filters["']\)/);
-        expect(source).toMatch(/getElementById\(["']product-sort["']\)/);
+        // Whitespace-tolerant on both sides of the argument: this file now
+        // wraps the call across three lines, which a single-line pattern misses
+        // even though the id it asks for is exactly right (#1655).
+        const resolvesById = (id) =>
+            new RegExp(`getElementById\\(\\s*["']${id}["']\\s*\\)`);
+
+        expect(source).not.toMatch(resolvesById('clear-filters-btn'));
+        expect(source).not.toMatch(resolvesById('sort-select'));
+        expect(source).toMatch(resolvesById('clear-filters'));
+        expect(source).toMatch(resolvesById('product-sort'));
     });
 
     it('has one owner for the clear-filters click', () => {
@@ -375,11 +388,11 @@ describe('frontend/scripts/shop.js', () => {
         // that bound `clearFiltersBtn` is gone, and so is the legacy
         // `.filter-btn` state it reset.
         expect(source).toMatch(/elements\.clearFilters\?\.addEventListener\(/);
-        expect(source).not.toMatch(/^function clearAllFilters\(\)/m);
-        expect(source).not.toMatch(/^function setupClearFilters\(\)/m);
+        expect(source).not.toMatch(/^\s*function clearAllFilters\(\)/m);
+        expect(source).not.toMatch(/^\s*function setupClearFilters\(\)/m);
 
         for (const name of ['currentCategory', 'currentSearch', 'showAllHoodies']) {
-            expect(source).not.toMatch(new RegExp(`^let ${name} = `, 'm'));
+            expect(source).not.toMatch(new RegExp(`^\\s*let ${name} = `, 'm'));
         }
     });
 });

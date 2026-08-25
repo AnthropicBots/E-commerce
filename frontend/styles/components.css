@@ -804,6 +804,10 @@ body.dark-theme .grocery-category-card:hover span {
 
     #mobile-menu-btn {
         display: flex;
+        min-height: 44px;
+        min-width: 44px;
+        align-items: center;
+        justify-content: center;
     }
 
     #mobile-menu-overlay {
@@ -811,9 +815,9 @@ body.dark-theme .grocery-category-card:hover span {
     }
 }
 
-@media (max-width: 477px) {
+@media (max-width: 599px) {
     #header {
-        padding: 12px 20px;
+        padding: 10px var(--space-sm);
     }
 
     #header .logo {
@@ -827,6 +831,17 @@ body.dark-theme .grocery-category-card:hover span {
     .mobile-menu-header {
         padding: 16px 20px;
     }
+}
+
+@media (min-width: 600px) and (max-width: 899px) {
+    #header {
+        padding: 12px var(--space-md);
+    }
+
+    #mobile-menu-overlay {
+        max-width: 380px;
+    }
+}
 
     .mobile-logo {
         width: 100px;
@@ -1598,26 +1613,24 @@ body.dark-theme #header .suggestions-dropdown .suggestion-item.is-active {
 
 /* ===== Responsive ===== */
 
-@media(max-width:992px) {
-
+@media (max-width: 899px) {
     #header .search-container {
-        width: 220px;
-    }
-
-}
-
-@media(max-width:768px) {
-
-    #header .search-container {
-        width: 60%;
-        margin: 15px;
+        width: 100%;
+        max-width: 320px;
+        margin: 10px 0;
     }
 
     #header .search-input {
-        height: 44px;
-        font-size: 13px;
+        min-height: 44px;
+        font-size: var(--text-sm);
     }
+}
 
+@media (max-width: 599px) {
+    #header .search-container {
+        width: 100%;
+        max-width: 100%;
+    }
 }
 
 /* Cart drawer sidebar */

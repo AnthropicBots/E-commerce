@@ -13,7 +13,7 @@ const powChallengeService = require('../services/powChallengeService');
 // resolves prices under lock, enforces stock and consumes inventory holds.
 router.post('/quote', async (req, res) => {
     try {
-        const { items, promoCode, shippingMethod, destination } = req.body;
+        const { items, promoCode, couponCode, shippingMethod, destination } = req.body;
         const requestedItems = safeArray(items);
 
         // Nothing to price and nothing to deliver, so no options are offered
@@ -31,20 +31,27 @@ router.post('/quote', async (req, res) => {
             enforceStock: false
         });
 
-        const requestedCode = promoCode ? sanitizeString(promoCode) : '';
+        const rawCode = couponCode || promoCode;
+        const requestedCode = rawCode ? sanitizeString(rawCode) : '';
         let promo = null;
         let promoMessage = null;
 
         if (requestedCode) {
             const { subtotal } = pricing.priceLineItems(lines);
-            const validation = await validatePromo(requestedCode, subtotal);
+            const couponService = require('../services/couponService');
+            const couponVal = await couponService.validateCoupon(requestedCode, subtotal);
 
-            if (validation.valid) {
-                promo = validation.promo;
+            if (couponVal.valid) {
+                promo = couponVal.coupon;
             } else {
-                // An unusable code must not fail the quote — the shopper still
-                // needs to see what the basket costs without it.
-                promoMessage = validation.message;
+                const validation = await validatePromo(requestedCode, subtotal);
+                if (validation.valid) {
+                    promo = validation.promo;
+                } else {
+                    // An unusable code must not fail the quote — the shopper still
+                    // needs to see what the basket costs without it.
+                    promoMessage = couponVal.message || validation.message;
+                }
             }
         }
 

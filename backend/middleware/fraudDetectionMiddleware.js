@@ -3,6 +3,7 @@ const detector = require('../services/syntheticIdentityDetector');
 const db = require('../config/db').promise;
 const redis = require('../config/redis');
 const crypto = require('crypto');
+const logger = require('../utils/logger');
 /**
  * Middleware to detect synthetic identity fraud during signup
  */
@@ -194,8 +195,20 @@ async function flagForMonitoring(req, detection) {
                 req.ip || 'unknown'
             ]
         );
+
+        return true;
     } catch (error) {
-        console.error('Error flagging for monitoring:', error);
+        // Non-fatal on purpose: a monitoring write must not fail a signup. But
+        // the queue is the only record a medium-risk decision leaves, so a
+        // dropped row has to say which signup it was -- the old message named
+        // no email, no score and no level, which made it impossible to tie the
+        // failure back to anything (#1674).
+        logger.error(
+            `Fraud monitoring queue write failed for ${req.body?.email || 'unknown address'} ` +
+            `(${detection?.riskLevel} / ${detection?.riskScore}): ${error.message}`
+        );
+
+        return false;
     }
 }
 
@@ -241,5 +254,9 @@ async function getFraudStats(req, res) {
 module.exports = {
     detectSyntheticIdentity,
     detectCheckoutFraud,
-    getFraudStats
+    getFraudStats,
+    // Exported so the queue write can be driven directly in tests. It is the
+    // only record a medium-risk signup leaves, and it failed silently for as
+    // long as the table was missing (#1674).
+    flagForMonitoring
 };
