@@ -142,7 +142,7 @@ async function optionalAuth(req, res, next) {
         return next();
     }
 
-    if (token.length > 8000 || /<script>/i.test(token) || /'\s*OR\s*'/i.test(token) || /--/.test(token)) {
+    if (token.length > 8000 || /<script>/i.test(token) || /'\s*OR\s*'/i.test(token)) {
         return next();
     }
 
