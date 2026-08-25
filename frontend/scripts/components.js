@@ -1025,6 +1025,7 @@ async function initializeComponents() {
             <div class="skeleton-card"></div>
         </div>
         `;
+    fashionProductsContainer.setAttribute("aria-busy", "true");
 
         try {
             await ensureProductCardFactory();
@@ -1068,9 +1069,9 @@ async function initializeComponents() {
                 <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                 </svg>
-                <h4 class="empty-state-heading">No Products Found</h4>
-                <p class="empty-state-desc">We couldn't find any products in this category right now.</p>
-                <a href="shop.html" class="empty-state-cta">Shop All Products</a>
+                <h4 class="empty-state-heading">Preview Unavailable</h4>
+                <p class="empty-state-desc">We were unable to load products for this category right now. Try again in a moment.</p>
+                <a href="shop.html?category=Fashion" class="empty-state-cta">Explore Fashion</a>
             </div>
             `;
         }
