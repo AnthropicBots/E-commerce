@@ -424,9 +424,73 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 .pro:focus-within {
-  outline: 3px solid rgba(8, 129, 120, 0.16);
-  outline-offset: 3px;
-  box-shadow: 0 6px 18px rgba(8, 129, 120, 0.12);
+  outline: 3px solid rgba(8, 129, 120, 0.25);
+  outline-offset: 2px;
+  box-shadow: 0 6px 18px rgba(8, 129, 120, 0.15);
+}
+
+/* Premium Micro-Animations */
+button.normal,
+button.white,
+.btn,
+.filter-btn,
+.add-to-cart-icon,
+.wishlist-btn,
+.wishlist-btn-shop {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              background-color 0.25s ease,
+              color 0.25s ease;
+}
+
+button.normal:hover,
+button.white:hover,
+.btn:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: var(--shadow-hover);
+}
+
+button.normal:active,
+button.white:active,
+.btn:active,
+.filter-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.pro,
+.fe-box,
+.fashion-card,
+.blog-box {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pro:hover,
+.fe-box:hover,
+.fashion-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-hover);
+}
+
+input[type="text"],
+input[type="email"],
+input[type="number"],
+input[type="password"],
+select,
+textarea {
+  transition: border-color 0.25s ease,
+              box-shadow 0.25s ease,
+              background-color 0.25s ease;
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="number"]:focus,
+input[type="password"]:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(8, 129, 120, 0.15);
 }
 
 a,

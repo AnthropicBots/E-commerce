@@ -128,7 +128,7 @@ const subscriptionController = {
                 success: true,
                 message: subscription.withdrewCancellation
                     ? 'Subscription resumed and the pending cancellation withdrawn'
-                    : 'Subscription resumed successfully',
+                    : 'Subscription resumed',
                 data: { subscription }
             });
         } catch (error) {
