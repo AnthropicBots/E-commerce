@@ -173,6 +173,11 @@ async function subscribe(userId, planId) {
         throw new SubscriptionError('Authentication required', 401, 'UNAUTHENTICATED');
     }
 
+    const plan = Math.trunc(safeNumber(planId));
+    if (plan < 1) {
+        throw new SubscriptionError('Invalid plan ID', 400, 'INVALID_PLAN');
+    }
+
     return withTransaction(async (connection) => {
         const billingPlan = await fetchAndValidatePlan(connection, planId);
 
