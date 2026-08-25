@@ -60,4 +60,8 @@ module.exports = {
     "/api/interactions": require("./interactionRoutes"),
     "/api/newsletter": require("./newsletterRoutes"),
     "/api/reviews": require("./reviewRoutes"),
+    // Required in server.js since #1231 and never mounted, so every gift
+    // card path 404ed while the service and both migrations were live
+    // (#1652).
+    "/api/gift-cards": require("./giftCardRoutes"),
 };
