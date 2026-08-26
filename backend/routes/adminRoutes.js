@@ -25,9 +25,34 @@ const {
     getContactMessageSummary
 } = require("../controllers/adminContactController");
 
+// Catalogue and order queue for the dashboard (#1697). admin.js has been
+// calling these paths since #1666; nothing answered them.
+const {
+    verifyAdmin,
+    listProducts,
+    listOrders,
+    updateOrderStatus
+} = require("../controllers/adminCatalogController");
+
+// Product writes are not reimplemented here. productController already owns
+// validation, slug generation and the archive-on-delete behaviour, so the admin
+// paths delegate to it and differ only in which roles may reach them: the
+// public /api/products writes are gated on ROLES.ADMIN alone, while this router
+// applies adminMiddleware, which accepts superadmin too.
+const {
+    createProduct,
+    updateProduct,
+    deleteProduct
+} = require("../controllers/productController");
+
 const authMiddleware = require("../middleware/authMiddleware");
 const { adminMiddleware } = require("../middleware/rbacMiddleware");
 const { adminLimiter } = require("../middleware/authLimiter");
+const {
+    validateCreateProduct,
+    validateUpdateProduct
+} = require("../middleware/validators/productValidator");
+
 const {
     validateUpdateUserStatus,
     validateBulkUpdateUserStatus,
@@ -47,6 +72,29 @@ router.use(adminMiddleware);
 
 // ==================== DASHBOARD ====================
 router.get("/dashboard", getDashboardStats);
+
+// ==================== ACCESS CHECK (#1697) ====================
+//
+// admin.html calls this before it renders anything. Reaching the handler at all
+// means authMiddleware resolved a session and adminMiddleware accepted the
+// role, so the endpoint only has to say who that is.
+router.get("/verify", verifyAdmin);
+
+// ==================== CATALOGUE (#1697) ====================
+//
+// Distinct from /api/products, which restricts itself to publicly visible
+// products. An operator has to see drafts, inactive and archived rows -- those
+// are the ones that need attention.
+router.get("/products", listProducts);
+router.post("/products", validateCreateProduct, createProduct);
+router.put("/products/:id", validateUpdateProduct, updateProduct);
+router.delete("/products/:id", deleteProduct);
+
+// ==================== ORDER QUEUE (#1697) ====================
+//
+// Distinct from /api/orders, which is scoped to the calling user.
+router.get("/orders", listOrders);
+router.patch("/orders/:id/status", updateOrderStatus);
 
 // ==================== USER MANAGEMENT ====================
 router.get("/users", getUsers);
