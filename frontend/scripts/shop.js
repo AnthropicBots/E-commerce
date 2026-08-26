@@ -2261,6 +2261,11 @@ function setupProductObserver() {
 // ---------------------------------------------------------
 // INITIALIZATION
 // ---------------------------------------------------------
+//
+// One handler, not two. The responsive refactor duplicated this block and then
+// interleaved the two copies, which left the file unparsable and the whole
+// shop page without JavaScript (#1696). What follows is the single registration
+// the page has always needed: resolve the elements, wire the controls, fetch.
 
 document.addEventListener(
     "DOMContentLoaded",
@@ -2288,211 +2293,108 @@ document.addEventListener(
         setupFilterDrawer();
         fetchProducts();
 
+        // ---------------------------------------------------------
         // ACTIVE CLEAR FILTERS BUTTON
-        const activeClearFiltersBtn =
-            document.getElementById(
-                "active-clear-filters"
-            );
+        // ---------------------------------------------------------
+        //
+        // Clearing has to reach the URL as well as the form. A shopper who arrived
+        // from the mega menu carries `category`/`subcategory` in the query string,
+        // and `filters.megaCategory`/`filters.megaSubcategory` are seeded from
+        // them. Resetting only the checkboxes leaves both in place, so the next
+        // `applyFilters()` re-applies the very filter the button just cleared, and
+        // a reload brings it back. Strip the params, clear the mega filters, then
+        // re-run the query.
+        //
+        // Note the third argument to `addEventListener` here used to be an
+        // IntersectionObserver options object (`{ rootMargin: "200px 0px" }`) that
+        // belongs to `observeSentinel()`. It is not a valid listener option and is
+        // gone.
+        const activeClearFiltersBtn = document.getElementById("active-clear-filters");
 
         if (activeClearFiltersBtn) {
-            activeClearFiltersBtn.addEventListener(
-                "click",
-                () => {
-                    resetCategoryCheckboxes();
+            activeClearFiltersBtn.addEventListener("click", () => {
+                resetCategoryCheckboxes();
 
-                    if (
-                        elements.searchInput
-                    ) {
-                        elements.searchInput.value =
-                            "";
-                    }
-                },
-                {
-                    rootMargin:
-                        "200px 0px"
+                if (elements.searchInput) {
+                    elements.searchInput.value = "";
                 }
-            );
-    }
 
-    // ---------------------------------------------------------
-    // INITIALIZATION
-    // ---------------------------------------------------------
+                const filterUrlParams = new URLSearchParams(window.location.search);
 
-    document.addEventListener(
-    "DOMContentLoaded",
-        () => {
-            elements.searchForm =
-                document.getElementById(
-                    "shop-search-form"
-                );
+                filterUrlParams.delete("category");
+                filterUrlParams.delete("subcategory");
 
-            elements.searchInput =
-                document.getElementById(
-                    "search-input"
-                );
+                const query = filterUrlParams.toString();
+                const newUrl = window.location.pathname + (query ? `?${query}` : "");
 
-            elements.suggestions =
-                document.getElementById(
-                    "search-suggestions"
-                );
+                window.history.replaceState({}, "", newUrl);
 
-            elements.categoryList =
-                document.getElementById(
-                    "category-filter-list"
-                );
+                filters.megaCategory = "";
+                filters.megaSubcategory = "";
 
-            elements.minPriceRange =
-                document.getElementById(
-                    "min-price-range"
-                );
-
-            elements.maxPriceRange =
-                document.getElementById(
-                    "max-price-range"
-                );
-
-            elements.minPriceNumber =
-                document.getElementById(
-                    "min-price-number"
-                );
-
-            elements.maxPriceNumber =
-                document.getElementById(
-                    "max-price-number"
-                );
-
-            elements.priceOutput =
-                document.getElementById(
-                    "price-range-output"
-                );
-
-            elements.sortSelect = document.getElementById("product-sort");
-
-                    filterUrlParams.delete(
-                        "category"
-                    );
-
-                    filterUrlParams.delete(
-                        "subcategory"
-                    );
-
-                    const newUrl =
-                        window.location
-                            .pathname +
-                        (
-                            filterUrlParams.toString()
-                                ? "?" +
-                                  filterUrlParams.toString()
-                                : ""
-                        );
-
-                    window.history.replaceState(
-                        {},
-                        "",
-                        newUrl
-                    );
-
-                    filters.megaCategory =
-                        "";
-
-                    filters.megaSubcategory =
-                        "";
-
-            elements.clearFilters = document.getElementById("clear-filters");
-
-        // CATEGORY CARD CLICK FILTER
-        document
-            .querySelectorAll(
-                ".fashion-card"
-            )
-            .forEach((card) => {
-                const handleCategorySelect =
-                    () => {
-                        const category =
-                            card.dataset
-                                .category;
-
-                        let checkbox =
-                            document.querySelector(
-                                `input[name="category-filter"][value="${category}"]`
-                            );
-
-                        resetCategoryCheckboxes();
-
-                        if (
-                            !checkbox &&
-                            elements.categoryList
-                        ) {
-                            const label =
-                                document.createElement(
-                                    "label"
-                                );
-
-                            label.innerHTML = `
-                                <input
-                                    type="checkbox"
-                                    name="category-filter"
-                                    value="${AppUtils.escapeHTML(
-                                        category
-                                    )}"
-                                >
-
-                                ${AppUtils.escapeHTML(
-                                    category
-                                )}
-                            `;
-
-                            elements.categoryList.appendChild(
-                                label
-                            );
-
-                            checkbox =
-                                label.querySelector(
-                                    "input"
-                                );
-                        }
-
-                        if (checkbox) {
-                            checkbox.checked =
-                                true;
-
-                            applyFilters({
-                                resetPage: true
-                            });
-
-                            document
-                                .getElementById(
-                                    "product-container"
-                                )
-                                ?.scrollIntoView(
-                                    {
-                                        behavior:
-                                            "smooth"
-                                    }
-                                );
-                        }
-                    };
-
-                card.addEventListener(
-                    "click",
-                    handleCategorySelect
-                );
-
-                card.addEventListener(
-                    "keydown",
-                    (event) => {
-                        if (
-                            event.key ===
-                                "Enter" ||
-                            event.key ===
-                                " "
-                        ) {
-                            event.preventDefault();
-
-                            handleCategorySelect();
-                        }
-                    }
-                );
+                applyFilters({ resetPage: true });
             });
+        }
+
+        // ---------------------------------------------------------
+        // CATEGORY CARD CLICK FILTER
+        // ---------------------------------------------------------
+        //
+        // The category cards on the shop landing strip filter the grid without a
+        // round trip. A card may name a category the sidebar has no checkbox for --
+        // the list is built from what the current result set contains -- so one is
+        // created on demand rather than dropping the click.
+        document.querySelectorAll(".fashion-card").forEach((card) => {
+            const handleCategorySelect = () => {
+                const category = card.dataset.category;
+
+                if (!category) {
+                    return;
+                }
+
+                let checkbox = document.querySelector(
+                    `input[name="category-filter"][value="${category}"]`
+                );
+
+                resetCategoryCheckboxes();
+
+                if (!checkbox && elements.categoryList) {
+                    const label = document.createElement("label");
+
+                    label.innerHTML = `
+                        <input
+                            type="checkbox"
+                            name="category-filter"
+                            value="${AppUtils.escapeHTML(category)}"
+                        >
+                        ${AppUtils.escapeHTML(category)}
+                    `;
+
+                    elements.categoryList.appendChild(label);
+
+                    checkbox = label.querySelector("input");
+                }
+
+                if (checkbox) {
+                    checkbox.checked = true;
+
+                    applyFilters({ resetPage: true });
+
+                    document
+                        .getElementById("product-container")
+                        ?.scrollIntoView({ behavior: "smooth" });
+                }
+            };
+
+            card.addEventListener("click", handleCategorySelect);
+
+            card.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+
+                    handleCategorySelect();
+                }
+            });
+        });
     }
 );
