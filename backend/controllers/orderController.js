@@ -1,6 +1,8 @@
 const db =
     require("../config/db");
 
+const orderNotificationService = require("../services/orderNotificationService");
+
 const {
     createOrderService,
     TOTAL_MISMATCH_CODE
@@ -331,6 +333,22 @@ const createOrder =
             if (addressId) {
                 await addressService.markAddressUsed(checkout.userId, addressId);
             }
+
+            // The confirmation email (#1698). After the commit, for the same
+            // reason markAddressUsed is: an email cannot be un-sent, so telling
+            // a customer about an order that then rolls back is strictly worse
+            // than a missing email.
+            //
+            // Not awaited into the order's fate either. dispatchOrderConfirmation
+            // never rejects, but it can wait on an SMTP handshake, and the
+            // shopper should not sit on a spinner for it. A failure is logged
+            // and shows in the admin email log, where it can be resent.
+            orderNotificationService.dispatchOrderConfirmation({
+                result,
+                customer,
+                address,
+                paymentMethod: canonicalPaymentMethod
+            });
 
             return res.status(201)
                 .json({
@@ -1063,6 +1081,17 @@ const createPaymentIntent = async (req, res) => {
         await connection.query("UPDATE orders SET payment_intent_id = ? WHERE id = ?", [paymentIntentResult.paymentIntentId, result.orderId]);
 
         await connection.commit();
+
+        // Same dispatch as the main checkout path (#1698). The order exists and
+        // is committed at this point; the payment intent is confirmed
+        // client-side afterwards, and the confirmation describes the order that
+        // was placed rather than the settlement.
+        orderNotificationService.dispatchOrderConfirmation({
+            result,
+            customer,
+            address,
+            paymentMethod: "credit_card"
+        });
 
         return res.status(201).json({
             success: true,
