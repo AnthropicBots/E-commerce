@@ -14,6 +14,11 @@
 -- writing that record to `fraud_monitoring_queue` since the middleware landed,
 -- and no migration has ever created the table (#1674).
 --
+-- Renumbered from 0049 (#1700). Three migrations claimed that version, and the
+-- runner refuses to load the directory at all when versions collide -- so
+-- nothing at all could be applied, not just the three. 0049 stays with
+-- 0049_coupons_schema.sql, which merged first.
+--
 -- Every insert therefore failed with ER_NO_SUCH_TABLE. The catch around it
 -- swallows the error into a console.error -- correctly, because a monitoring
 -- write must never fail a signup -- so the account was created, nothing was
