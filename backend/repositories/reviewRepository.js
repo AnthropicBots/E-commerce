@@ -14,14 +14,24 @@ class ReviewRepository extends BaseRepository {
      * @param {Object} reviewData
      * @returns {Promise<Object>} Created review record
      */
-    async create({ productId, userId, rating, comment, title = null, images = null, isVerified = 0 }) {
+    async create({
+        productId,
+        userId,
+        rating,
+        comment,
+        title = null,
+        images = null,
+        isVerified = 0,
+        moderationStatus = 'approved',
+        isApproved = 1
+    }) {
         const numRating = Math.max(1, Math.min(5, Number(rating) || 5));
         const jsonImages = Array.isArray(images) ? JSON.stringify(images) : (typeof images === 'string' ? images : null);
 
         const [result] = await this.db.query(
-            `INSERT INTO ${this.tableName} (product_id, user_id, rating, title, comment, images, is_verified, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-            [productId, userId, numRating, title, comment, jsonImages, isVerified ? 1 : 0]
+            `INSERT INTO ${this.tableName} (product_id, user_id, rating, title, comment, images, is_verified, moderation_status, is_approved, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+            [productId, userId, numRating, title, comment, jsonImages, isVerified ? 1 : 0, moderationStatus, isApproved ? 1 : 0]
         );
 
         return this.findById(result.insertId);
