@@ -2171,7 +2171,17 @@ const saveWishlist = (
         CONFIG.STORAGE_KEYS.WISHLIST,
         safeArray(wishlist)
     );
-}; // Fixed: Added missing closing bracket here
+
+    // Every wishlist mutation funnels through here, so refreshing the nav
+    // badge at this one choke point keeps it live without each caller having
+    // to remember. The cart badge is driven the same way, except its callers
+    // do the remembering -- which is why the count can drift there.
+    if (typeof window !== "undefined" &&
+        typeof window.updateWishlistCount === "function") {
+
+        window.updateWishlistCount();
+    }
+};
 
 const getSkeletonCardHTML = (count = 4) => {
     let html = "";

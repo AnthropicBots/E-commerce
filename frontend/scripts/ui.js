@@ -203,6 +203,22 @@ function updateWishlistCount() {
     const total =
         AppUtils.getWishlist().length;
 
+    // Mirrors updateCartCount: the desktop nav and the mobile drawer each
+    // carry their own badge, and both have to move together or the two
+    // surfaces disagree about what is saved.
+    const mobileBadge =
+        document.getElementById(
+            "mobile-wishlist-badge"
+        );
+
+    if (mobileBadge) {
+        mobileBadge.innerText = total;
+        mobileBadge.style.display =
+            total > 0
+                ? "inline-block"
+                : "none";
+    }
+
     const badge =
         document.getElementById(
             "wishlist-badge"

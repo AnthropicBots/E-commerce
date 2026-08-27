@@ -383,6 +383,8 @@ body.dark-theme .navbar a {
    (the nav-link color rule above must not bleed into the badge) */
 body.dark-theme #cart-badge,
 body.dark-theme #wishlist-badge,
+body.dark-theme #mobile-cart-badge,
+body.dark-theme #mobile-wishlist-badge,
 body.dark-theme #cart-count {
   background-color: var(--primary-color) !important;
   color: #ffffff !important;
