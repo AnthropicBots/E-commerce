@@ -894,12 +894,37 @@ body.dark-theme .grocery-category-card:hover span {
     pointer-events: none;
 }
 
+/* Wishlist icon wrapper -- the positioning context its badge anchors to.
+   Without this the absolutely positioned badge escapes to the nearest
+   positioned ancestor and lands somewhere else in the nav. */
+.wishlist-icon-wrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Desktop wishlist badge. Mirrors #cart-badge so the two counters in the nav
+   sit at the same offset and read as one control surface. */
 #wishlist-badge {
-    background: var(--primary-color);
-    color: white;
-    font-size: 12px;
-    border-radius: 50%;
-    padding: 2px 6px;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: absolute;
+    top: -8px;
+    right: -10px;
+    width: auto;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 6px;
+    background: var(--primary-color, #088178);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    border-radius: 9999px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    pointer-events: none;
 }
 
 /* PROFILE DROPDOWN */

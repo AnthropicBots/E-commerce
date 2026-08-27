@@ -535,7 +535,10 @@
       <li><a href="contact.html">Contact</a></li>
       <li class="wishlist-link">
         <a href="wishlist.html" aria-label="Wishlist">
-          <i class="far fa-heart"></i>
+          <span class="wishlist-icon-wrapper">
+            <i class="far fa-heart"></i>
+            <span id="wishlist-badge" aria-label="Wishlist items count"></span>
+          </span>
         </a>
       </li>
 
@@ -790,7 +793,8 @@
         </li>
         <li class="mobile-divider"></li>
         <li>
-          <a href="wishlist.html" class="mobile-link"><i class="far fa-heart"></i> Wishlist</a>
+          <a href="wishlist.html" class="mobile-link"><i class="far fa-heart"></i> Wishlist
+            <span id="mobile-wishlist-badge" class="mobile-badge">0</span></a>
         </li>
         <li>
           <a href="cart.html" class="mobile-link"><i class="fas fa-shopping-bag"></i> Cart
