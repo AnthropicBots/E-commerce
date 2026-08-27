@@ -697,6 +697,40 @@
 
     </section>
 
+    <!--
+        Recently Viewed.
+
+        Every product view already writes into the recently-viewed store loaded
+        further down this page. loadRecentlyViewedRecommendations() in
+        related-products.js renders that history into #recently-viewed-products
+        and returns early when the container is missing, which is why this
+        section showed nothing at all until the markup existed.
+    -->
+
+    <section
+        id="recently-viewed-section"
+        class="section-p1"
+    >
+
+        <h2>
+
+            Recently Viewed
+
+        </h2>
+
+        <p>
+
+            Pick up where you left off
+
+        </p>
+
+        <div
+            class="pro-container"
+            id="recently-viewed-products"
+        ></div>
+
+    </section>
+
     <!-- Recommended -->
 
     <section
