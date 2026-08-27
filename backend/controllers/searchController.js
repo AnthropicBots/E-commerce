@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const { sanitizeString } = require("../utils/helpers");
+const { publicProductCondition } = require("../constants/productVisibility");
 
 /**
  * GET /api/search?q=
@@ -18,6 +19,7 @@ const searchProducts = async (req, res) => {
             });
         }
 
+        const visible = publicProductCondition("products");
         const terms = queryStr.split(/\s+/).filter(Boolean);
         const formattedTerms = terms.map((t) => `+${t.replace(/[+\-><()~*\"@]/g, "")}*`).join(" ");
         const likeExact = `${queryStr}%`;
@@ -32,12 +34,12 @@ const searchProducts = async (req, res) => {
                    ) AS relevance
             FROM products
             WHERE (MATCH(name) AGAINST(? IN BOOLEAN MODE) OR name LIKE ?)
-              AND (deleted_at IS NULL)
+              AND ${visible.sql}
             ORDER BY relevance DESC, name ASC
             LIMIT 5
         `;
 
-        const params = [likeExact, likeContains, formattedTerms, formattedTerms, likeContains];
+        const params = [likeExact, likeContains, formattedTerms, formattedTerms, likeContains, ...visible.params];
 
         let rows = [];
         try {
@@ -49,11 +51,11 @@ const searchProducts = async (req, res) => {
                     SELECT id, name, price, compare_price, image, category_id, rating, stock,
                            (CASE WHEN name LIKE ? THEN 100 ELSE 50 END) AS relevance
                     FROM products
-                    WHERE name LIKE ? AND deleted_at IS NULL
+                    WHERE name LIKE ? AND ${visible.sql}
                     ORDER BY relevance DESC, name ASC
                     LIMIT 5
                 `;
-                const [fallbackResult] = await db.query(fallbackSql, [likeExact, likeContains]);
+                const [fallbackResult] = await db.query(fallbackSql, [likeExact, likeContains, ...visible.params]);
                 rows = fallbackResult || [];
             } catch (fallbackErr) {
                 rows = [];
