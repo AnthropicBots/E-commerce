@@ -6,8 +6,10 @@ function setLoadingState(
         document.getElementById(
             "featured-products"
         ),
+        // Matches index.html:202. product-cards-home.js resolves the same id
+        // when it renders the section; this file must not drift from it.
         document.getElementById(
-            "new-arrivals-products"
+            "new-arrivals-container"
         )
     ];
 
