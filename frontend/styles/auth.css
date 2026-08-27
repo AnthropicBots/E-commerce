@@ -81,6 +81,42 @@ body.dark-theme .password-toggle:hover{
     color: #88c9c0;
 }
 
+/* Sign-in options row: the remember-me control and the forgot-password link
+   share one line. The link previously sat alone in a right-aligned block, so
+   the row keeps that alignment for the link and pushes the checkbox to the
+   left rather than restyling the link. */
+.signin-options{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:15px;
+    flex-wrap:wrap;
+}
+
+.remember-me{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    font-size:14px;
+    color:#555;
+    cursor:pointer;
+    /* The label wraps the input, so the whole thing is one hit target. */
+    user-select:none;
+}
+
+.remember-me input[type="checkbox"]{
+    width:16px;
+    height:16px;
+    margin:0;
+    accent-color:#088178;
+    cursor:pointer;
+}
+
+body.dark-theme .remember-me{
+    color:#c9c9c9;
+}
+
 .auth-btn{
     background: #088178;
     color: #fff;

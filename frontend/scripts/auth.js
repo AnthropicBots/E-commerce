@@ -143,6 +143,29 @@ function clearRememberMe() {
     localStorage.removeItem('rememberedEmail');
 }
 
+/**
+ * Persist the shopper's choice after a successful sign-in.
+ *
+ * The checkbox is only rendered on the sign-in page. Anywhere else -- and on
+ * any page that trims the form -- the control is absent, and an absent control
+ * expresses no preference at all. Treating that as "unchecked" is what made
+ * this feature self-defeating: every login cleared the stored email, so the
+ * prefill in loadRememberMe() could never find anything to read back.
+ *
+ * @param {string} email - The email that just signed in successfully.
+ */
+function applyRememberMePreference(email) {
+    if (!elements.rememberMe) {
+        return;
+    }
+
+    if (elements.rememberMe.checked) {
+        saveRememberMe(email);
+    } else {
+        clearRememberMe();
+    }
+}
+
 function loadRememberMe() {
     const email = localStorage.getItem('rememberedEmail');
     if (email && elements.signinEmail) {
@@ -480,11 +503,7 @@ if (elements.signinForm) {
                 saveAuthSession(response);
                 
                 // Handle Remember Me
-                if (elements.rememberMe && elements.rememberMe.checked) {
-                    saveRememberMe(email);
-                } else {
-                    clearRememberMe();
-                }
+                applyRememberMePreference(email);
 
                 // Combining a guest cart with the account cart happens here and
                 // only here, so a later visit hydrates instead of re-merging.
