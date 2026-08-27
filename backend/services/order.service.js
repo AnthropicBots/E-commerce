@@ -22,6 +22,7 @@ const cartLifecycle = require("./cartLifecycleService");
 // above: the call site survived the merge and the import did not (#1521).
 const cartRecoveryAttribution = require("./cartRecoveryAttributionService");
 const { generateOrderNumber } = require("./orderNumber.service");
+const discountUsage = require("./discountUsageService");
 // `resolveOrderLines` and the stock deduction in `createOrder` both go through
 // this, and neither could: the require went missing, so `stockCounter` was a
 // free variable and every call threw `ReferenceError: stockCounter is not
@@ -395,6 +396,12 @@ const createOrderService = async (connection, orderData) => {
         // arithmetic that follows belongs to the pricing engine, which is the
         // only place that knows the ordering of discount, tax and shipping.
         let appliedPromo = null;
+
+        // Which table the code resolved from. `coupons` and `promo_codes` are
+        // independent ledgers whose INT AUTO_INCREMENT ids overlap, so an id
+        // without its source is ambiguous and must never be written back on
+        // its own -- see recordDiscountUsage below.
+        let appliedPromoSource = null;
         const requestedCode = orderData.couponCode || promo_code || orderData.coupon_code;
 
         if (requestedCode) {
@@ -404,6 +411,9 @@ const createOrderService = async (connection, orderData) => {
 
             if (couponVal.valid) {
                 appliedPromo = couponVal.coupon;
+                appliedPromoSource = couponVal.coupon.isPromoTable
+                    ? discountUsage.SOURCE_PROMO_CODES
+                    : discountUsage.SOURCE_COUPONS;
             } else {
                 const promoValidation = await validatePromo(requestedCode, subtotal);
                 if (!promoValidation.valid) {
@@ -411,6 +421,7 @@ const createOrderService = async (connection, orderData) => {
                     throw new Error(promoValidation.message || "Invalid promo code.");
                 }
                 appliedPromo = promoValidation.promo;
+                appliedPromoSource = discountUsage.SOURCE_PROMO_CODES;
             }
         }
 
@@ -624,27 +635,19 @@ const createOrderService = async (connection, orderData) => {
             logger.info(`Cleared cart for user ${user_id}`);
         }
 
-        // Track promo / coupon usage
+        // Track discount usage against the table the code actually came from.
+        // Doing this by id alone previously bumped promo_codes row N for a
+        // redemption of coupons row N, burning an unrelated campaign's budget.
         if (appliedPromoCode || appliedPromoId) {
-            const couponService = require("./couponService");
-            await couponService.recordCouponUsage(connection, appliedPromoId, appliedPromoCode);
-
-            if (appliedPromoId) {
-                // Increment global usage count for promo_codes table
-                await connection.query(
-                    "UPDATE promo_codes SET usage_count = usage_count + 1 WHERE id = ?",
-                    [appliedPromoId]
-                ).catch(() => {});
-                
-                // Record individual usage (if authenticated)
-                if (user_id) {
-                    await connection.query(
-                        "INSERT INTO promo_usage (promo_id, user_id, order_id, discount_amount, status) VALUES (?, ?, ?, ?, 'applied')",
-                        [appliedPromoId, safeUUID(user_id), orderId, discountAmount]
-                    ).catch(() => {});
-                    logger.info(`Recorded promo usage for user ${user_id} and promo ${appliedPromoId}`);
-                }
-            }
+            await discountUsage.recordDiscountUsage(connection, {
+                promo: appliedPromo,
+                source: appliedPromoSource,
+                discountId: appliedPromoId,
+                discountCode: appliedPromoCode,
+                userId: user_id,
+                orderId,
+                discountAmount
+            });
         }
 
         if (recoveredCartId) {
