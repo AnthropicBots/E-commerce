@@ -52,7 +52,7 @@ const resolveVariant = async (connection, productId, item, options = {}) => {
         if (explicitVariantId > NO_VARIANT_ID) {
             const [rows] = await connection.query(
                 `SELECT id, price, stock FROM product_variants
-                 WHERE id = ? AND product_id = ? AND is_active = 1
+                 WHERE id = ? AND product_id = ? AND is_active = 1 AND deleted_at IS NULL
                  LIMIT 1${rowLock}`,
                 [explicitVariantId, productId],
             );
@@ -86,7 +86,7 @@ const resolveVariant = async (connection, productId, item, options = {}) => {
 
         const [rows] = await connection.query(
             `SELECT id, price, stock FROM product_variants
-             WHERE product_id = ? AND is_active = 1
+             WHERE product_id = ? AND is_active = 1 AND deleted_at IS NULL
              AND ${conditions.join(" AND ")}
              LIMIT 2${rowLock}`,
             params,
