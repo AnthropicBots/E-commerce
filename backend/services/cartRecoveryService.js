@@ -37,6 +37,7 @@ const crypto = require('crypto');
 const db = require('../config/db');
 const cartRecoveryConfig = require('../config/cartRecoveryConfig');
 const logger = require('../utils/logger');
+const { publicProductCondition } = require('../constants/productVisibility');
 const { safeInteger, safeUUID } = require('../utils/helpers');
 const { sendNotificationEmail } = require('./notificationEmailService');
 const { issueRestoreToken, buildRestoreUrl } = require('./cartRestoreService');
@@ -162,6 +163,7 @@ async function findRecoveryCandidates(options = {}) {
         safeInteger(options.batchSize, cartRecoveryConfig.SCAN_BATCH_SIZE)
     );
 
+    const visible = publicProductCondition('p');
     const [rows] = await db.query(
         `SELECT
              c.id AS cart_id,
@@ -174,7 +176,9 @@ async function findRecoveryCandidates(options = {}) {
              pref.cart_recovery_in_app,
              TIMESTAMPDIFF(MINUTE, c.abandoned_at, NOW()) AS minutes_since_abandoned,
              (SELECT COUNT(*) FROM cart_items ci
-               WHERE ci.cart_id = c.id) AS line_count,
+                JOIN products p ON p.id = ci.product_id
+               WHERE ci.cart_id = c.id
+                 AND ${visible.sql}) AS line_count,
              (SELECT COUNT(*) FROM cart_recovery_log l
                WHERE l.cart_id = c.id) AS messages_for_cart,
              (SELECT COUNT(*) FROM cart_recovery_log l
@@ -192,7 +196,7 @@ async function findRecoveryCandidates(options = {}) {
            AND c.abandoned_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)
          ORDER BY c.abandoned_at ASC
          LIMIT ?`,
-        [frequencyCapHours, CART_STATUS_ABANDONED, giveUpAfterMinutes, batchSize]
+        [...visible.params, frequencyCapHours, CART_STATUS_ABANDONED, giveUpAfterMinutes, batchSize]
     );
 
     return rows;
