@@ -36,6 +36,7 @@
 const crypto = require('crypto');
 const db = require('../config/db');
 const cartRecoveryConfig = require('../config/cartRecoveryConfig');
+const { publicProductCondition } = require('../constants/productVisibility');
 const { safeInteger, safeUUID } = require('../utils/helpers');
 
 // Hex of 32 random bytes. Pinned as a pattern so a malformed token is refused
@@ -223,14 +224,15 @@ async function redeemRestoreToken(rawToken) {
  * @returns {Promise<Array>}
  */
 async function loadRestorableLines(cartId) {
+    const visible = publicProductCondition('p');
     const [rows] = await db.query(
         `SELECT ci.product_id, ci.variant_id, ci.color, ci.size, ci.quantity,
                 p.name, p.price, p.image
          FROM cart_items ci
          JOIN products p ON p.id = ci.product_id
-         WHERE ci.cart_id = ?
+         WHERE ci.cart_id = ? AND ${visible.sql}
          ORDER BY ci.created_at ASC`,
-        [cartId]
+        [cartId, ...visible.params]
     );
 
     return rows.map((row) => ({
@@ -250,5 +252,6 @@ module.exports = {
     RESTORE_TOKEN_REGEX,
     issueRestoreToken,
     buildRestoreUrl,
-    redeemRestoreToken
+    redeemRestoreToken,
+    loadRestorableLines
 };
