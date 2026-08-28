@@ -111,12 +111,15 @@ async function reserveStockInTransaction(conn, userId, productId, quantity, now,
 
     if (variant) {
         totalStock = safeNumber(variant.stock);
+        if (variant.id && line.variantId <= NO_VARIANT_ID) {
+            line.variantId = safeInteger(variant.id, NO_VARIANT_ID);
+        }
     }
 
     const [locks] = variant
         ? await conn.query(
-            "SELECT SUM(quantity) as locked_qty FROM inventory_locks WHERE product_id = ? AND variant_id = ? AND color = ? AND size = ? AND expires_at > ?",
-            [productId, line.variantId, line.color, line.size, now]
+            "SELECT SUM(quantity) as locked_qty FROM inventory_locks WHERE product_id = ? AND variant_id = ? AND expires_at > ?",
+            [productId, line.variantId, now]
         )
         : await conn.query(
             "SELECT SUM(quantity) as locked_qty FROM inventory_locks WHERE product_id = ? AND expires_at > ?",
@@ -399,3 +402,5 @@ const inventoryReservationService = {
 
 module.exports = inventoryReservationService;
 module.exports.InventoryConflictError = InventoryConflictError;
+module.exports.reserveStockInTransaction = reserveStockInTransaction;
+module.exports.lockLine = lockLine;
