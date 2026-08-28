@@ -33,6 +33,7 @@ const guestCart = require('./guestCartService');
 const cartLifecycle = require('./cartLifecycleService');
 const inventoryReservationService = require('./inventoryReservationService');
 const { mergeCartLines, normalizeCartLines } = require('./cart.service');
+const { publicProductCondition } = require('../constants/productVisibility');
 const { safeArray, safeUUID } = require('../utils/helpers');
 
 /**
@@ -159,10 +160,13 @@ async function runMerge(owner, guestToken, connection) {
 }
 
 async function readCartLines(cartId, connection) {
+    const visible = publicProductCondition('p');
     const [rows] = await connection.query(
-        `SELECT product_id, variant_id, color, size, quantity
-         FROM cart_items WHERE cart_id = ?`,
-        [cartId]
+        `SELECT ci.product_id, ci.variant_id, ci.color, ci.size, ci.quantity
+         FROM cart_items ci
+         JOIN products p ON p.id = ci.product_id
+         WHERE ci.cart_id = ? AND ${visible.sql}`,
+        [cartId, ...visible.params]
     );
 
     return normalizeCartLines(safeArray(rows));
@@ -216,5 +220,6 @@ async function holdStockForMergedLines(owner, lines, connection) {
 
 module.exports = {
     mergeGuestCart,
-    mergeGuestCartOnSignIn
+    mergeGuestCartOnSignIn,
+    readCartLines
 };
