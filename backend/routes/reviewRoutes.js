@@ -119,7 +119,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
             return res.status(404).json({ success: false, message: 'Review not found' });
         }
 
-        if (existing.user_id !== req.user.id && req.user.role !== 'admin') {
+        if (String(existing.user_id) !== String(req.user.id) && req.user.role !== 'admin') {
             return res.status(403).json({ success: false, message: 'Unauthorized to update this review' });
         }
 
@@ -168,7 +168,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
             return res.status(404).json({ success: false, message: 'Review not found' });
         }
 
-        if (existing.user_id !== req.user.id && req.user.role !== 'admin') {
+        if (String(existing.user_id) !== String(req.user.id) && req.user.role !== 'admin') {
             return res.status(403).json({ success: false, message: 'Unauthorized to delete this review' });
         }
 
