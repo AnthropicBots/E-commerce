@@ -151,20 +151,47 @@ const validateCoupon = async (rawCode, rawCartTotal = 0, userId = null, connecti
  * @param {string} code - Coupon code.
  * @returns {Promise<void>}
  */
-const recordCouponUsage = async (connection, couponId, code) => {
+const recordCouponUsage = async (connection, couponId, code, isPromoTable = false) => {
     if (!connection) return;
 
     try {
+        if (isPromoTable) {
+            if (couponId) {
+                await connection.query(
+                    "UPDATE promo_codes SET usage_count = usage_count + 1 WHERE id = ?",
+                    [couponId]
+                );
+            } else if (code) {
+                await connection.query(
+                    "UPDATE promo_codes SET usage_count = usage_count + 1 WHERE UPPER(code) = UPPER(?)",
+                    [code]
+                );
+            }
+            return;
+        }
+
         if (couponId) {
-            await connection.query(
+            const [result] = await connection.query(
                 "UPDATE coupons SET used_count = used_count + 1 WHERE id = ?",
                 [couponId]
             );
+            if (!result || result.affectedRows === 0) {
+                await connection.query(
+                    "UPDATE promo_codes SET usage_count = usage_count + 1 WHERE id = ?",
+                    [couponId]
+                );
+            }
         } else if (code) {
-            await connection.query(
+            const [result] = await connection.query(
                 "UPDATE coupons SET used_count = used_count + 1 WHERE UPPER(code) = UPPER(?)",
                 [code]
             );
+            if (!result || result.affectedRows === 0) {
+                await connection.query(
+                    "UPDATE promo_codes SET usage_count = usage_count + 1 WHERE UPPER(code) = UPPER(?)",
+                    [code]
+                );
+            }
         }
     } catch (error) {
         console.error("RECORD COUPON USAGE ERROR:", error);
