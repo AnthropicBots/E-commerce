@@ -175,6 +175,25 @@
 
                 </li>
 
+                <!--
+                    Not a tab. admin-email-logs.html is a separate page, and it
+                    had no route into it from anywhere in the app (#1698) -- an
+                    operator had to know the filename. The .admin-tab class is
+                    deliberately absent so admin.js's tab switcher leaves it
+                    alone and the anchor navigates.
+                -->
+                <li class="admin-nav-link">
+
+                    <a href="admin-email-logs.html">
+
+                        <i class="fas fa-envelope-open-text" aria-hidden="true"></i>
+
+                        Email Logs
+
+                    </a>
+
+                </li>
+
             </ul>
 
         </div>

@@ -37,6 +37,45 @@
     margin-right: 10px;
 }
 
+/*
+ * The sidebar's other entries are tabs -- <li>s the script switches panels on.
+ * Email Logs is a separate page (#1698), so it carries an anchor. The <li>
+ * already supplies the padding and hover, so the link stretches to fill it and
+ * inherits the colour rather than arriving as a default blue underlined link
+ * on a dark panel.
+ */
+.admin-sidebar ul li.admin-nav-link{
+    padding: 0;
+}
+
+.admin-sidebar ul li.admin-nav-link a{
+    display: block;
+    padding: 15px 18px;
+    color: inherit;
+    text-decoration: none;
+}
+
+.admin-sidebar ul li.admin-nav-link a:focus-visible{
+    outline: 2px solid currentColor;
+    outline-offset: -2px;
+}
+
+/* The way back, on the page the link above leads to. */
+.admin-back-link{
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #475569;
+    font-size: 14px;
+    text-decoration: none;
+}
+
+.admin-back-link:hover,
+.admin-back-link:focus-visible{
+    color: #0f172a;
+    text-decoration: underline;
+}
+
 .admin-content{
     flex: 1;
     padding: 40px;
