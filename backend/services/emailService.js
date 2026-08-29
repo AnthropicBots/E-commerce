@@ -30,14 +30,25 @@ async function recordEmailLog(entry) {
         emailLogBuffer.pop();
     }
 
+    // Writing the log must never fail the send it is describing, so the error
+    // is caught -- but it is reported, not discarded. It used to be swallowed
+    // by a bare `.catch(() => {})` with a comment claiming the table was
+    // "created dynamically if needed". Nothing created it, MySQL answered
+    // ER_NO_SUCH_TABLE on every insert for months, and there was no way to tell
+    // from the outside (#1699). One console line is the difference between a
+    // schema drift that is visible and one that is not.
     try {
         await db.query(
             `INSERT INTO email_logs (recipient, subject, order_id, status, channel, error)
              VALUES (?, ?, ?, ?, ?, ?)`,
             [logItem.recipient, logItem.subject, logItem.orderId, logItem.status, logItem.channel, logItem.error]
-        ).catch(() => {}); // Table created dynamically if needed
-    } catch (_) {
-        // DB log failure is non-blocking
+        );
+        logItem.persisted = true;
+    } catch (error) {
+        logItem.persisted = false;
+        console.error(
+            `[emailService] Could not persist email log (${error.code || 'error'}): ${error.message}`
+        );
     }
 
     return logItem;
@@ -61,14 +72,23 @@ async function getEmailLogs(limit = 50) {
             [fetchLimit]
         );
 
-        if (rows && rows.length > 0) {
-            return rows;
-        }
-    } catch (_) {
-        // Fall back to memory buffer if table is missing
-    }
+        // An empty table is an answer, not a failure. Falling through to the
+        // buffer on `rows.length === 0` made a working database look like a
+        // broken one the moment it had nothing to show, and hid the fact that
+        // the in-memory list was all anyone had ever been reading.
+        return Array.isArray(rows) ? rows : [];
+    } catch (error) {
+        // The buffer is a fallback for a database that cannot answer, not a
+        // store. It is capped, per-process and empty after a restart, so
+        // reaching it is worth saying out loud.
+        console.error(
+            `[emailService] email_logs unreadable (${error.code || 'error'}), `
+            + `serving ${emailLogBuffer.length} in-memory entr${emailLogBuffer.length === 1 ? 'y' : 'ies'}: `
+            + error.message
+        );
 
-    return emailLogBuffer.slice(0, fetchLimit);
+        return emailLogBuffer.slice(0, fetchLimit);
+    }
 }
 
 /**
