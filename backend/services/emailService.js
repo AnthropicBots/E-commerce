@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const db = require('../config/db');
-const { safeNumber, safeArray, sanitizeString } = require('../utils/helpers');
+const { safeNumber, safeArray, sanitizeString, escapeHTML } = require('../utils/helpers');
 
 // Ring buffer for in-memory email logs (troubleshooting & fallback)
 const MAX_LOG_ENTRIES = 100;
@@ -109,12 +109,12 @@ function buildItemsTableRows(items) {
     }
 
     return list.map((item) => {
-        const name = sanitizeString(item.name || item.title || 'Product');
+        const name = escapeHTML(sanitizeString(item.name || item.title || 'Product'));
         const qty = safeNumber(item.qty || item.quantity, 1);
         const price = safeNumber(item.price || item.unitPrice, 0);
         const lineTotal = price * qty;
-        const color = item.color ? `Color: ${sanitizeString(item.color)}` : '';
-        const size = item.size ? `Size: ${sanitizeString(item.size)}` : '';
+        const color = item.color ? `Color: ${escapeHTML(sanitizeString(item.color))}` : '';
+        const size = item.size ? `Size: ${escapeHTML(sanitizeString(item.size))}` : '';
         const details = [color, size].filter(Boolean).join(' | ');
 
         return `
@@ -144,9 +144,10 @@ async function sendOrderEmail(toEmail, order) {
         return { success: false, reason: 'missing_recipient' };
     }
 
-    const orderNumber = order.orderNumber || order.order_number || order.id || 'N/A';
+    const rawOrderNumber = order.orderNumber || order.order_number || order.id || 'N/A';
+    const orderNumber = escapeHTML(sanitizeString(rawOrderNumber));
     const orderId = order.id || order.orderId || null;
-    const customerName = sanitizeString(order.customerName || order.shippingAddress?.fullName || order.fullName || recipient.split('@')[0]);
+    const customerName = escapeHTML(sanitizeString(order.customerName || order.shippingAddress?.fullName || order.fullName || recipient.split('@')[0]));
     const orderDate = new Date(order.created_at || order.createdAt || Date.now()).toLocaleDateString('en-US', {
         year: 'numeric', month: 'long', day: 'numeric'
     });
@@ -164,7 +165,9 @@ async function sendOrderEmail(toEmail, order) {
     const city = addressObj.city || '';
     const state = addressObj.state || '';
     const zip = addressObj.zip || addressObj.pincode || '';
-    const shippingAddressStr = [street, city, state, zip].filter(Boolean).join(', ') || 'Standard Delivery';
+    const shippingAddressStr = escapeHTML([street, city, state, zip].filter(Boolean).join(', ') || 'Standard Delivery');
+
+    const paymentMethod = escapeHTML(sanitizeString(order.paymentMethod || 'Online Payment'));
 
     const discountRowHtml = discountVal > 0 ? `
         <tr>
@@ -188,8 +191,8 @@ async function sendOrderEmail(toEmail, order) {
         .replace(/{{customerName}}/g, customerName)
         .replace(/{{orderNumber}}/g, orderNumber)
         .replace(/{{orderDate}}/g, orderDate)
-        .replace(/{{customerEmail}}/g, recipient)
-        .replace(/{{paymentMethod}}/g, order.paymentMethod || 'Online Payment')
+        .replace(/{{customerEmail}}/g, escapeHTML(recipient))
+        .replace(/{{paymentMethod}}/g, paymentMethod)
         .replace(/{{itemsTableRows}}/g, itemsTableRows)
         .replace(/{{subtotal}}/g, formatPrice(subtotalVal))
         .replace(/{{discountRow}}/g, discountRowHtml)
@@ -259,11 +262,12 @@ async function sendOrderEmail(toEmail, order) {
         channel: 'log'
     });
 
-    return { success: true, delivered: false, channel: 'log' };
+    return { success: true, delivered: false, channel: 'log', html: htmlBody };
 }
 
 module.exports = {
     sendOrderEmail,
     getEmailLogs,
-    recordEmailLog
+    recordEmailLog,
+    buildItemsTableRows
 };
