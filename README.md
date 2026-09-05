@@ -443,6 +443,12 @@ The primary route definitions are located under `backend/routes/`:
 
 > **Note:** The project supports API versioning (`/v1`, `/v2`, and `/v3`). All versions currently share the same route definitions through a common router while allowing future version-specific customization.
 
+### 📚 Detailed API Documentation
+
+For detailed HTTP methods, authentication requirements, request examples,
+success responses, and common error responses, see the
+[Detailed API Documentation](docs/API.md).
+
 ### 🔐 Authentication & Authorization
 
 Most protected API endpoints require a valid JWT access token.
